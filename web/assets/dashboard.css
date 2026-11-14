@@ -39,9 +39,9 @@ h2, h3 { margin: 0; }
 .pour-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: center; }
 .cup-col { margin: 0; display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 16px; align-items: end; }
 .cup-col .cup { width: 92px; height: auto; }
-.cup-col figcaption { display: grid; gap: 4px; justify-items: start; }
+.cup-col figcaption { display: grid; gap: 8px; justify-items: start; }
 .phase { margin: 0; color: var(--label2); font-size: 13px; }
-.big { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 64px; line-height: 0.95; letter-spacing: -0.03em; font-variant-numeric: lining-nums; }
+.big { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 60px; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: lining-nums; }
 .big .unit { margin-left: 5px; font-family: var(--sans); font-size: 15px; letter-spacing: 0; color: var(--label2); }
 .mini { display: flex; gap: 14px; margin: 4px 0 6px; font-size: 13px; }
 .mini div { display: flex; gap: 5px; align-items: baseline; }
