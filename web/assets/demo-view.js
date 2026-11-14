@@ -12,7 +12,7 @@
     if (!b) return "No cup has been poured yet. Pour one into the tank and press its button.";
     const what = { SAFE: "All three readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
                    CLOUDY: "This cup is cloudy.", PH_WARN: "This cup's pH is outside the usual range." }[b.verdict];
-    if (!d) return `${what} A filter is being chosen.`;
+    if (!d) return `${what} ${b.verdict === "SAFE" ? "It may not need a filter; that is being decided." : "A filter is being chosen."}`;
     const f = d.ai_filter;
     const who = d.source === "claude" ? "Claude" : d.source === "sample" ? "The demo data" : "The tank's own rule";
     if (f === "NONE") {
@@ -197,7 +197,7 @@
 
         $("#why").innerHTML = !b
           ? `<p class="lede">No cup has been poured yet.</p>`
-          : `<p class="lede">${t(!d ? "A filter is being chosen." : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "No filter would help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
+          : `<p class="lede">${t(!d ? (b.verdict === "SAFE" ? "Whether it needs a filter is being decided." : "A filter is being chosen.") : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "No filter would help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
              <p>${t(!d ? "The tank waits a few seconds for Claude, then falls back on its own thresholds." : d.explanation || "There is no AI explanation for this pour: the tank used its built-in thresholds, ZeroWater above 300 ppm and Brita below 0.70 transparency.")}</p>
              ${d?.source === "sample" ? '<p class="sample-note">Sample explanation written for the demo data, not by Claude.</p>' : ""}`;
 

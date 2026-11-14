@@ -170,8 +170,9 @@
     function start() {
       const order = ["tea", "clean", "salty"];
       let i = 0;
-      setInterval(() => pour(order[i++ % order.length]), 24000);
-      setTimeout(() => pour(order[i++ % order.length]), 16000);   // let the opening settle first
+      const next = () => pour(order[i++ % order.length]);
+      // let the opening settle first, then a pour every 24 s: long enough for each one's decision, retest and report
+      setTimeout(() => { next(); setInterval(next, 24000); }, 16000);
       const sims = SITES.filter((s) => s.sim);
       let j = 0;
       setInterval(() => emit({ type: "reading", ...simReading(sims[j++ % sims.length]) }), 1700);

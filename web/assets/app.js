@@ -17,7 +17,7 @@
   const typo = (s) => String(s ?? "")
     .replace(/(\w)'(\w)/g, "$1’$2").replace(/(\w)'/g, "$1’").replace(/'(\w)/g, "‘$1")
     .replace(/"([^"]*)"/g, "“$1”")
-    .replace(/(\d) (ppm|L|km|pH)\b/g, "$1 $2").replace(/\bpH (\d)/g, "pH $1");
+    .replace(/(\d) (ppm|L|km|pH)\b/g, "$1 $2").replace(/\b(pH|[Pp]our) (\d)/g, "$1 $2");
   const t = (s) => esc(typo(s));
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -106,7 +106,7 @@
         : { title: `Still ${VERDICT[a.verdict].toLowerCase()}`, sub: `after ${name}`, tone: null, site, when };
     }
     const title = b.verdict === "SAFE" ? "All in range" : VERDICT[b.verdict];
-    if (!p.decision) return { title, sub: "Choosing a filter", tone: null, site, when };
+    if (!p.decision) return { title, sub: b.verdict === "SAFE" ? "Deciding whether to filter" : "Choosing a filter", tone: null, site, when };
     if (f === "NONE") return { title, sub: b.verdict === "SAFE" ? "No filter needed" : "Neither filter helps", tone: b.verdict === "SAFE" ? "good" : null, site, when };
     return { title, sub: `Filtering through ${name}`, tone: null, site, when };
   }
@@ -136,8 +136,9 @@
     if (a) {
       // report the reading the filter was chosen for, not always dissolved solids
       const forClarity = b.verdict === "CLOUDY", drop = pct(a.tds, b.tds);
-      out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: "Retest",
-        value: forClarity ? `Transparency ${fmt(b.clarity, 2)} → ${fmt(a.clarity, 2)}` : drop >= 0 ? `Solids down ${drop}%` : `Solids up ${-drop}%`,
+      // (kept short: the note has to fit between the glass and the page margin)
+      out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: forClarity ? "Retest, transparency" : "Retest",
+        value: forClarity ? `${fmt(b.clarity, 2)} → ${fmt(a.clarity, 2)}` : drop >= 0 ? `Solids down ${drop}%` : `Solids up ${-drop}%`,
         detail: `After ${FILTER_NAME[f] || "filtering"}: dissolved solids ${b.tds} to ${a.tds} ppm, transparency ${fmt(b.clarity, 2)} to ${fmt(a.clarity, 2)}, pH ${fmt(b.ph, 1)} to ${fmt(a.ph, 1)}.` });
     } else if (d && f !== "NONE") {
       out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: "Retest", value: "Awaited",
@@ -226,7 +227,12 @@
     const orbit = TapNotes.create(Object.assign({ stage: $("#stage"), cup: $("#cup"), tags: $("#tags"), leaders: $("#leaders"), slots: SLOTS, stackBelow }, M.orbit));
 
     // the pipette over the glass holds the pour as it read before any filter, and knows whether a filter was used
-    const pipette = () => { const f = usedFilter(store); window.TapHero?.setSource?.(store.pour?.before || null, !!f && f !== "NONE"); };
+    // and once a pour has been retested, the glass can show it as it was beside how it is now
+    const pipette = () => {
+      const f = usedFilter(store), p = store.pour;
+      window.TapHero?.setSource?.(p?.before || null, !!f && f !== "NONE");
+      window.TapHero?.setCompare?.(p?.after ? p.before : null);
+    };
     function renderNotes() {
       const all = items(store);
       orbit.set(M.context ? all.filter((i) => i.group === "cup") : all, M.tag);
@@ -239,16 +245,16 @@
       swapText($("#site"), v.site);
       swapText($("#when"), v.when);
       $("#verdict").classList.toggle("good", v.tone === "good");
-      renderNotes();
       const r = current(store);
       if (window.TapHero) { if (!pitching()) { TapHero.setWater(r); pipette(); } }
       else $("#cup-fallback").innerHTML = TapCup.svg(r);
+      renderNotes();                                           // after the glass is told, so the notes are measured with the Retest note's hint in place
       M.hero?.(store, v);
     }
     const shape = () => { if (window.TapHero?.shape) orbit.setShape(TapHero.shape); };
     window.addEventListener("hero3d:shape", shape);
     shape();
-    window.addEventListener("hero3d:ready", () => { if (!pitching()) { TapHero.setWater(current(store), true); pipette(); } });
+    window.addEventListener("hero3d:ready", () => { if (!pitching()) { TapHero.setWater(current(store), true); pipette(); renderNotes(); } });
     if (window.TapHero && !pitching()) { TapHero.setWater(current(store), true); pipette(); }
 
     renderHero();

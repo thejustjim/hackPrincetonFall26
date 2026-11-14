@@ -19,7 +19,10 @@
    The glass turns slowly (its etched marks and the reflections travel), leans slightly toward
    the pointer, and stands on a dark surface that faintly reflects it.
 
-   window.TapHero = { setWater(reading, immediate), setSource(before, filtered), drip(), setRunning(bool) }
+   Once a pour has been retested, moving the pointer across the glass divides its water: as it
+   was before the filter to the left of the pointer, as it is now to the right.
+
+   window.TapHero = { setWater(reading, immediate), setSource(before, filtered), setCompare(before), drip(), setRunning(bool) }
    once mounted. Until setSource is called the pipette holds brown water and the filter is on (the pitch).
    Events on window: "hero3d:ready", and "hero3d:impact" each time a drop lands.
    If WebGL or the module fails, the page keeps its SVG cup. */
@@ -342,6 +345,45 @@ function mount(host) {
   mirror.scale.y = -1;
   mirror.add(cupR);
 
+  // ---------------------------------------------------------------- before and after, in the one glass
+  // Two copies of the water are drawn, the water as it was and the water as it is, each cut off
+  // at the divide by a clipping plane. The planes lean with the glass, so the cut stays true to it.
+  renderer.localClippingEnabled = true;
+  const REST = -(RT + 0.14);                          // where the divide rests: left of the glass, so all the water shows as it is now
+  const cut = { s: REST, to: REST, show: 0, on: false, inside: false };
+  const was = lookFor(null);                          // how the water looked before the filter
+  const AXIS = new THREE.Vector3(1, 0, 0), AXIS_BACK = new THREE.Vector3(-1, 0, 0);
+  const planeNow = new THREE.Plane(), planeWas = new THREE.Plane(), planeNowR = new THREE.Plane(), planeWasR = new THREE.Plane();
+  const waterMatB = waterMaterial(), waterMatRB = waterMaterial(true), surfMatB = surfMat.clone(), speckMatB = speckMat.clone();
+  for (const m of [waterMat, surfMat, speckMat]) m.clippingPlanes = [planeNow];
+  for (const m of [waterMatB, surfMatB, speckMatB]) m.clippingPlanes = [planeWas];
+  waterMatR.clippingPlanes = [planeNowR];
+  waterMatRB.clippingPlanes = [planeWasR];
+  const bodyB = new THREE.Mesh(bodyGeo, waterMatB), surfaceB = new THREE.Mesh(surfGeo, surfMatB), bodyRB = new THREE.Mesh(bodyGeo, waterMatRB);
+  bodyB.renderOrder = 1; surfaceB.renderOrder = 2; surfaceB.position.y = LEVEL; bodyRB.renderOrder = -2;
+  const specksB = new Float32Array(N * 3);
+  const speckGeoB = new THREE.BufferGeometry();
+  speckGeoB.setAttribute("position", new THREE.BufferAttribute(specksB, 3));
+  const speckPtsB = new THREE.Points(speckGeoB, speckMatB);
+  speckPtsB.renderOrder = 3; speckPtsB.frustumCulled = false;
+  // the divide itself: a hairline up the front face of the water and back across its surface
+  const UP = 12, ACROSS = 9;
+  const divideGeo = new THREE.BufferGeometry();
+  divideGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array((UP + ACROSS) * 3), 3));
+  const divide = new THREE.Line(divideGeo, new THREE.LineBasicMaterial({ color: 0xf7f0f0, transparent: true, opacity: 0, depthWrite: false }));
+  divide.renderOrder = 3; divide.frustumCulled = false;
+  for (const m of [bodyB, surfaceB, speckPtsB, bodyRB, divide]) m.visible = false;
+  cup.add(bodyB, surfaceB, divide);
+  spin.add(speckPtsB);
+  cupR.add(bodyRB);
+  const rWater = (y) => rIn(y) - inset;               // the water's radius at a height
+  // its two words, in the page's own type, just above the water either side of the divide
+  const wipe = document.createElement("div");
+  wipe.className = "wipe";
+  wipe.setAttribute("aria-hidden", "true");
+  wipe.innerHTML = '<span class="was">before</span><span class="now">after</span>';
+  host.appendChild(wipe);
+
   scene.add(mirror, shadow, cup, pipette, pendant, dropMesh, satMesh, jetMesh, funnel);
 
   // ---------------------------------------------------------------- state
@@ -355,6 +397,12 @@ function mount(host) {
   function setWater(reading, immediate) {
     target = lookFor(reading);
     if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
+  }
+  /* The water as it was before the filter, to set beside the water as it is now (null: nothing to compare). */
+  function setCompare(before) {
+    cut.on = !!before;
+    if (before) Object.assign(was, lookFor(before));
+    host.classList.toggle("can-compare", cut.on);
   }
   /* What the pipette holds: the latest pour as it read before any filter (null: nothing poured, so
      clear water), and whether that pour was sent through a filter. */
@@ -397,12 +445,35 @@ function mount(host) {
     window.dispatchEvent(new Event("hero3d:impact"));
   }
 
+  const api = { shape: null };
+  const caster = new THREE.Raycaster(), ndc = new THREE.Vector2(), toCup = new THREE.Matrix4(), spot = new THREE.Vector3();
+  /* Is the pointer over the glass, and if so where across it, in the glass's own frame? */
+  function aim(e) {
+    cut.inside = false;
+    if (!cut.on || !api.shape || e.pointerType === "touch" || !host.parentElement?.contains(e.target) || e.target.closest?.("button, a, input, label")) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height, sh = api.shape;
+    if (v < sh.top - 0.03 || v > sh.bottom + 0.03 || Math.abs(u - 0.5) * r.width > (sh.halfTop + 0.03) * r.height) return;
+    caster.setFromCamera(ndc.set(u * 2 - 1, 1 - v * 2), camera);
+    const ray = caster.ray.applyMatrix4(toCup.copy(cup.matrixWorld).invert());
+    // where the ray meets the front face of the water: start on the glass's centre plane, then step out to the face
+    let x = 0, z = 0;
+    for (let i = 0; i < 3; i++) {
+      x = ray.origin.x + ((z - ray.origin.z) / ray.direction.z) * ray.direction.x;
+      z = Math.sqrt(Math.max(0, rWater(0.7) ** 2 - x * x));
+    }
+    cut.to = clamp(x, -RT, RT);
+    cut.inside = true;
+  }
   window.addEventListener("pointermove", (e) => {
     tilt.tx = (e.clientY / innerHeight - 0.5) * 0.07;
     tilt.tz = -(e.clientX / innerWidth - 0.5) * 0.1;
+    aim(e);
   }, { passive: true });
+  document.addEventListener("pointerleave", () => { cut.inside = false; });
+  window.addEventListener("blur", () => { cut.inside = false; });
 
-  const api = { shape: null };
   /* Where the glass sits inside the canvas, as shares of the canvas height: rim, base and water
      surface from the top, and its half-widths at the rim and the base. */
   function reportShape() {
@@ -598,16 +669,71 @@ function mount(host) {
     for (let i = 0; i < edge.count; i++) edge.array[i * 3 + 1] = LEVEL + 0.003 + lift(edge.array[i * 3], edge.array[i * 3 + 2], R_SURF);
     edge.needsUpdate = true;
 
+    // ---- before and after: the divide follows the pointer across the glass, and slides back out to the left when it leaves
+    const wiping = cut.on && cut.inside, goal = wiping ? cut.to : REST;
+    cut.s = still ? goal : cut.s + (goal - cut.s) * (1 - Math.exp(-dt / 0.1));
+    cut.show = still ? +wiping : cut.show + (+wiping - cut.show) * (1 - Math.exp(-dt / 0.16));
+    const split = cut.s > REST + 0.02;                   // some of the glass shows the water as it was
+    bodyB.visible = surfaceB.visible = speckPtsB.visible = bodyRB.visible = split;
+    host.classList.toggle("wiping", wiping);
+    cup.updateMatrixWorld(true);
+    mirror.updateMatrixWorld(true);
+    planeNow.set(AXIS, -cut.s).applyMatrix4(cup.matrixWorld);            // the water as it is: right of the divide
+    planeWas.set(AXIS_BACK, cut.s).applyMatrix4(cup.matrixWorld);        // as it was: left of it
+    planeNowR.set(AXIS, -cut.s).applyMatrix4(cupR.matrixWorld);
+    planeWasR.set(AXIS_BACK, cut.s).applyMatrix4(cupR.matrixWorld);
+    if (split) {
+      waterMatB.color.copy(was.color);
+      waterMatB.emissive.copy(was.color).multiplyScalar(0.22);
+      waterMatB.opacity = was.body;
+      waterMatRB.color.copy(was.color);
+      waterMatRB.emissive.copy(waterMatB.emissive);
+      waterMatRB.opacity = was.body;
+      surfMatB.color.copy(was.color).lerp(C.shell, 0.06);
+      surfMatB.opacity = was.surf;
+      speckMatB.opacity = was.speck;
+    }
+    const face = (y) => Math.sqrt(Math.max(0, rWater(y) ** 2 - cut.s * cut.s));              // how far forward the water's face is at the divide
+    const yLow = Math.max(BASE + inset, ((Math.abs(cut.s) + WALL + inset - RB) * H) / (RT - RB));   // below this the water is narrower than the divide is far out
+    const drawn = split && cut.show > 0.01 && yLow < LEVEL - 0.02;
+    divide.visible = drawn;
+    if (drawn) {
+      const d = divideGeo.attributes.position, zf = face(LEVEL), top = LEVEL + 0.004;
+      for (let i = 0; i < UP; i++) {
+        const y = yLow + ((LEVEL - yLow) * i) / (UP - 1);
+        d.setXYZ(i, cut.s, i === UP - 1 ? top + lift(cut.s, zf, Math.hypot(cut.s, zf)) : y, face(y) + 0.004);
+      }
+      for (let i = 0; i < ACROSS; i++) {
+        const z = zf - (2 * zf * (i + 1)) / ACROSS;
+        d.setXYZ(UP + i, cut.s, top + lift(cut.s, z, Math.hypot(cut.s, z)), z);
+      }
+      d.needsUpdate = true;
+      divide.material.opacity = 0.5 * cut.show;
+      // the two words sit where the divide meets the surface; each fades as its side of the glass gets too narrow for it
+      spot.set(cut.s, LEVEL, zf).applyMatrix4(cup.matrixWorld).project(camera);
+      const w = host.clientWidth, h = host.clientHeight, perUnit = (api.shape.halfTop * h) / RT;
+      wipe.style.transform = `translate(${(((spot.x + 1) / 2) * w).toFixed(1)}px, ${(((1 - spot.y) / 2) * h).toFixed(1)}px)`;
+      wipe.style.opacity = cut.show.toFixed(3);
+      wipe.style.setProperty("--was", clamp(((cut.s + rWater(LEVEL)) * perUnit - 24) / 40, 0, 1).toFixed(2));
+      wipe.style.setProperty("--now", clamp(((rWater(LEVEL) - cut.s) * perUnit - 24) / 40, 0, 1).toFixed(2));
+    } else if (wipe.style.opacity !== "0") wipe.style.opacity = "0";
+
     // specks swirl slowly; they settle to the bottom as the water gets cleaner
     for (let i = 0; i < N; i++) {
       const s = seeds[i];
       const a = s.a + t * s.w * (still ? 0 : 0.35);
-      const y = Math.max(BASE + 0.03, s.y - cur.sink * s.sink * (s.y - BASE));
+      const bob = still ? 0 : Math.sin(t * 0.8 + s.a) * 0.01;
       specks[i * 3] = Math.cos(a) * s.r;
-      specks[i * 3 + 1] = y + (still ? 0 : Math.sin(t * 0.8 + s.a) * 0.01);
+      specks[i * 3 + 1] = Math.max(BASE + 0.03, s.y - cur.sink * s.sink * (s.y - BASE)) + bob;
       specks[i * 3 + 2] = Math.sin(a) * s.r;
+      if (split) {                                       // the same specks, where they hung before the filter
+        specksB[i * 3] = specks[i * 3];
+        specksB[i * 3 + 1] = Math.max(BASE + 0.03, s.y - was.sink * s.sink * (s.y - BASE)) + bob;
+        specksB[i * 3 + 2] = specks[i * 3 + 2];
+      }
     }
     speckGeo.attributes.position.needsUpdate = true;
+    if (split) speckGeoB.attributes.position.needsUpdate = true;
 
     renderer.render(scene, camera);
   }
@@ -624,7 +750,7 @@ function mount(host) {
   document.addEventListener("visibilitychange", sync);
   frame();
   sync();
-  return Object.assign(api, { setWater, setSource, drip, setRunning });
+  return Object.assign(api, { setWater, setSource, setCompare, drip, setRunning });
 }
 
 const host = document.querySelector("[data-hero3d]");

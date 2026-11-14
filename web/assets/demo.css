@@ -27,7 +27,7 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 /* what Clarity is for, in one sentence, ending on a live count: the page's argument, under the account of this cup */
 #about { margin-top: 24px; max-width: 25em; font-style: italic; color: var(--label2); font-size: clamp(15px, 1.12vw, 17.5px); line-height: 1.45; text-wrap: balance; }
 #about::before { content: ""; display: block; margin-bottom: 16px; border-top: 1px solid var(--hair); }   /* its rule is inside it, so the two hide together */
-#about-tally { display: inline-block; color: var(--text); }   /* the count keeps to one line of its own when it fits */
+#about-tally { display: block; color: var(--text); }   /* the count is a line of its own, so the sentence before it never leaves one word beside it */
 
 /* entrance (.live): the copy rises line by line, the cup fades up, then the notes (base.css) */
 .hero-copy > *, .cup-wrap, .context { opacity: 0; }
@@ -51,6 +51,14 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 .tag .flag { margin-top: 4px; font-style: italic; font-size: clamp(15px, 1.1vw, 17px); line-height: 1.25; white-space: nowrap; }
 .tag.warn .val, .tag.warn .flag { color: var(--warn); }
 .tag.good .val, .tag.good .flag { color: var(--accent); }
+/* once a pour has been retested, the Retest note says the glass can be compared (with a mouse; it follows the pointer).
+   The hint is no wider than the value above it, so it never moves the note. */
+@media (hover: hover) and (pointer: fine) {
+  .stage:has(.cup-wrap.can-compare) .tag[data-id="retest"] .head::after {
+    content: "move across the glass to compare"; width: 0; min-width: 100%; margin-top: 6px;
+    font-style: italic; font-size: clamp(14px, 1.05vw, 16px); line-height: 1.25; color: var(--label2); white-space: normal; text-wrap: balance;
+  }
+}
 .tag:hover .val, .tag:focus-visible .val, .tag.pinned .val { border-bottom-color: transparent; }
 .tag .txt { display: block; width: 214px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hair); white-space: normal; text-align: left; color: var(--label2); font-size: 16px; line-height: 1.42; }
 .tag[data-grow="up"] .txt { margin: 0 0 10px; padding: 0 0 10px; border-top: 0; border-bottom: 1px solid var(--hair); }
@@ -124,7 +132,7 @@ th, td { padding: 9px 0; text-align: left; vertical-align: baseline; border-bott
 thead th { font-weight: 400; font-style: italic; color: var(--label2); font-size: 16px; }
 td.n, th.n { text-align: right; padding-left: 18px; }
 .figures td.n { font-size: 26px; line-height: 1.1; width: 6.5ch; }
-.figures td.n.word { font-size: 18px; width: auto; }
+.figures td.n.word { font-size: 18px; width: auto; white-space: nowrap; }   /* "High dissolved solids" stays on one line */
 .figures td.warn { color: var(--warn); }
 .figures tr:last-child td { border-bottom: 0; }
 .unit { color: var(--label3); font-size: 15px; }
@@ -249,6 +257,7 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .section-head h2, .page h2 { font-size: 30px; }
   .lede { font-size: 22px; }
   .pull { font-size: 23px; }
+  .figures td.n.word { font-size: 16px; }   /* so the verdict still fits on one line beside the label */
   .tally { gap: 18px; margin-bottom: 26px; }
   .tally b { font-size: 40px; }
   .tally span { font-size: 15px; }

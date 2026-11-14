@@ -89,6 +89,13 @@ html.opening .glow { filter: opacity(0); }
 #cup-fallback { position: absolute; left: 50%; top: 55%; width: 30%; transform: translate(-50%, -50%); }
 #cup-fallback .cup { width: 100%; height: auto; display: block; overflow: visible; }
 .cup-wrap.has-3d #cup-fallback { display: none; }
+/* before and after in the one glass (glass.js): two words either side of the divide, just above the water */
+.wipe { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; pointer-events: none; font: italic clamp(15px, 1.15vw, 18px)/1 var(--serif); letter-spacing: 0; color: var(--text); }
+.wipe::before { content: ""; position: absolute; left: 0; bottom: 0; width: 1px; height: 2.1em; background: rgba(247, 240, 240, 0.5); }
+.wipe span { position: absolute; bottom: 1.1em; white-space: nowrap; }
+.wipe .was { right: 0.7em; opacity: var(--was, 1); }
+.wipe .now { left: 0.7em; opacity: var(--now, 1); }
+.stage:has(.cup-wrap.wiping) .tags { cursor: ew-resize; }
 .cup .glass-line { fill: none; stroke: var(--text); stroke-opacity: 0.6; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .cup .meniscus { stroke: var(--text); stroke-opacity: 0.4; stroke-width: 1.5; }
 .cup-empty .glass-line { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
