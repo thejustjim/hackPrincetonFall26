@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clarity</title>
+  <meta name="description" content="Clarity: what you deserve. The latest cup of water, what was done about it, and whether it worked.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 200'%3E%3Cpath d='M17 60 L25 190 L135 190 L143 60Z' fill='%235A9BBD' fill-opacity='.5'/%3E%3Cpath d='M10 10 L25 190 L135 190 L150 10' fill='none' stroke='%23F7F0F0' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+  <link rel="stylesheet" href="../vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="../assets/mock.css">
+  <link rel="stylesheet" href="../assets/b.css">
+  <script type="importmap">{ "imports": { "three": "../vendor/three/three.module.min.js" } }</script>
+</head>
+<body class="mock-b">
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+  </svg>
+  <div class="glow" aria-hidden="true"></div>
+
+  <header class="bar">
+    <a class="wordmark" href="./">
+      <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="13" stroke-linejoin="round"/></svg>
+      Clarity
+    </a>
+    <p class="dateline" id="dateline"></p>
+    <span class="spacer"></span>
+    <p class="conn" id="conn" data-state="connecting" role="status"><span class="dot"></span><span id="conn-text">Connecting</span></p>
+    <nav class="links" aria-label="Mockups">
+      <a href="../a/">Mockup A</a>
+      <a href="./" aria-current="page">Mockup B</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="hero" aria-label="The latest cup">
+      <div id="hero-inner">
+        <div class="hero-copy">
+          <p id="site"></p>
+          <h1 id="verdict">Connecting</h1>
+          <p id="standfirst"></p>
+          <p id="when"></p>
+        </div>
+        <div class="stage" id="stage">
+          <svg class="leaders" id="leaders" aria-hidden="true"></svg>
+          <div class="cup-wrap" id="cup" data-hero3d><div id="cup-fallback"></div></div>
+          <div class="tags" id="tags"></div>
+          <p class="figcap">The cup as it reads now. Rest on a note to read it.</p>
+        </div>
+        <a class="more-hint" href="#details" data-glide="details">Full account<svg class="i"><use href="#i-down"/></svg></a>
+      </div>
+    </section>
+
+    <section class="sheet" id="details" aria-label="Full account">
+      <div class="page">
+        <header class="section-head">
+          <h2>The latest pour</h2>
+          <p id="sheet-when"></p>
+        </header>
+        <div class="cols">
+          <div class="col-7" id="why"></div>
+          <div class="col-5" id="figures"></div>
+        </div>
+
+        <div class="cols ruled">
+          <section class="col-7" id="report" aria-label="Investigator"></section>
+          <div class="col-5">
+            <section id="filters" aria-label="Filters"></section>
+            <section id="nearby" aria-label="Nearby water"></section>
+          </div>
+        </div>
+
+        <figure class="ruled wide">
+          <header class="section-head"><h2>The network</h2></header>
+          <div id="map" role="region" aria-label="Map of monitoring sites around Princeton"></div>
+          <figcaption>Sites around Princeton. Solid markers are measured by Clarity, dashed ones are simulated, and diamonds are published USGS and NJ DEP samples.</figcaption>
+        </figure>
+
+        <section class="ruled" aria-label="Readings">
+          <header class="section-head">
+            <h2>Readings</h2>
+            <label class="check"><input type="checkbox" id="show-sim" checked> Include simulated nodes</label>
+          </header>
+          <div id="ledger"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="../vendor/leaflet/leaflet.js"></script>
+  <script src="../assets/cup.js"></script>
+  <script src="../assets/demo.js"></script>
+  <script src="../assets/store.js"></script>
+  <script src="../assets/orbit.js"></script>
+  <script src="../assets/b.js"></script>
+  <script src="../assets/mockup.js"></script>
+  <script type="module" src="../assets/hero3d.js"></script>
+</body>
+</html>

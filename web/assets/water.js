@@ -47,7 +47,7 @@ void main() {
     float env = exp(-x * x * 22.0) * exp(-t * 0.42 / sc) * r.w * smoothstep(0.0, 0.25, t);
     float wave = sin(x * 42.0) * env;
     h += wave;
-    disp += (d / max(dist, 1e-4)) * wave * 0.014;
+    disp += (d / max(dist, 1e-4)) * wave * 0.005;
   }
   vec2 q = p + disp;
 
@@ -86,8 +86,8 @@ void main() {
   }
 
   // ripple crests catch the accent light, troughs fall into the dark
-  col += mix(BLUE, SHELL, 0.35) * max(h, 0.0) * 0.16;
-  col -= DEEP * max(-h, 0.0) * 0.6;
+  col += mix(BLUE, SHELL, 0.35) * max(h, 0.0) * 0.055;
+  col -= DEEP * max(-h, 0.0) * 0.2;
 
   // vignette into deeper dark at the edges
   float v = smoothstep(1.25, 0.25, length((vUv - 0.5) * vec2(aspect, 1.0)));

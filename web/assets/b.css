@@ -1,0 +1,97 @@
+/* Mockup B: editorial. Serif throughout, set like a magazine feature: a headline and
+   standfirst beside an annotated plate of the cup, then columns divided by fine rules.
+   No cards. */
+:root { --cup-x: 67%; --cup-y: 54%; --cup-h: 88vh; --cup-w: 60vh; }
+body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spacing: 0; font-optical-sizing: auto; }
+
+.bar { border-bottom: 1px solid var(--hair); background: var(--deep); padding: 12px 40px; }
+.dateline { font-style: italic; color: var(--label2); font-size: 16px; }
+.conn { font-family: var(--sans); }
+.links { display: flex; gap: 18px; font-family: var(--sans); font-size: 13px; }
+.links a { color: var(--label2); }
+.links a[aria-current="page"] { color: var(--text); text-decoration: underline; text-underline-offset: 5px; }
+
+/* ---- hero: headline and standfirst on the left, the plate on the right */
+.hero-copy { position: absolute; left: 7vw; top: 50%; transform: translateY(-46%); z-index: 4; width: min(27vw, 390px); }
+#site { font-style: italic; color: var(--label2); font-size: 20px; }
+#verdict { margin-top: 10px; font-weight: 400; font-size: clamp(36px, 3.9vw, 60px); line-height: 1.05; letter-spacing: -0.02em; }
+#standfirst { margin-top: 22px; color: var(--label2); font-size: 20px; line-height: 1.45; }
+#when { margin-top: 18px; font-family: var(--sans); color: var(--label3); font-size: 13px; }
+.figcap { position: absolute; left: var(--cup-x); bottom: 64px; transform: translateX(-50%); width: max-content; max-width: 40vw; font-style: italic; color: var(--label3); font-size: 15px; text-align: center; }
+.more-hint { left: var(--cup-x); font-family: var(--sans); }
+
+/* ---- annotations around the plate */
+.tag { padding: 6px 10px 7px; max-width: 290px; }
+.tag .lab { display: block; font-style: italic; color: var(--label2); font-size: 14px; line-height: 1.2; white-space: nowrap; }
+.tag .val { display: block; font-size: 23px; line-height: 1.15; letter-spacing: -0.01em; white-space: nowrap; }
+.tag .more { width: 252px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--hair); white-space: normal; color: var(--label2); font-size: 16px; line-height: 1.4; }
+.tag:hover, .tag:focus-visible, .tag.pinned { padding: 14px 16px 16px; background: var(--deep); box-shadow: 0 0 0 1px rgba(247, 240, 240, 0.22), 0 20px 40px -18px rgba(0, 0, 0, 0.8); }
+
+/* ---- the full account */
+.sheet { border-top: 1px solid rgba(247, 240, 240, 0.3); }
+.page { max-width: 1180px; margin: 0 auto; padding: 56px 40px 96px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.section-head h2, .page h2 { font-weight: 400; font-size: 40px; line-height: 1.1; letter-spacing: -0.015em; }
+.section-head p { font-style: italic; color: var(--label2); }
+.cols { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 48px; row-gap: 32px; }
+.col-7 { grid-column: span 7; }
+.col-5 { grid-column: span 5; }
+.ruled { margin-top: 48px; padding-top: 40px; border-top: 1px solid var(--hair); }
+.page h3 { font-weight: 400; font-style: italic; font-size: 21px; color: var(--label2); margin: 0 0 10px; }
+
+.lede { font-size: 27px; line-height: 1.34; letter-spacing: -0.01em; }
+.lede + p { margin-top: 18px; color: var(--label2); max-width: 36em; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: lining-nums tabular-nums; }
+th, td { padding: 9px 0; text-align: left; vertical-align: baseline; border-bottom: 1px solid var(--hair); }
+thead th { font-weight: 400; font-style: italic; color: var(--label2); font-size: 16px; }
+td.n, th.n { text-align: right; padding-left: 18px; }
+.figures td.n { font-size: 26px; line-height: 1.1; }
+.figures tr:last-child td { border-bottom: 0; }
+.unit { color: var(--label3); font-size: 15px; }
+.status-ok { color: var(--accent); }
+.status-soon { color: var(--warn); }
+.status-now { color: var(--alert); }
+.note-warn { color: var(--warn); font-style: italic; }
+.note-odd { color: var(--alert); font-style: italic; }
+.sim { font-style: italic; color: var(--label3); }
+#filters + #nearby { margin-top: 36px; }
+#filters td, #nearby td { font-size: 17px; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: italic 16px var(--serif); cursor: pointer; }
+.link-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.pull { font-style: italic; font-size: 30px; line-height: 1.28; letter-spacing: -0.01em; margin-bottom: 26px; }
+#report ul, #report ol { margin: 0 0 22px; padding-left: 22px; display: grid; gap: 8px; }
+#report li::marker { color: var(--accent); }
+.quiet { color: var(--label2); }
+
+.wide { margin-inline: 0; }
+#map { height: 440px; }
+figcaption { margin-top: 12px; font-style: italic; color: var(--label2); font-size: 16px; max-width: 46em; }
+
+.check { display: inline-flex; align-items: center; gap: 8px; font-style: italic; color: var(--label2); font-size: 16px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+.ledger td { font-size: 17px; padding: 8px 0; }
+.ledger td.site { font-size: 18px; }
+.ledger td.t { font-family: var(--sans); font-size: 13px; color: var(--label2); white-space: nowrap; }
+
+@media (max-width: 1000px) {
+  /* twelve columns with 48px gaps are wider than a phone: collapse to one column */
+  .cols { grid-template-columns: minmax(0, 1fr); column-gap: 0; }
+  .col-7, .col-5 { grid-column: 1 / -1; }
+  .hide-s { display: none; }
+}
+@media (max-width: 760px) {
+  :root { --cup-x: 50%; --cup-y: 28vh; --cup-h: 56vh; --cup-w: 100vw; }
+  .bar { padding: 12px 16px; }
+  .dateline, .links { display: none; }
+  .hero-copy { position: static; transform: none; width: auto; padding: 12px 16px 0; }
+  .figcap { display: none; }
+  .tag, .tag:hover, .tag.pinned { max-width: none; padding: 8px 0; border-top: 1px solid var(--hair); box-shadow: none; }
+  .tag .more { width: auto; }
+  .page { padding: 36px 16px 64px; }
+  .section-head h2, .page h2 { font-size: 30px; }
+  .lede { font-size: 22px; }
+  .pull { font-size: 23px; }
+  #map { height: 300px; }
+}
