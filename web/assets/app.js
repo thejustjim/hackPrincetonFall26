@@ -78,7 +78,15 @@
     const p = Math.PI / 180, h = Math.sin(((b.lat - a.lat) * p) / 2) ** 2 + Math.cos(a.lat * p) * Math.cos(b.lat * p) * Math.sin(((b.lon - a.lon) * p) / 2) ** 2;
     return 12742 * Math.asin(Math.sqrt(h));
   };
-  window.TapUI = { $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, FILTER_NAME, VERDICT, STATUS };
+  /* one sentence on the cloud copy, or "" when the gateway has none (see gateway/cloud.py) */
+  function cloudLine(store) {
+    const c = store.health?.cloud;
+    if (!c?.enabled) return "";
+    const where = c.timescale ? "a cloud database (TimescaleDB)" : "a cloud database", n = (v) => Number(v || 0).toLocaleString();
+    if (!c.connected) return `The copy to ${where} is paused: ${n(c.pending)} readings are kept here until the link is back.`;
+    return `Every reading is also copied to ${where}: ${n(c.cloud_rows)} there, ${n(c.pending)} waiting.`;
+  }
+  window.TapUI = { $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
 
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
@@ -152,7 +160,7 @@
     if (all.length) {
       const sims = all.filter((n) => n.sim).length, odd = all.filter((n) => !n.sim && n.latest?.anomaly >= 0.6).length;
       out.push({ id: "network", group: "context", icon: "nodes", label: "Network", value: `${all.length - sims} measured, ${sims} simulated`,
-        detail: `${all.length - sims} measuring and ${sims} simulated around Princeton. Simulated nodes are always labelled. ${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}` });
+        detail: `${all.length - sims} measuring and ${sims} simulated around Princeton. Simulated nodes are always labelled. ${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}${cloudLine(store) ? ` ${cloudLine(store)}` : ""}` });
     }
     out.push(store.report
       ? { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: store.pour?.before && store.report.test !== store.pour.before.test ? `Report on pour ${store.report.test}, the one before` : `Report on pour ${store.report.test}`,
@@ -293,7 +301,7 @@
       else if (type === "reading") { map.place(store.nodes.get(payload.node)); renderNotes(); M.render(store, "feed", payload); }
       else if (type === "conn") M.render(store, "conn");
     });
-    setInterval(() => { renderHero(); M.render(store, "all"); }, 30000);   // keep "x minutes ago" honest
+    setInterval(async () => { await store.refreshHealth(); renderHero(); M.render(store, "all"); }, 30000);   // keep "x minutes ago" and the counts honest
     scrolling(orbit, stackBelow);
 
     // for screenshots: ?open=tds holds one note open, ?view=details shows the full view on its own

@@ -114,8 +114,13 @@
     },
 
     render(store, what) {
-      const { $, esc, t, fmt, ago, clock, filterLife, FILTER_NAME, VERDICT, STATUS } = TapUI;
+      const { $, esc, t, fmt, ago, clock, filterLife, cloudLine, FILTER_NAME, VERDICT, STATUS } = TapUI;
       const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
+
+      if (what === "all" || what === "conn") {
+        const line = cloudLine(store), el = $("#cloud-line");
+        if (el) { el.hidden = !line; el.textContent = line ? `Readings are stored on the base station first. ${line}` : ""; }
+      }
 
       if (what === "all") {
         $("#dateline").textContent = `Princeton, ${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;

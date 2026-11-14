@@ -42,6 +42,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSock
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import cloud
 import mock
 
 try:  # secrets live in .env (git-ignored), never in the code
@@ -92,6 +93,11 @@ db.execute("""CREATE TABLE IF NOT EXISTS investigations (
     filter TEXT, summary TEXT, findings TEXT, actions TEXT, model TEXT)""")
 db.commit()
 db_lock = threading.Lock()
+
+# Optional: copy everything to a cloud Postgres (Tiger Cloud on AWS). Off unless TIGER_DATABASE_URL is set.
+# SQLite here stays the source of truth; see cloud.py.
+cloud_sync = cloud.CloudSync(DB_PATH, mock=MOCK, nodes=NODES)
+cloud_sync.prepare_local(db)
 
 COLS = ["id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict", "filter",
         "ai_filter", "rssi", "lat", "lon", "sim", "anomaly", "explanation"]
@@ -619,6 +625,7 @@ async def startup():
     loop = asyncio.get_running_loop()
     threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
     asyncio.create_task(simulate_nodes())
+    cloud_sync.start()
 
 
 @app.get("/api/nodes")
@@ -736,7 +743,25 @@ def reports(node: str | None = None, limit: int = 20):
 @app.get("/health")
 def health():
     return {"ok": True, "mock": MOCK, "ai": claude is not None, "control": "token" if CONTROL_TOKEN else "local",
-            "investigator": investigator_agent is not None, "clients": len(clients)}
+            "investigator": investigator_agent is not None, "clients": len(clients),
+            "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
+
+
+@app.get("/api/cloud")
+def cloud_status():
+    """The cloud copy: is it on, is it connected, how many rows are sent and how many are waiting."""
+    return cloud_sync.status()
+
+
+@app.get("/api/cloud/rollup")
+def cloud_rollup(node: str = "tank-01", hours: int = 24):
+    """5-minute buckets for one node, read back from the cloud database (a TimescaleDB continuous aggregate)."""
+    if not cloud_sync.enabled:
+        raise HTTPException(404, "the cloud copy is off: set TIGER_DATABASE_URL in .env")
+    try:
+        return cloud_sync.rollup(node, max(1, min(hours, 24 * 14)))
+    except Exception as e:
+        raise HTTPException(503, f"the cloud database did not answer ({type(e).__name__})")
 
 
 @app.websocket("/ws")

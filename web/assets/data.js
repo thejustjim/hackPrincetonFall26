@@ -91,6 +91,7 @@
       if (Array.isArray(list)) { s.filters = mergeFilters(list); emit("filters"); }
     };
     s.isSim = (r) => r.sim ?? s.nodes.get(r.node)?.sim ?? false;
+    s.refreshHealth = () => source.get("/health").then((h) => { s.health = h; }).catch(() => {});   // e.g. the cloud copy's counts
     s.nodeName = (id) => s.nodes.get(id)?.name || id;
 
     const soft = (p, fallback) => source.get(p).catch(() => fallback);

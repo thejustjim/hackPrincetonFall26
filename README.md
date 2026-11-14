@@ -19,6 +19,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
   - `investigator.py` - deepagents (LangChain) agent that writes a report after every `after` test
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
+  - `cloud.py` - copies everything to Tiger Cloud (TimescaleDB on AWS) when there is internet
 - `web` - two pages, served by the gateway at http://<pi>:8000/:
   - `/demo/` - the live view: the latest cup, the notes around it, then the full account below.
   - `/pitch/` - the pitch. It opens on black with one drop, runs through the slides (scroll, swipe or
@@ -69,6 +70,8 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
   the latest published sample per site plus `typical_tds_est` and `history` (cached, works offline)
 - `GET /api/reports?node=tank-01&limit=20` - investigator reports, newest first, same shape as the `/ws` message
 - `POST /api/cmd?test=17&filter=BRITA` - manual override (a control, see below)
+- `GET /api/cloud` - the cloud copy: on or off, connected, rows sent, rows waiting
+- `GET /api/cloud/rollup?node=tank-01&hours=24` - 5-minute buckets for one node, read back from the cloud database
 - `GET /health`, `GET /docs` (interactive API docs)
 
 **Controls.** The two `POST` endpoints move hardware or reset counters, so they are not open to the network.
@@ -93,6 +96,30 @@ After each `after` test, a LangChain deep agent (Claude Opus 5.5) calls `get_sit
 Carnegie from the Water Quality Portal (waterqualitydata.us; USGS and NJ DEP samples), estimates
 TDS = 0.65 x conductance, and caches it to `gateway/reference.json` (committed, so the demo works
 offline). Re-run it to refresh. On the map, label these as published, not measured.
+
+## Cloud copy (Tiger Cloud: TimescaleDB on AWS)
+The base station stores every reading in SQLite and serves the pages itself, so it needs no internet.
+When it has some, it also copies everything to a cloud Postgres, so the data can be read from anywhere
+and several base stations can share one database.
+
+```
+radio -> gateway -> SQLite on the Pi (source of truth) -> outbox -> Tiger Cloud
+```
+- SQLite triggers note each new or changed row in an outbox. A background thread sends them in batches
+  and clears the outbox only after the cloud has committed them. With no internet the outbox grows and
+  drains when the link is back; nothing is lost and nothing is sent twice (the inserts are upserts).
+- In the cloud: `readings` is a TimescaleDB hypertable, `readings_5min` is a continuous aggregate
+  (per node, per 5 minutes), old chunks are compressed after 7 days, and `nodes` and `reports` are
+  ordinary tables you can join to. Every row says whether it is measured, simulated or from the mock.
+- On plain Postgres the same code works with ordinary tables.
+
+Set it up:
+1. Create a service at Tiger Cloud (pick an AWS region) and copy its connection string.
+2. Put it in `.env` as `TIGER_DATABASE_URL=postgres://...` (it contains a password: never commit it).
+3. `python cloud.py check` creates the tables and says what it found. Then start the gateway as usual;
+   the first run also sends the history already on the Pi.
+4. `python cloud.py rollup` prints the last hours from the continuous aggregate. `GET /api/cloud` shows
+   rows sent and waiting, and the demo page says the same under Network.
 
 ## Run the gateway
 ```
