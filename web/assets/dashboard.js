@@ -9,10 +9,10 @@
 
   const FILTER_NAME = { ZEROWATER: "ZeroWater", BRITA: "Brita Elite", NONE: "No filter" };
   const VERDICT = {
-    SAFE: ["Safe", "v-safe", "--clear"],
-    HIGH_TDS: ["High dissolved solids", "v-tds", "--mineral"],
-    CLOUDY: ["Cloudy", "v-cloudy", "--tannin"],
-    PH_WARN: ["pH out of range", "v-ph", "--indicator"],
+    SAFE: ["Safe", "v-safe", "--accent"],
+    HIGH_TDS: ["High dissolved solids", "v-tds", "--warn"],
+    CLOUDY: ["Cloudy", "v-cloudy", "--warn"],
+    PH_WARN: ["pH out of range", "v-ph", "--warn"],
   };
   const STATUS = { OK: ["Fine", "s-ok"], REPLACE_SOON: ["Replace soon", "s-soon"], REPLACE: ["Replace now", "s-now"] };
 
@@ -176,11 +176,11 @@
   function placeNode(n) {
     if (!map || n.lat == null) return;
     const v = n.latest ? VERDICT[n.latest.verdict] : null;
-    const color = v ? css(v[2]) : css("--silt");
+    const color = v ? css(v[2]) : css("--neutral");
     const unusual = n.latest && n.latest.anomaly >= 0.6;
     const style = n.sim
-      ? { radius: 7, color: unusual ? css("--coral") : css("--silt"), weight: 2, dashArray: "3 3", fillColor: color, fillOpacity: 0.35 }
-      : { radius: 11, color: unusual ? css("--coral") : css("--text"), weight: 2, fillColor: color, fillOpacity: 0.95 };
+      ? { radius: 7, color: unusual ? css("--alert") : css("--neutral"), weight: 2, dashArray: "3 3", fillColor: color, fillOpacity: 0.35 }
+      : { radius: 11, color: unusual ? css("--alert") : css("--text"), weight: 2, fillColor: color, fillOpacity: 0.95 };
     let m = markers.get(n.node);
     if (!m) {
       m = L.circleMarker([n.lat, n.lon], style).addTo(map);

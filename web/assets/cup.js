@@ -20,7 +20,7 @@
   function svg(reading, opts = {}) {
     if (!reading) {
       const label = opts.emptyLabel || "Empty cup";
-      return `<svg viewBox="0 0 160 200" class="cup cup-empty" role="img" aria-label="${label}"><path d="${GLASS}" class="glass"/></svg>`;
+      return `<svg viewBox="0 0 160 200" class="cup cup-empty" role="img" aria-label="${label}"><path d="${GLASS}" class="glass-line"/></svg>`;
     }
     const id = "cupclip" + ++uid;
     const tds = clamp(reading.tds, 0, 1000);
@@ -46,7 +46,7 @@
     <g style="fill:var(--mineral)" opacity="0.8">${specks}</g>
     <path d="M${xAt(TOP, -1)} ${TOP} L${xAt(TOP, 1)} ${TOP}" class="meniscus"/>
   </g></g>
-  <path d="${GLASS}" class="glass"/>
+  <path d="${GLASS}" class="glass-line"/>
 </svg>`;
   }
 

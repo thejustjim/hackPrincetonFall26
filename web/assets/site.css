@@ -1,47 +1,72 @@
-/* TapTest shared styles: tokens, base type, header. Dark only. */
+/* TapTest shared styles: tokens, glass, scene, header. Dark only.
+   Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580 */
 :root {
   color-scheme: dark;
-  /* river at night */
-  --bed: #0F2229;        /* page */
-  --deep: #14303A;       /* panels */
-  --deeper: #0B1B21;     /* wells: map, cups */
-  --line: #24485A;
-  --text: #E6F1EE;
-  --silt: #8EAAA8;       /* secondary text */
-  /* what the water looks like */
-  --clear: #7FD8C4;      /* safe, clear water */
-  --mineral: #E9B949;    /* high dissolved solids: hard-water scale */
-  --tannin: #C98E5B;     /* cloudy: tea, tannins */
-  --indicator: #C49BF0;  /* pH out of range: the alkaline end of an indicator strip */
-  --coral: #F2785C;      /* replace now, errors */
-  --survey: #9DBCE0;     /* published survey data (USGS, NJ DEP) */
-  --water: rgba(127, 216, 196, 0.16);
+  /* the palette */
+  --deep: #0B2027;       /* page */
+  --text: #F7F0F0;
+  --accent: #5A9BBD;     /* measured, safe, links, focus */
+  --neutral: #717580;    /* rules, tracks, simulated markers */
+  /* derived */
+  --muted: #A3A6AE;      /* secondary text: --neutral lifted to 5.7:1 so small text stays legible */
+  --well: #07161B;       /* insets: map, meters */
+  --line: rgba(247, 240, 240, 0.12);
+  --glass: linear-gradient(150deg, rgba(247, 240, 240, 0.09), rgba(247, 240, 240, 0.025));
+  --glass-edge: rgba(247, 240, 240, 0.14);
+  --glass-blur: blur(22px) saturate(150%);
+  /* status: only ever shown with a text label */
+  --warn: #E2BE5E;
+  --alert: #D9667E;
+  /* the cups: what the water looks like */
+  --water: rgba(90, 155, 189, 0.22);
+  --mineral: #E2BE5E;
+  --tannin: #A8794F;
 
   --font: "Archivo", "Helvetica Neue", Arial, system-ui, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--deep); }
 body {
   margin: 0;
-  background: var(--bed);
+  background: transparent;   /* the page colour lives on html, so .scene shows through */
   color: var(--text);
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.5;
 }
-a { color: var(--clear); text-underline-offset: 3px; }
-:focus-visible { outline: 2px solid var(--clear); outline-offset: 3px; border-radius: 3px; }
+a { color: var(--accent); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .num { font-variant-numeric: tabular-nums; }
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap;
 }
 
+/* ---- glass */
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 rgba(247, 240, 240, 0.10), 0 30px 60px -32px rgba(0, 0, 0, 0.55);
+}
+
+/* ---- scene: slow pools of light behind the glass */
+.scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--deep); }
+.scene .pool { position: absolute; border-radius: 50%; filter: blur(90px); will-change: transform; }
+.scene .p1 { width: 56vmax; height: 56vmax; left: -14vmax; top: -18vmax; background: rgba(90, 155, 189, 0.42); }
+.scene .p2 { width: 46vmax; height: 46vmax; right: -16vmax; top: 22vh; background: rgba(113, 117, 128, 0.40); }
+.scene .p3 { width: 40vmax; height: 40vmax; left: 22vw; bottom: -26vmax; background: rgba(90, 155, 189, 0.30); }
+.scene .p4 { width: 22vmax; height: 22vmax; right: 18vw; top: -8vmax; background: rgba(247, 240, 240, 0.07); }
 /* ---- header */
 .top {
+  position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: 28px;
   padding: 14px 24px;
+  background: rgba(11, 32, 39, 0.55);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--line);
 }
 .wordmark {
@@ -52,30 +77,30 @@ a { color: var(--clear); text-underline-offset: 3px; }
 .wordmark svg { width: 20px; height: 24px; }
 .top nav { display: flex; gap: 4px; }
 .top nav a {
-  color: var(--silt); text-decoration: none; font-weight: 500;
-  padding: 6px 12px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-weight: 500;
+  padding: 6px 14px; border-radius: 999px;
 }
 .top nav a:hover { color: var(--text); }
-.top nav a[aria-current="page"] { color: var(--text); background: var(--deep); }
+.top nav a[aria-current="page"] { color: var(--text); background: rgba(247, 240, 240, 0.08); box-shadow: inset 0 0 0 1px var(--glass-edge); }
 .conn {
   margin: 0 0 0 auto;
   display: flex; align-items: center; gap: 8px;
-  color: var(--silt); font-size: 14px;
+  color: var(--muted); font-size: 14px;
 }
-.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--silt); }
-.conn[data-state="live"] .dot { background: var(--clear); }
-.conn[data-state="demo"] .dot { background: var(--mineral); }
-.conn[data-state="down"] .dot { background: var(--coral); }
+.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
+.conn[data-state="live"] .dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(90, 155, 189, 0.22); }
+.conn[data-state="demo"] .dot { background: var(--warn); }
+.conn[data-state="down"] .dot { background: var(--alert); }
 
 /* ---- cups (drawn by cup.js) */
 .cup { display: block; overflow: visible; }
-.cup .glass {
-  fill: none; stroke: var(--text); stroke-opacity: 0.55;
+.cup .glass-line {
+  fill: none; stroke: var(--text); stroke-opacity: 0.6;
   stroke-width: 3; stroke-linejoin: round; stroke-linecap: round;
 }
-.cup .meniscus { stroke: var(--text); stroke-opacity: 0.35; stroke-width: 1.5; }
-.cup-empty .glass { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
-.cup .rise { animation: rise 1.4s cubic-bezier(.2, .7, .2, 1); }
+.cup .meniscus { stroke: var(--text); stroke-opacity: 0.4; stroke-width: 1.5; }
+.cup-empty .glass-line { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
+.cup .rise { animation: rise 1.6s cubic-bezier(.2, .7, .2, 1); }
 @keyframes rise { from { transform: translateY(140px); } to { transform: none; } }
 
 @media (max-width: 640px) {
