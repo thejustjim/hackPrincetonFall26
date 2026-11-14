@@ -25,7 +25,7 @@
     tag(item) {
       const { esc } = TapUI;
       return `<span class="head"><svg class="i"><use href="#i-${item.icon}"/></svg><b>${esc(item.value)}</b><em>${esc(item.label)}</em></span>
-        <span class="more">${esc(item.detail)}</span>`;
+        <span class="more"><span><span class="txt">${esc(item.detail)}</span></span></span>`;
     },
 
     render(store, what) {

@@ -1,8 +1,9 @@
 /* The hero: one glass of water in three.js that shows the latest reading.
    Dissolved solids show as an amber tint and drifting specks, cloudiness as a tea-brown murk.
-   When a new reading arrives the water eases to its new look over a few seconds. A drop falls
-   into the cup every few seconds and lands with a small ripple. The cup leans slightly toward
-   the pointer and the water lags behind.
+   When a new reading arrives the water eases to its new look over a few seconds. A pipette
+   hangs above the glass: a drop gathers at its tip every few seconds, falls, and lands with
+   a small ripple. The glass turns slowly (its etched marks and the reflections travel), leans
+   slightly toward the pointer, and stands on a dark surface that faintly reflects it.
 
    window.TapHero = { setWater(reading), drip(strength), setRunning(bool) } once mounted, and
    the page gets a "hero3d:ready" event. If WebGL or the module fails, the page keeps its
@@ -22,16 +23,56 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 /* reading -> how the water should look */
 function lookFor(r) {
-  if (!r) return { color: C.blue.clone(), body: 0.26, surf: 0.42, speck: 0, sink: 1 };
+  if (!r) return { color: C.blue.clone(), body: 0.24, surf: 0.42, speck: 0, sink: 1 };
   const mineral = clamp((r.tds - 60) / 740, 0, 1);
   const murk = clamp(Math.pow(1 - clamp(r.clarity, 0, 1), 1.3) * 1.5, 0, 1);
   return {
     color: C.blue.clone().lerp(C.amber, mineral * 0.4).lerp(C.murk, clamp(murk * 1.4, 0, 1)),
-    body: clamp(0.26 + 0.22 * mineral + 0.5 * murk, 0, 0.82),
+    body: clamp(0.24 + 0.22 * mineral + 0.5 * murk, 0, 0.82),
     surf: clamp(0.42 + 0.2 * mineral + 0.4 * murk, 0, 0.88),
     speck: 0.9 * mineral,
     sink: 1 - mineral,
   };
+}
+
+/* World height of the fragment, for fading the reflection as it gets further below the surface. */
+const WORLD_Y = "(inverse(viewMatrix) * vec4(-vViewPosition, 1.0)).y";
+
+/* Glass: no body colour, nearly invisible face-on and reflective at grazing angles (Fresnel),
+   with highlights that stay bright. `reflection` makes the dimmer copy seen in the surface. */
+function glassMaterial(reflection = false) {
+  const m = new THREE.MeshPhysicalMaterial({
+    color: 0x000000, roughness: 0.02, metalness: 0, transparent: true, opacity: 1,
+    clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.3, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const fade = reflection ? `* 0.34 * smoothstep(-1.15, -0.02, ${WORLD_Y})` : "";
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        float fresnel = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.6);
+        diffuseColor.a = mix(0.02, 0.5, fresnel);`)
+      .replace("#include <opaque_fragment>", `
+        float hi = clamp(max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b) - 0.6, 0.0, 1.0);
+        gl_FragColor = vec4(outgoingLight, clamp(diffuseColor.a + hi * 1.4, 0.0, 1.0) ${fade});`);
+  };
+  m.customProgramCacheKey = () => (reflection ? "glass-reflection" : "glass");
+  return m;
+}
+
+/* Water: a little more opaque toward its edges, so it reads as a volume rather than a sticker. */
+function waterMaterial(reflection = false) {
+  const m = new THREE.MeshPhysicalMaterial({
+    color: C.blue.clone(), roughness: 0.2, metalness: 0, transparent: true, opacity: 0.3,
+    envMapIntensity: 0.25, side: THREE.FrontSide, depthWrite: false,
+  });
+  const fade = reflection ? `* 0.4 * smoothstep(-1.0, -0.05, ${WORLD_Y})` : "";
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+      float rim = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
+      diffuseColor.a = clamp(diffuseColor.a * (0.72 + 1.15 * rim) ${fade}, 0.0, 1.0);`);
+  };
+  m.customProgramCacheKey = () => (reflection ? "water-reflection" : "water");
+  return m;
 }
 
 function mount(host) {
@@ -47,7 +88,7 @@ function mount(host) {
   const scene = new THREE.Scene();
   scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
 
-  // Framing: the cup sits a little below centre with headroom for the falling drop.
+  // Framing: the cup sits a little below centre with headroom for the pipette and the drop.
   // orbit.js relies on this (cup top ~34% and bottom ~76% of the canvas height).
   const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 60);
   camera.position.set(0, 1.9, 8.6);
@@ -69,32 +110,17 @@ function mount(host) {
     [0.001, 0], [RB - 0.03, 0], [RB, 0.03], [RT, H], [RT - WALL / 2, H + 0.014], [rIn(H), H],
     [rIn(BASE), BASE + 0.02], [rIn(BASE) - 0.03, BASE], [0.001, BASE],
   ].map(([x, y]) => new THREE.Vector2(x, y));
-  const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x000000, roughness: 0.02, metalness: 0, transparent: true, opacity: 1,   // no body colour: glass is all reflection
-    clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.3, side: THREE.DoubleSide, depthWrite: false,
-  });
-  // nearly invisible face-on, reflective at grazing angles (Fresnel); highlights stay bright
-  glassMat.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader
-      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
-        float fresnel = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.6);
-        diffuseColor.a = mix(0.02, 0.5, fresnel);`)
-      .replace("#include <opaque_fragment>", `
-        float hi = clamp(max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b) - 0.6, 0.0, 1.0);
-        gl_FragColor = vec4(outgoingLight, clamp(diffuseColor.a + hi * 1.4, 0.0, 1.0));`);
-  };
-  const glass = new THREE.Mesh(new THREE.LatheGeometry(profile, 128), glassMat);
+  const glassGeo = new THREE.LatheGeometry(profile, 128);
+  const glass = new THREE.Mesh(glassGeo, glassMaterial());
   glass.renderOrder = 4;
 
   // ---------------------------------------------------------------- the water
   const LEVEL = 1.2, inset = 0.006;
   const waterProfile = [[0.001, BASE + inset], [rIn(BASE) - inset, BASE + inset], [rIn(LEVEL) - inset, LEVEL]]
     .map(([x, y]) => new THREE.Vector2(x, y));
-  const waterMat = new THREE.MeshPhysicalMaterial({
-    color: C.blue.clone(), roughness: 0.2, metalness: 0, transparent: true, opacity: 0.3,
-    envMapIntensity: 0.25, side: THREE.FrontSide, depthWrite: false,
-  });
-  const body = new THREE.Mesh(new THREE.LatheGeometry(waterProfile, 128), waterMat);
+  const bodyGeo = new THREE.LatheGeometry(waterProfile, 128);
+  const waterMat = waterMaterial();
+  const body = new THREE.Mesh(bodyGeo, waterMat);
   body.renderOrder = 1;
 
   const R_SURF = rIn(LEVEL) - inset;
@@ -102,13 +128,20 @@ function mount(host) {
   surfGeo.rotateX(-Math.PI / 2);
   const surfMat = new THREE.MeshPhysicalMaterial({
     color: C.blue.clone(), roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45,
-    envMapIntensity: 0.9, clearcoat: 1, clearcoatRoughness: 0.03, side: THREE.DoubleSide, depthWrite: false,
+    envMapIntensity: 1.1, clearcoat: 1, clearcoatRoughness: 0.03, side: THREE.DoubleSide, depthWrite: false,
   });
   const surface = new THREE.Mesh(surfGeo, surfMat);
   surface.position.y = LEVEL;
   surface.renderOrder = 2;
   const pos = surfGeo.attributes.position;
   const base = Float32Array.from(pos.array);
+
+  // the meniscus: a fine bright line where the water meets the glass
+  const ringPts = [];
+  for (let k = 0; k < 128; k++) { const a = (k / 128) * Math.PI * 2; ringPts.push(new THREE.Vector3(Math.cos(a) * R_SURF, LEVEL + 0.003, Math.sin(a) * R_SURF)); }
+  const meniscus = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPts),
+    new THREE.LineBasicMaterial({ color: 0xf7f0f0, transparent: true, opacity: 0.34, depthWrite: false }));
+  meniscus.renderOrder = 3;
 
   // ---------------------------------------------------------------- dissolved solids
   const N = 320;
@@ -125,33 +158,7 @@ function mount(host) {
   const speckPts = new THREE.Points(speckGeo, speckMat);
   speckPts.renderOrder = 3;
 
-  // ---------------------------------------------------------------- the falling drop
-  const dropMat = new THREE.MeshPhysicalMaterial({
-    color: 0xdcecf5, emissive: 0x5a9bbd, emissiveIntensity: 0.55, roughness: 0.05, metalness: 0,
-    transparent: true, opacity: 0, envMapIntensity: 1.2, depthWrite: false,
-  });
-  const dropMesh = new THREE.Mesh(new THREE.SphereGeometry(0.038, 24, 16), dropMat);
-  dropMesh.renderOrder = 5;
-  dropMesh.visible = false;
-  const DROP_FROM = 2.25, GRAVITY = 4.0;                // starts just above the rim, in slow motion (~0.7 s)
-  const falling = { on: false, y: 0, v: 0, x: 0, z: 0, strength: 1 };
-  let nextDrip = performance.now() + 1800;
-
-  // ---------------------------------------------------------------- soft contact shadow
-  const sh = document.createElement("canvas");
-  sh.width = sh.height = 128;
-  const g = sh.getContext("2d");
-  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
-  grad.addColorStop(0, "rgba(0,0,0,0.5)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sh), transparent: true, depthWrite: false }));
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = -0.002;
-
-  // etched graduation marks on the glass: they make the slow turn visible
+  // ---------------------------------------------------------------- etched graduation marks (they make the turn visible)
   const marks = new THREE.Group();
   const markMat = new THREE.LineBasicMaterial({ color: 0xf7f0f0, transparent: true, opacity: 0.38, depthWrite: false });
   for (let i = 0; i < 6; i++) {
@@ -162,11 +169,62 @@ function mount(host) {
   }
   marks.renderOrder = 5;
 
-  const spin = new THREE.Group();                    // turns slowly
-  spin.add(speckPts, marks);                         // the water and glass are round, so only these need to turn
+  // ---------------------------------------------------------------- the pipette and its drop
+  const TIP = 2.34;                                   // world height of the pipette's tip
+  const pipette = new THREE.Group();
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 2.6, 40, 1, true), glassMaterial());
+  tube.position.y = TIP + 0.3 + 1.3;
+  const taper = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.017, 0.3, 40, 1, true), glassMaterial());
+  taper.position.y = TIP + 0.15;
+  // the water standing in the pipette
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 2.2, 24),
+    new THREE.MeshBasicMaterial({ color: 0x5a9bbd, transparent: true, opacity: 0.2, depthWrite: false }));
+  column.position.y = TIP + 0.34 + 1.1;
+  pipette.add(column, tube, taper);
+  pipette.renderOrder = 6;
+
+  const dropMat = new THREE.MeshPhysicalMaterial({
+    color: 0xdcecf5, emissive: 0x5a9bbd, emissiveIntensity: 0.6, roughness: 0.05, metalness: 0,
+    transparent: true, opacity: 0, envMapIntensity: 1.2, depthWrite: false,
+  });
+  const dropMesh = new THREE.Mesh(new THREE.SphereGeometry(0.04, 28, 20), dropMat);
+  dropMesh.renderOrder = 7;
+  dropMesh.visible = false;
+  const GRAVITY = 4.0, GATHER = 1.5;                  // slow motion: gathers for 1.5 s, falls for about 0.7 s
+  const drop = { state: "idle", t: 0, y: 0, v: 0, x: 0, z: 0, strength: 1 };
+  let nextDrip = performance.now() + 1600;
+
+  // ---------------------------------------------------------------- the surface: contact shadow + faint reflection
+  const sh = document.createElement("canvas");
+  sh.width = sh.height = 128;
+  const g = sh.getContext("2d");
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grad.addColorStop(0, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sh), transparent: true, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -0.002;
+  shadow.renderOrder = 0;
+
+  const spin = new THREE.Group();                    // turns slowly: only the specks and marks need to, the rest is round
+  spin.add(speckPts, marks);
   const cup = new THREE.Group();                     // leans toward the pointer
-  cup.add(body, surface, glass, spin);
-  scene.add(shadow, cup, dropMesh);
+  cup.add(body, surface, meniscus, glass, spin);
+
+  const waterMatR = waterMaterial(true);
+  const cupR = new THREE.Group();
+  const bodyR = new THREE.Mesh(bodyGeo, waterMatR);
+  const glassR = new THREE.Mesh(glassGeo, glassMaterial(true));
+  bodyR.renderOrder = -2; glassR.renderOrder = -1;
+  cupR.add(bodyR, glassR);
+  const mirror = new THREE.Group();                  // the same cup, upside down under the surface
+  mirror.scale.y = -1;
+  mirror.add(cupR);
+
+  scene.add(mirror, shadow, cup, pipette, dropMesh);
 
   // ---------------------------------------------------------------- state
   const cur = lookFor(null);
@@ -181,18 +239,17 @@ function mount(host) {
     if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
   }
   function drip(strength = 1) {
-    if (still || falling.on) return;
-    Object.assign(falling, { on: true, y: DROP_FROM, v: 0, strength,
-                             x: (Math.random() - 0.5) * 0.16, z: (Math.random() - 0.5) * 0.16 });
+    if (still || drop.state !== "idle") return;
+    Object.assign(drop, { state: "gathering", t: 0, v: 0, strength, x: 0, z: 0 });
     dropMesh.visible = true;
   }
   function land() {
-    falling.on = false;
+    drop.state = "idle";
     dropMesh.visible = false;
-    ripples.push({ x: falling.x, z: falling.z, t0: performance.now(), a: 0.042 * falling.strength });
+    ripples.push({ x: drop.x, z: drop.z, t0: performance.now(), a: 0.046 * drop.strength });
     if (ripples.length > 5) ripples.shift();
-    slosh.vx += 0.25 * falling.strength;
-    nextDrip = performance.now() + 4200 + Math.random() * 1600;
+    slosh.vx += 0.22 * drop.strength;
+    nextDrip = performance.now() + 3800 + Math.random() * 1400;
   }
 
   window.addEventListener("pointermove", (e) => {
@@ -224,28 +281,43 @@ function mount(host) {
     for (const key of ["body", "surf", "speck", "sink"]) cur[key] += (target[key] - cur[key]) * k;
     waterMat.color.copy(cur.color);
     waterMat.emissive.copy(cur.color).multiplyScalar(0.22);   // keeps its own hue under the blue rim light
-    surfMat.color.copy(cur.color).lerp(C.shell, 0.06);
     waterMat.opacity = cur.body;
+    waterMatR.color.copy(cur.color);
+    waterMatR.emissive.copy(waterMat.emissive);
+    waterMatR.opacity = cur.body;
+    surfMat.color.copy(cur.color).lerp(C.shell, 0.06);
     surfMat.opacity = cur.surf;
     speckMat.opacity = cur.speck;
 
-    // the drop
-    if (!still && !falling.on && now >= nextDrip) drip(1);
-    if (falling.on) {
-      falling.v += GRAVITY * dt;
-      falling.y -= falling.v * dt;
-      dropMesh.position.set(falling.x, falling.y, falling.z);
-      const stretch = 1 + Math.min(0.5, falling.v * 0.12);
+    // the drop: gathers at the tip, lets go, falls
+    if (!still && drop.state === "idle" && now >= nextDrip) drip(1);
+    if (drop.state === "gathering") {
+      drop.t += dt;
+      const q = Math.min(1, drop.t / GATHER), e = q * q * (3 - 2 * q);
+      const sag = 1 + 0.45 * e;                                 // hangs heavier as it grows
+      dropMesh.scale.set(e / Math.sqrt(sag), e * sag, e / Math.sqrt(sag));
+      drop.y = TIP - 0.04 * e * sag;
+      dropMesh.position.set(0, drop.y, 0);
+      dropMat.opacity = 0.92 * Math.min(1, q * 3);
+      if (q >= 1) { drop.state = "falling"; drop.v = 0; }
+    } else if (drop.state === "falling") {
+      drop.v += GRAVITY * dt;
+      drop.y -= drop.v * dt;
+      const stretch = 1.2 + Math.min(0.4, drop.v * 0.1);
       dropMesh.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
-      dropMat.opacity = Math.min(0.9, (DROP_FROM - falling.y) * 3);
-      if (falling.y <= LEVEL + 0.03) land();
+      dropMesh.position.set(drop.x, drop.y, drop.z);
+      if (drop.y <= LEVEL + 0.03) land();
     }
+
+    // reflections travel across the glass as the room turns around it
+    if (!still) scene.environmentRotation.y = t * 0.11;
 
     // lean toward the pointer; the water lags behind
     tilt.x += (tilt.tx - tilt.x) * 0.03;
     tilt.z += (tilt.tz - tilt.z) * 0.03;
     cup.rotation.x = tilt.x;
     cup.rotation.z = tilt.z;
+    cupR.rotation.copy(cup.rotation);
     if (!still) spin.rotation.y = t * ((Math.PI * 2) / 48);        // one slow turn every 48 s
     const sk = 18, sc = 2.6;
     slosh.vx += (-sk * (slosh.x + tilt.z * 0.9) - sc * slosh.vx) * dt;

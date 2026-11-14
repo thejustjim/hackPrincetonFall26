@@ -1,4 +1,4 @@
-/* Shared base for the hero mockups (/a/ and /b/).
+/* Shared base for the hero pages (/a/ and /b/).
    Flat #0B2027, barely moving: one faint glow behind the cup that breathes very slowly.
    No frosted glass: panels are solid, so nothing lightens the page.
    Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580 */
@@ -12,7 +12,7 @@
   --panel-2: #163039;
   --hair: rgba(247, 240, 240, 0.11);
   --label2: rgba(247, 240, 240, 0.64);
-  --label3: rgba(247, 240, 240, 0.42);
+  --label3: rgba(247, 240, 240, 0.46);
   --fill: rgba(113, 117, 128, 0.28);
   --warn: #E2BE5E;
   --alert: #D9667E;
@@ -22,6 +22,7 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --serif: "Newsreader", "New York", ui-serif, Georgia, serif;
+  --lux: cubic-bezier(0.16, 1, 0.3, 1);   /* long, soft landing */
   /* where the cup sits in the hero */
   --cup-x: 50%;
   --cup-y: 55%;
@@ -34,7 +35,7 @@ body { margin: 0; color: var(--text); font: 17px/1.4 var(--sans); letter-spacing
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 button { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
 h1, h2, h3, p, figure { margin: 0; }
 .num { font-variant-numeric: tabular-nums; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -50,7 +51,10 @@ h1, h2, h3, p, figure { margin: 0; }
 @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 
 /* ---- top bar */
-.bar { position: fixed; left: 0; right: 0; top: 0; z-index: 30; display: flex; align-items: center; gap: 20px; padding: 14px 28px; border-bottom: 1px solid transparent; transition: background 0.5s, border-color 0.5s; }
+.bar {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 30; display: flex; align-items: center; gap: 20px; padding: 14px 28px;
+  border-bottom: 1px solid transparent; transition: background 0.5s, border-color 0.5s;
+}
 /* once the full view is under it, the bar turns solid so nothing shows through */
 .bar.solid { background: var(--deep); border-bottom-color: var(--hair); }
 .wordmark { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-family: var(--serif); font-size: 22px; font-weight: 500; }
@@ -72,7 +76,8 @@ h1, h2, h3, p, figure { margin: 0; }
   width: var(--cup-w); height: var(--cup-h);
   left: calc(var(--cup-x) - var(--cup-w) / 2); top: calc(var(--cup-y) - var(--cup-h) / 2);
 }
-.hero3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* the pipette fades in from the top edge instead of starting at a hard line */
+.hero3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 9%); mask-image: linear-gradient(to bottom, transparent 0, #000 9%); }
 #cup-fallback { position: absolute; left: 50%; top: 55%; width: 30%; transform: translate(-50%, -50%); }
 #cup-fallback .cup { width: 100%; height: auto; display: block; overflow: visible; }
 .cup-wrap.has-3d #cup-fallback { display: none; }
@@ -80,20 +85,39 @@ h1, h2, h3, p, figure { margin: 0; }
 .cup .meniscus { stroke: var(--text); stroke-opacity: 0.4; stroke-width: 1.5; }
 .cup-empty .glass-line { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
 
-/* ---- floating labels (positioned by orbit.js); they arrive one after another on load */
+/* ---- notes around the cup (placed by orbit.js). The explanation unfolds; the label never moves. */
 .tags { position: absolute; inset: 0; }
 .tag {
   position: absolute; left: 0; top: 0; margin: 0; border: 0; background: none; padding: 0;
-  text-align: left; cursor: default; will-change: transform, opacity;
-  transform: translate(-50%, -50%);
+  display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left;
+  cursor: default; will-change: transform;
 }
-.tag .more { display: none; }
-.tag { animation: tag-in 1.4s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(500ms + var(--k, 0) * 110ms); }
-@keyframes tag-in { from { opacity: 0; } }
+.tag[data-side="left"] { align-items: flex-end; text-align: right; }
+.tag[data-grow="up"] { flex-direction: column-reverse; }
+.tag .more { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.6s var(--lux), opacity 0.45s ease; }
+.tag .more > span { overflow: hidden; min-height: 0; }
+.tag:hover .more, .tag:focus-visible .more, .tag.pinned .more { grid-template-rows: 1fr; opacity: 1; }
 .tag:hover, .tag:focus-visible, .tag.pinned { z-index: 6; }
-.tag:hover .more, .tag:focus-visible .more, .tag.pinned .more { display: block; }
-.leaders { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
-.leaders line { stroke: var(--text); stroke-width: 1; opacity: 0; transition: opacity 0.6s; }
+/* while one note is open the others step back, so it never half-covers a neighbour */
+.tag { transition: opacity 0.45s ease; }
+.ready .tags:has(.tag:hover, .tag:focus-visible, .tag.pinned) .tag:not(:hover):not(:focus-visible):not(.pinned) { opacity: 0.12; }
+.leaders { transition: opacity 0.45s ease; }
+.stage:has(.tag:hover, .tag:focus-visible, .tag.pinned) .leaders { opacity: 0.3; }
+.tag:focus-visible { outline: none; }
+/* entrance: once the data is in, notes arrive one after another, then their lines draw */
+.tag { opacity: 0; }
+.ready .tag { opacity: 1; animation: note-in 1.5s var(--lux) backwards; animation-delay: calc(900ms + var(--k, 0) * 130ms); }
+@keyframes note-in { from { opacity: 0; } }
+.tag.changed > :not(.more) { animation: changed 1.4s var(--lux); }
+@keyframes changed { from { opacity: 0.25; } }
+
+.leaders { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: visible; }
+.leader line { stroke: var(--text); stroke-opacity: 0.42; stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.leader circle { fill: var(--text); opacity: 0; }
+.ready .leader line { animation: draw 1.6s var(--lux) forwards; animation-delay: calc(1500ms + var(--k, 0) * 130ms); }
+.ready .leader circle { animation: dot-in 0.8s ease forwards; animation-delay: calc(2700ms + var(--k, 0) * 130ms); }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes dot-in { to { opacity: 0.8; } }
 
 .more-hint {
   position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 4;
@@ -106,6 +130,9 @@ h1, h2, h3, p, figure { margin: 0; }
 
 /* ---- the full view */
 .sheet { position: relative; z-index: 2; min-height: 100vh; background: var(--deep); }
+/* ?view=details: the full view on its own (for screenshots) */
+.only-details .hero { display: none; }
+.only-details .sheet { margin-top: 64px; }
 
 /* ---- map */
 #map { background: #07161B; }
@@ -124,7 +151,7 @@ h1, h2, h3, p, figure { margin: 0; }
 .ref-pin { width: 13px; height: 13px; transform: rotate(45deg); border: 2px solid var(--text); background: rgba(247, 240, 240, 0.18); }
 .pop-meta { color: var(--label2); }
 
-/* ---- phones: no orbit, no pinned hero; labels sit in a grid under the cup */
+/* ---- phones: no pinned hero; the notes sit in a grid under the cup */
 @media (max-width: 760px) {
   :root { --cup-h: 56vh; --cup-w: 100vw; --cup-y: 28vh; }
   .bar { position: static; padding: 12px 16px; }
@@ -133,13 +160,12 @@ h1, h2, h3, p, figure { margin: 0; }
   .stage { position: relative; }
   .cup-wrap { position: relative; left: 0; top: 0; }
   .tags { position: static; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 28px; }
-  .tag { position: static; transform: none; width: 100%; }
+  .tag, .tag[data-side], .tag[data-grow] { position: static; transform: none; width: 100%; flex-direction: column; align-items: flex-start; text-align: left; }
   .leaders, .more-hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .tag { opacity: 1; }
+  .leader line { stroke-dashoffset: 0; }
+  .leader circle { opacity: 0.8; }
 }
-
-/* ?view=details: the full view on its own (for screenshots) */
-.only-details .hero { display: none; }
-.only-details .sheet { margin-top: 64px; }

@@ -23,7 +23,7 @@
 .tag .head .i { width: 17px; height: 17px; color: var(--accent); }
 .tag .head b { font-family: var(--round); font-size: 15px; font-weight: 600; }
 .tag .head em { display: none; margin-left: auto; padding-left: 16px; font-style: normal; color: var(--label2); font-size: 13px; }
-.tag .more { width: 268px; margin-top: 8px; white-space: normal; color: var(--label2); font-size: 14px; line-height: 1.42; letter-spacing: 0; }
+.tag .txt { display: block; width: 268px; padding-top: 8px; white-space: normal; text-align: left; color: var(--label2); font-size: 14px; line-height: 1.42; letter-spacing: 0; }
 .tag:hover, .tag:focus-visible, .tag.pinned { padding: 14px 16px 16px; background: #1B3945; border-color: rgba(247, 240, 240, 0.2); }
 .tag:hover .head em, .tag:focus-visible .head em, .tag.pinned .head em { display: inline; }
 
@@ -124,7 +124,7 @@
   .seg { display: none; }
   .hero-copy { position: static; padding: 8px 16px 0; }
   .tag, .tag:hover, .tag.pinned { max-width: none; padding: 10px 12px; }
-  .tag .more { width: auto; }
+  .tag .txt { width: auto; }
   .sheet { padding: 10px 16px 56px; border-radius: 22px 22px 0 0; }
   .tiles { grid-template-columns: minmax(0, 1fr); }
   .span2 { grid-column: auto; }

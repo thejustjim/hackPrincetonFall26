@@ -46,8 +46,8 @@
     const reports = [];
     // start the filters part-used so status changes show up within a few minutes
     const filt = {
-      ZEROWATER: { liters: 3.2, tips: 32, runs: 7, last: 4, bad: null },
-      BRITA: { liters: 404.8, tips: 4048, last: null },
+      ZEROWATER: { liters: 2.9, tips: 29, runs: 1, last: 2, bad: null },
+      BRITA: { liters: 404.4, tips: 4044, last: null },
     };
     const emit = (m) => listeners.forEach((fn) => fn(m));
     const now = (ago = 0) => new Date(Date.now() - ago * 1000).toISOString().replace(/\.\d+Z$/, "+00:00");
@@ -160,6 +160,8 @@
 
     // seed: some history for every sim node, and one finished tank pour
     SITES.filter((s) => s.sim).forEach((s) => { for (let k = 6; k >= 1; k--) simReading(s, k * 120 + Math.random() * 60); });
+    // an hour of earlier pours, so the history has something to show
+    ["salty", "tea", "clean", "salty", "tea", "clean", "salty", "tea"].forEach((cupName, k) => pour(cupName, { quiet: true, ago: 3600 - k * 400 }));
     pour("clean", { quiet: true, ago: 150 });
     pour("salty", { quiet: true, ago: 70 });
     readings.sort((a, b) => a.ts.localeCompare(b.ts));   // seeded out of order; the API is oldest -> newest

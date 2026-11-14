@@ -5,7 +5,7 @@
    const store = await TapStore.connect();
    store.on((type, payload) => ...)   // "reading" | "pour" | "filters" | "report" | "conn"
    store.nodes (Map), .feed [], .pour {before, after, decision}, .filters [], .report,
-   .reference [], .tank, .health, .conn ("live" | "demo" | "down") */
+   .reference [], .tank, .health, .conn ("live" | "demo" | "down"), .history [], .pours() */
 (function () {
   "use strict";
 
@@ -87,6 +87,16 @@
     s.reference = Array.isArray(reference) ? reference : [];
     s.filters = filters;
     s.report = reports[0] || null;
+    s.history = (await soft(`/api/readings?node=${encodeURIComponent(s.tank)}&limit=80`, [])).slice().reverse();   // this tank's readings, oldest first
+    /* this tank's pours, oldest first: [{test, before, after}] */
+    s.pours = () => {
+      const out = [];
+      for (const r of s.history) {
+        if (r.phase === "before") out.push({ test: r.test, before: r, after: null });
+        else { const p = [...out].reverse().find((x) => x.test === r.test && !x.after); if (p) p.after = r; }
+      }
+      return out;
+    };
     const lastTank = readings.find((r) => r.node === s.tank) || s.nodes.get(s.tank)?.latest;
     if (lastTank) s.pour = pourFromPair(await soft(`/api/tests/${s.tank}/${lastTank.test}`, [lastTank]));
 
@@ -97,6 +107,7 @@
         s.nodes.set(m.node, n);
         s.feed.unshift(m);
         if (s.feed.length > 200) s.feed.length = 200;
+        if (m.node === s.tank) { s.history.push(m); if (s.history.length > 200) s.history.shift(); }
         emit("reading", m);
         if (!m.sim && m.node === s.tank) {
           if (m.phase === "before") { s.pour = { before: m, after: null, decision: null }; emit("pour", "before"); }
@@ -105,6 +116,8 @@
       } else if (m.type === "decision") {
         const row = s.feed.find((r) => r.id === m.id);
         if (row) { row.ai_filter = m.ai_filter; row.explanation = m.explanation; }
+      const past = s.history.find((r) => r.id === m.id);
+      if (past && past !== row) { past.ai_filter = m.ai_filter; past.explanation = m.explanation; }
         if (s.pour?.before?.id === m.id) { s.pour.decision = m; emit("pour", "decision"); }
       } else if (m.type === "filters") {
         s.filters = mergeFilters(m.filters || []);

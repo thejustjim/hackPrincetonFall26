@@ -28,9 +28,9 @@
     <p class="dateline" id="dateline"></p>
     <span class="spacer"></span>
     <p class="conn" id="conn" data-state="connecting" role="status"><span class="dot"></span><span id="conn-text">Connecting</span></p>
-    <nav class="links" aria-label="Mockups">
-      <a href="../a/">Mockup A</a>
-      <a href="./" aria-current="page">Mockup B</a>
+    <nav class="links" aria-label="Site">
+      <a href="#details" data-glide="details">Full account</a>
+      <a href="../slides/">Pitch</a>
     </nav>
   </header>
 
@@ -47,9 +47,11 @@
           <svg class="leaders" id="leaders" aria-hidden="true"></svg>
           <div class="cup-wrap" id="cup" data-hero3d><div id="cup-fallback"></div></div>
           <div class="tags" id="tags"></div>
-          <p class="figcap">The cup as it reads now. Rest on a note to read it.</p>
         </div>
-        <a class="more-hint" href="#details" data-glide="details">Full account<svg class="i"><use href="#i-down"/></svg></a>
+        <div class="context">
+          <div class="cx-row" id="context"></div>
+          <a class="cx-more" href="#details" data-glide="details">Full account<svg class="i"><use href="#i-down"/></svg></a>
+        </div>
       </div>
     </section>
 
@@ -60,9 +62,21 @@
           <p id="sheet-when"></p>
         </header>
         <div class="cols">
-          <div class="col-7" id="why"></div>
-          <div class="col-5" id="figures"></div>
+          <figure class="col-5 plate" id="plate"></figure>
+          <div class="col-7">
+            <div id="why"></div>
+            <div id="figures"></div>
+          </div>
         </div>
+
+        <figure class="ruled wide" id="history-fig">
+          <header class="section-head">
+            <h2>Every pour here</h2>
+            <p class="chart-key" aria-hidden="true"><span><i class="k-before"></i>before</span><span><i class="k-after"></i>after filtering</span></p>
+          </header>
+          <div id="history"></div>
+          <figcaption id="history-cap"></figcaption>
+        </figure>
 
         <div class="cols ruled">
           <section class="col-7" id="report" aria-label="Investigator"></section>
@@ -85,9 +99,18 @@
           </header>
           <div id="ledger"></div>
         </section>
+
+        <footer class="colophon ruled">
+          <p class="mark">Clarity</p>
+          <p class="tagline">What you deserve.</p>
+          <p class="fine">The tank reads pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant. Published figures are USGS and NJ DEP samples from the Water Quality Portal, with dissolved solids estimated as 0.65 × conductance. Simulated nodes show how a network would look and are always labelled.</p>
+          <p class="fine"><a href="#hero" data-glide="top">Back to the cup</a><a href="../slides/">The pitch</a><a href="/docs" id="api-link" hidden>The API</a></p>
+        </footer>
       </div>
     </section>
   </main>
+
+  <div class="tip" id="tip" hidden></div>
 
   <script src="../vendor/leaflet/leaflet.js"></script>
   <script src="../assets/cup.js"></script>
