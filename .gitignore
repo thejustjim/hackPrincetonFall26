@@ -8,3 +8,6 @@ __pycache__/
 .env.*
 !.env.example
 .playwright-mcp/
+
+# personal agent instructions: local only
+CLAUDE.local.md
