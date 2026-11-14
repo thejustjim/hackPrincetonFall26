@@ -264,6 +264,8 @@
     const params = new URLSearchParams(location.search);
     const orbit = TapNotes.create(Object.assign({ stage: $("#stage"), cup: $("#cup"), tags: $("#tags"), leaders: $("#leaders"), slots: SLOTS, stackBelow }, M.orbit));
 
+    // the pipette over the glass holds the pour as it read before any filter, and knows whether a filter was used
+    const pipette = () => { const f = usedFilter(store); window.TapHero?.setSource?.(store.pour?.before || null, !!f && f !== "NONE"); };
     function renderNotes() {
       const all = items(store);
       orbit.set(M.context ? all.filter((i) => i.group === "cup") : all, M.tag);
@@ -278,15 +280,15 @@
       $("#verdict").classList.toggle("good", v.tone === "good");
       renderNotes();
       const r = current(store);
-      if (window.TapHero) { if (!pitching()) TapHero.setWater(r); }
+      if (window.TapHero) { if (!pitching()) { TapHero.setWater(r); pipette(); } }
       else $("#cup-fallback").innerHTML = TapCup.svg(r);
       M.hero?.(store, v);
     }
     const shape = () => { if (window.TapHero?.shape) orbit.setShape(TapHero.shape); };
     window.addEventListener("hero3d:shape", shape);
     shape();
-    window.addEventListener("hero3d:ready", () => { if (!pitching()) TapHero.setWater(current(store), true); });
-    if (window.TapHero && !pitching()) TapHero.setWater(current(store), true);
+    window.addEventListener("hero3d:ready", () => { if (!pitching()) { TapHero.setWater(current(store), true); pipette(); } });
+    if (window.TapHero && !pitching()) { TapHero.setWater(current(store), true); pipette(); }
 
     renderHero();
     M.render(store, "all");

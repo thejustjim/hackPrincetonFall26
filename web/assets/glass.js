@@ -2,19 +2,25 @@
    Dissolved solids show as an amber tint and drifting specks, cloudiness as a tea-brown murk.
    When a new reading arrives the water eases to its new look over a few seconds.
 
-   A pipette of brown, untreated water hangs above the glass. Every few seconds a drop forms
-   and falls the way a real one does, shown at about one-sixth speed:
+   A pipette hangs above the glass, holding the water of the latest pour as it was before any
+   filter: brown if it was cloudy, amber if it was high in dissolved solids, clear if it read in
+   range. Every few seconds a drop forms and falls the way a real one does, shown at about
+   one-sixth speed:
      - it swells at the tip as a pendant drop, a neck forms and thins, and it pinches off,
        leaving a small satellite droplet behind it;
      - it falls under constant gravity as a sphere (not a teardrop), wobbling between tall and
        flat as surface tension rings down;
-     - it clears from brown to blue on the way;
      - it opens a crater in the surface, which rebounds as a small jet that throws up one
-       secondary droplet, while capillary rings spread outward.
+       secondary droplet, while a train of fine rings spreads to the glass and comes back.
+   Nothing clears by itself. When the pour was sent through a filter, a funnel with a paper cone
+   swings in under the tip on a returning arc, catches the drop, lets a clear one fall from its
+   stem into the glass, and swings back out the way it came. Water that read in range gets no
+   funnel: it falls straight in.
    The glass turns slowly (its etched marks and the reflections travel), leans slightly toward
    the pointer, and stands on a dark surface that faintly reflects it.
 
-   window.TapHero = { setWater(reading, immediate), drip(), setRunning(bool) } once mounted.
+   window.TapHero = { setWater(reading, immediate), setSource(before, filtered), drip(), setRunning(bool) }
+   once mounted. Until setSource is called the pipette holds brown water and the filter is on (the pitch).
    Events on window: "hero3d:ready", and "hero3d:impact" each time a drop lands.
    If WebGL or the module fails, the page keeps its SVG cup. */
 import * as THREE from "three";
@@ -137,8 +143,8 @@ function mount(host) {
   const surfGeo = new THREE.RingGeometry(0.0005, R_SURF, 128, 56);
   surfGeo.rotateX(-Math.PI / 2);
   const surfMat = new THREE.MeshPhysicalMaterial({
-    color: C.blue.clone(), roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45,
-    envMapIntensity: 1.1, clearcoat: 1, clearcoatRoughness: 0.03, side: THREE.DoubleSide, depthWrite: false,
+    color: C.blue.clone(), roughness: 0.16, metalness: 0, transparent: true, opacity: 0.45,   // soft enough that a tilted patch shows a highlight, not a mirror image of the room's lights
+    envMapIntensity: 1.0, clearcoat: 0.6, clearcoatRoughness: 0.2, side: THREE.DoubleSide, depthWrite: false,
   });
   const surface = new THREE.Mesh(surfGeo, surfMat);
   surface.position.y = LEVEL;
@@ -152,6 +158,7 @@ function mount(host) {
   const meniscus = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPts),
     new THREE.LineBasicMaterial({ color: 0xf7f0f0, transparent: true, opacity: 0.34, depthWrite: false }));
   meniscus.renderOrder = 3;
+  const edge = meniscus.geometry.attributes.position;           // it rides the surface, so rings reach the glass
 
   // ---------------------------------------------------------------- dissolved solids
   const N = 320;
@@ -221,8 +228,9 @@ function mount(host) {
   const RD = 0.046;                                   // radius of a full drop
   const G = 4.0;
   const GATHER = 1.6, NECK = 0.38;                    // seconds to swell, then to neck and pinch off
-  const CLEAR = new THREE.Color(0x4fa6e4);
-  const SILT = new THREE.Color(0x7fa48e);             // halfway there: the brown thins to a green-grey before it clears            // what the brown drop turns into as it falls
+  const CLEAR = new THREE.Color(0x4fa6e4);             // a drop of clear water
+  const SILT = new THREE.Color(0x7fa48e);             // between the two: brown thins to a green-grey before it clears
+  const MINERAL = new THREE.Color(0xa9873f);          // a drop high in dissolved solids: the page's amber
   const PACE = 0.7;                                   // drops play back a little under real time, like slow-motion film
 
   const pipette = new THREE.Group();
@@ -254,6 +262,25 @@ function mount(host) {
   const pendant = new THREE.Mesh(new THREE.BufferGeometry(), pendantMat);   // the drop while it hangs (rebuilt as it grows)
   for (const m of [dropMesh, satMesh, jetMesh, pendant]) { m.renderOrder = 7; m.visible = false; }
 
+  // ---------------------------------------------------------------- the filter: a glass funnel with a paper cone
+  // It rests with its stem just inside the mouth of the glass, right under the pipette.
+  const FY = 1.76;                                    // world height of its middle when in place
+  const F_RIM = 0.1, F_NECK = -0.04, F_TIP = -0.1;    // its rim, the bottom of its cone and the end of its stem, from the middle
+  const lathe = (pts, n = 64) => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), n);
+  const funnelShell = new THREE.Mesh(lathe([[0.206, F_RIM + 0.006], [0.2, F_RIM], [0.034, F_NECK], [0.027, F_TIP]]), glassMaterial());
+  const PAPER = new THREE.Color(0x5f6d77), STAIN = new THREE.Color(0x6b5230);   // a cool grey, so it sits with the glass rather than outshining it
+  const paperMat = new THREE.MeshStandardMaterial({ color: PAPER.clone(), roughness: 0.95, metalness: 0, envMapIntensity: 0.35,
+    transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+  const paper = new THREE.Mesh(lathe([[0.187, F_RIM - 0.012], [0.03, F_NECK + 0.004]]), paperMat);   // hides the drop once it is inside
+  paper.renderOrder = 8; funnelShell.renderOrder = 9;
+  const funnel = new THREE.Group();
+  funnel.add(paper, funnelShell);
+  funnel.visible = false;
+  // its flight: down from the top right, out toward the viewer, and round into place; it leaves by the same arc, backwards
+  const F_FROM = new THREE.Vector3(0.72, 2.42, -0.8), F_VIA = new THREE.Vector3(0.92, 1.86, 0.95), F_AT = new THREE.Vector3(0, FY, 0);
+  const F_IN = 1.35, F_OUT = 1.25;                    // seconds each way (the drop takes longer than that to form)
+  const fun = { want: false, p: 0, held: 0, leaveAt: 0, stain: 0 };   // p: 0 away, 1 in place
+
   const smax = (p, q, k) => { const h = Math.max(k - Math.abs(p - q), 0) / k; return Math.max(p, q) + h * h * k * 0.25; };
   /* The hanging drop as a surface of revolution: a bulb of radius rb centred at yc, joined to the
      opening by a neck that is R0 wide at the tip and narrows to nr. */
@@ -270,7 +297,12 @@ function mount(host) {
     pendant.geometry = new THREE.LatheGeometry(pts, 28);
   }
 
-  const drop = { state: "idle", t: 0, y: 0, v: 0, y0: 0, tf: 0, pace: PACE };
+  const drop = { state: "idle", t: 0, y: 0, v: 0, y0: 0, tf: 0, pace: PACE, caught: false, through: false };
+  let pinchAge = 9;                                   // seconds since the last drop left the tip (for the bead's spring-back)
+  // what the pipette holds, and whether it is being filtered; eased toward in the frame loop
+  const src = { tint: C.murk.clone(), clear: 0, filter: true };
+  const tintNow = C.murk.clone(), pipeColor = new THREE.Color();
+  let clearNow = 0;
   let splashPace = PACE;                              // the pace of the drop that last landed: its splash keeps it
   const sat = { on: false, y: 0, v: 0 };
   const jet = { on: false, y: 0, v: 0, thrown: true };
@@ -310,7 +342,7 @@ function mount(host) {
   mirror.scale.y = -1;
   mirror.add(cupR);
 
-  scene.add(mirror, shadow, cup, pipette, pendant, dropMesh, satMesh, jetMesh);
+  scene.add(mirror, shadow, cup, pipette, pendant, dropMesh, satMesh, jetMesh, funnel);
 
   // ---------------------------------------------------------------- state
   const cur = lookFor(null);
@@ -324,14 +356,34 @@ function mount(host) {
     target = lookFor(reading);
     if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
   }
+  /* What the pipette holds: the latest pour as it read before any filter (null: nothing poured, so
+     clear water), and whether that pour was sent through a filter. */
+  function setSource(before, filtered) {
+    const inRange = !before || before.verdict === "SAFE";
+    src.clear = inRange ? 1 : 0;
+    if (!inRange) src.tint.copy(before.clarity < 0.7 ? C.murk : before.tds > 300 ? MINERAL : SILT);
+    src.filter = !inRange && !!filtered;
+    if (still) { tintNow.copy(src.tint); clearNow = src.clear; }
+  }
   /* Start a drop. `pace` slows the whole event (necking, fall, wobble, splash) by one factor, the
-     way slow-motion film does, so the motion stays true to a real drop. */
+     way slow-motion film does, so the motion stays true to a real drop. If the pour is being
+     filtered, the funnel sets off now and is in place before the drop lets go. */
   function drip(pace) {
     if (still || drop.state !== "idle") return;
-    Object.assign(drop, { state: "gather", t: 0, pace: pace || PACE });
+    Object.assign(drop, { state: "gather", t: 0, pace: pace || PACE, caught: src.filter, through: false });
+    if (drop.caught) { fun.want = true; fun.leaveAt = 0; }
+  }
+  /* how the drop looks: 0 as untreated as the pipette's water, 1 clear */
+  function dropLook(clear) {
+    if (clear < 0.5) dropMat.color.copy(tintNow).lerp(SILT, clear * 2);
+    else dropMat.color.copy(SILT).lerp(CLEAR, clear * 2 - 1);
+    dropMat.roughness = 0.42 - 0.39 * clear;           // muddy and dull, or glossy
+    dropMat.opacity = 0.96 - 0.3 * clear;              // and you can see through clear water
+    dropMat.emissiveIntensity = 0.5 * clear * clear;
+    dropMat.envMapIntensity = 0.5 + 0.7 * clear;
   }
   function splash(amplitude) {
-    ripples.push({ x: 0, z: 0, t0: performance.now(), a: amplitude });
+    ripples.push({ x: 0, z: 0, t0: performance.now(), a: amplitude * (0.86 + 0.28 * Math.random()) });   // no two quite alike
     if (ripples.length > 6) ripples.shift();
   }
   function land() {
@@ -340,7 +392,7 @@ function mount(host) {
     impactAt = performance.now();
     splashPace = drop.pace;
     jet.thrown = false;
-    splash(0.05);
+    splash(0.022);
     nextDrip = impactAt + 3800 + Math.random() * 1400;
     window.dispatchEvent(new Event("hero3d:impact"));
   }
@@ -394,10 +446,36 @@ function mount(host) {
     surfMat.opacity = cur.surf;
     speckMat.opacity = cur.speck;
 
+    // ---- the pipette's water eases to the latest pour's, like the glass's
+    tintNow.lerp(src.tint, k);
+    clearNow += (src.clear - clearNow) * k;
+    pipeColor.copy(tintNow).lerp(CLEAR, clearNow);
+    dirty.color.copy(pipeColor);
+    dirty.opacity = 0.82 - 0.42 * clearNow;
+    pendantMat.color.copy(pipeColor);
+    pendantMat.roughness = 0.42 - 0.37 * clearNow;
+    pendantMat.opacity = 0.96 - 0.3 * clearNow;
+
+    // ---- the funnel: in along its arc, held under the tip, back out along the same arc
+    if (fun.leaveAt && now >= fun.leaveAt) { fun.want = false; fun.leaveAt = 0; }
+    fun.p = clamp(fun.p + (fun.want ? dt / F_IN : -dt / F_OUT), 0, 1);
+    fun.held = fun.p >= 1 ? fun.held + dt : 0;
+    funnel.visible = fun.p > 0;
+    if (funnel.visible) {
+      const e = fun.p * fun.p * (3 - 2 * fun.p), a = (1 - e) * (1 - e), b = 2 * e * (1 - e), c = e * e;
+      funnel.position.set(a * F_FROM.x + b * F_VIA.x + c * F_AT.x, a * F_FROM.y + b * F_VIA.y + c * F_AT.y, a * F_FROM.z + b * F_VIA.z + c * F_AT.z);
+      const settle = 0.07 * Math.exp(-fun.held / 0.28) * Math.cos(fun.held * 13) * (fun.p >= 1 ? 1 : 0);   // it rocks once as it arrives
+      funnel.rotation.set(0.5 * (1 - e), 0, -0.8 * (1 - e) + settle);          // banked in flight, level in place
+      funnel.scale.setScalar(0.72 + 0.28 * e);
+      fun.stain *= Math.exp(-dt / 1.3);                                        // what it caught shows on the paper, then fades
+      paperMat.color.copy(PAPER).lerp(STAIN, 0.8 * fun.stain);
+    }
+
     // ---- the drop
     if (!still && drop.state === "idle" && now >= nextDrip) drip();
     pendant.visible = !still;
     const ddt = dt * drop.pace;
+    pinchAge += ddt;
     if (drop.state === "gather") {                       // swelling: volume grows steadily, so radius goes as the cube root
       drop.t += dt;                                      // (how fast it fills is the pipette's business, not physics)
       const q = Math.min(1, drop.t / GATHER);
@@ -411,15 +489,32 @@ function mount(host) {
       const yc = drop.y - 0.5 * 1.7 * drop.t * drop.t;
       pendantShape(RD, yc, R0 * (1 - Math.pow(q, 1.7)));
       if (q >= 1) {                                      // pinch-off
-        Object.assign(drop, { state: "fall", y: yc, v: 1.7 * NECK, y0: yc, tf: 0 });
+        Object.assign(drop, { state: "fall", y: yc, v: 1.7 * NECK, y0: yc, tf: 0, caught: drop.caught && fun.p > 0.9 });
         Object.assign(sat, { on: true, y: (TIP + yc + RD) / 2, v: 1.7 * NECK * 0.55 });
         dropMesh.visible = satMesh.visible = true;
+        pinchAge = 0;
+        if (fun.want && !drop.caught) fun.leaveAt = now + 200;   // it wasn't in place in time: this one falls straight in
         pendantShape(bead.r, bead.yc, R0);
       }
     } else {
       // the bead left at the opening springs back and settles
-      const since = drop.state === "fall" ? drop.tf : 9;
-      pendantShape(bead.r, bead.yc + 0.012 * Math.exp(-since / 0.16) * Math.cos(since * 34), R0);
+      pendantShape(bead.r, bead.yc + 0.012 * Math.exp(-pinchAge / 0.16) * Math.cos(pinchAge * 34), R0);
+    }
+    if (drop.state === "soak") {                         // inside the paper cone: nothing to see but the stain
+      drop.t += dt;
+      if (drop.t >= 0.45) Object.assign(drop, { state: "seep", t: 0 });
+    } else if (drop.state === "seep") {                  // a clear drop swells at the end of the stem
+      drop.t += dt;
+      const q = Math.min(1, drop.t / 0.6), r = RD * Math.cbrt(Math.max(0.02, q));
+      const yc = FY + F_TIP - r * 0.9;
+      dropLook(1);
+      dropMesh.visible = true;
+      dropMesh.scale.set(r, r * 1.12, r);
+      dropMesh.position.set(0, yc, 0);
+      if (q >= 1) {                                      // it lets go, and the funnel leaves once it is clear of it
+        Object.assign(drop, { state: "fall", y: yc, v: 0.25, y0: yc, tf: 0, caught: false, through: true });
+        fun.leaveAt = now + 420;
+      }
     }
     if (drop.state === "fall") {
       drop.tf += ddt;
@@ -429,23 +524,20 @@ function mount(host) {
       const s = 1 + 0.24 * Math.exp(-drop.tf / 0.5) * Math.cos(drop.tf * Math.PI * 2 * 6.5);
       dropMesh.scale.set(RD / Math.sqrt(s), RD * s, RD / Math.sqrt(s));
       dropMesh.position.set(0, drop.y, 0);
-      // brown at the tip, clear by the time it lands
-      const p = Math.min(1, Math.max(0, (drop.y0 - drop.y) / (drop.y0 - LEVEL)));
-      const c = Math.min(1, Math.max(0, (p - 0.1) / 0.62)), clear = c * c * (3 - 2 * c);
-      if (clear < 0.5) dropMat.color.copy(C.murk).lerp(SILT, clear * 2);
-      else dropMat.color.copy(SILT).lerp(CLEAR, clear * 2 - 1);
-      dropMat.roughness = 0.42 - 0.39 * clear;           // muddy and dull, then glossy
-      dropMat.opacity = 0.96 - 0.3 * clear;              // and you start to see through it
-      dropMat.emissiveIntensity = 0.5 * clear * clear;
-      dropMat.envMapIntensity = 0.5 + 0.7 * clear;
-      if (drop.y - RD * 0.6 <= LEVEL) land();
+      dropLook(drop.through ? 1 : clearNow);             // it stays as it left the tip; only the filter clears it
+      if (drop.caught && drop.y <= FY + 0.03) {          // into the funnel
+        Object.assign(drop, { state: "soak", t: 0 });
+        dropMesh.visible = false;
+        fun.stain = 1;
+      } else if (drop.y - RD * 0.6 <= LEVEL) land();
     }
     if (sat.on) {                                        // the satellite follows it down
       sat.v += G * ddt;
       sat.y -= sat.v * ddt;
       satMesh.scale.setScalar(0.012);
       satMesh.position.set(0, sat.y, 0);
-      if (sat.y <= LEVEL) { sat.on = false; satMesh.visible = false; splash(0.012); }
+      if (fun.p > 0.9 && sat.y <= FY + 0.03) { sat.on = false; satMesh.visible = false; }   // the funnel takes it too
+      else if (sat.y <= LEVEL) { sat.on = false; satMesh.visible = false; splash(0.006); }
     }
     const sinceImpact = ((now - impactAt) / 1000) * splashPace;
     if (!jet.thrown && sinceImpact >= 0.5) {             // the rebound throws one droplet straight up
@@ -458,7 +550,7 @@ function mount(host) {
       jet.y -= jet.v * dt * splashPace;
       jetMesh.scale.setScalar(0.015);
       jetMesh.position.set(0, jet.y, 0);
-      if (jet.v > 0 && jet.y <= LEVEL) { jet.on = false; jetMesh.visible = false; splash(0.016); }
+      if (jet.v > 0 && jet.y <= LEVEL) { jet.on = false; jetMesh.visible = false; splash(0.009); }
     }
 
     // reflections travel across the glass as the room turns around it
@@ -477,26 +569,34 @@ function mount(host) {
     slosh.x += slosh.vx * dt;
     slosh.z += slosh.vz * dt;
 
-    // surface: slosh plane + a faint swell + ripples from drops
-    for (let i = 0; i < pos.count; i++) {
-      const x = base[i * 3], z = base[i * 3 + 2];
+    // surface: slosh plane + a faint swell + the rings from each splash + the impact's crater and jet.
+    // Each splash sends out a short train of low rings, the finer ones leading. They thin as they
+    // widen, reach the glass, and come back off it, so the waterline at the glass moves too.
+    const trains = [];
+    for (const d of ripples) {
+      const age = (now - d.t0) / 1000, a = d.a * Math.min(1, age / 0.2) * Math.exp(-age * 0.5);
+      if (a > 2e-4) trains.push({ a, front: age * 0.3 });                         // slow, soothing
+    }
+    const train = (u) => (u > 0.3 || u < -0.75 ? 0 : Math.exp(-Math.pow((u + 0.15) / 0.2, 2)) * Math.sin(40 * u + 24 * u * u));
+    const thin = (s) => Math.sqrt(0.06 / (s + 0.06));
+    const crater = sinceImpact < 2.4 ? -0.07 * Math.exp(-sinceImpact / 0.42) * Math.sin((sinceImpact * Math.PI * 2) / 0.72) : 0;
+    const lift = (x, z, dist) => {
       let y = slosh.x * x * 0.35 + slosh.z * z * 0.35;
       if (!still) y += 0.004 * Math.sin(x * 7 + t * 0.9) * Math.cos(z * 6 - t * 0.7);
-      const dist0 = Math.hypot(x, z);
-      for (const d of ripples) {
-        const age = (now - d.t0) / 1000;
-        const front = age * 0.26;                         // slow, soothing
-        y += d.a * Math.sin((dist0 - front) * 34) * Math.exp(-Math.pow((dist0 - front) * 6, 2)) * Math.exp(-age * 0.9);
-      }
+      const back = 2 * R_SURF - dist;                                           // the path of a ring that has been to the glass and turned round
+      for (const d of trains) y += d.a * (train(dist - d.front) * thin(dist) + 0.55 * train(back - d.front) * thin(back));
       // the impact: a crater that rebounds as a narrower, taller jet, then settles
-      if (sinceImpact < 2.4) {
-        const h = -0.07 * Math.exp(-sinceImpact / 0.42) * Math.sin((sinceImpact * Math.PI * 2) / 0.72);
-        y += h < 0 ? h * Math.exp(-Math.pow(dist0 / 0.12, 2)) : h * 4.2 * Math.exp(-Math.pow(dist0 / 0.045, 2));
-      }
-      pos.array[i * 3 + 1] = y;
+      if (crater) y += crater < 0 ? crater * Math.exp(-Math.pow(dist / 0.12, 2)) : crater * 3.4 * Math.exp(-Math.pow(dist / 0.05, 2));
+      return y;
+    };
+    for (let i = 0; i < pos.count; i++) {
+      const x = base[i * 3], z = base[i * 3 + 2];
+      pos.array[i * 3 + 1] = lift(x, z, Math.hypot(x, z));
     }
     pos.needsUpdate = true;
     surfGeo.computeVertexNormals();
+    for (let i = 0; i < edge.count; i++) edge.array[i * 3 + 1] = LEVEL + 0.003 + lift(edge.array[i * 3], edge.array[i * 3 + 2], R_SURF);
+    edge.needsUpdate = true;
 
     // specks swirl slowly; they settle to the bottom as the water gets cleaner
     for (let i = 0; i < N; i++) {
@@ -524,7 +624,7 @@ function mount(host) {
   document.addEventListener("visibilitychange", sync);
   frame();
   sync();
-  return Object.assign(api, { setWater, drip, setRunning });
+  return Object.assign(api, { setWater, setSource, drip, setRunning });
 }
 
 const host = document.querySelector("[data-hero3d]");

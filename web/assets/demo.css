@@ -24,6 +24,10 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 #sub { margin-top: 10px; min-height: 1.25em; font-style: italic; font-size: clamp(24px, 2.3vw, 40px); line-height: 1.2; letter-spacing: -0.01em; color: var(--label2); }
 #standfirst { margin-top: 26px; max-width: 25em; color: var(--label2); font-size: clamp(17px, 1.35vw, 21px); line-height: 1.5; text-wrap: pretty; }
 #when { margin-top: 18px; font-family: var(--sans); color: var(--label3); font-size: 13px; }
+/* what Clarity is for, in one sentence, ending on a live count: the page's argument, under the account of this cup */
+#about { margin-top: 24px; max-width: 25em; font-style: italic; color: var(--label2); font-size: clamp(15px, 1.12vw, 17.5px); line-height: 1.45; text-wrap: balance; }
+#about::before { content: ""; display: block; margin-bottom: 16px; border-top: 1px solid var(--hair); }   /* its rule is inside it, so the two hide together */
+#about-tally { display: inline-block; color: var(--text); }   /* the count keeps to one line of its own when it fits */
 
 /* entrance (.live): the copy rises line by line, the cup fades up, then the notes (base.css) */
 .hero-copy > *, .cup-wrap, .context { opacity: 0; }
@@ -32,6 +36,7 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 .live .hero-copy > :nth-child(3) { animation-delay: 260ms; }
 .live .hero-copy > :nth-child(4) { animation-delay: 400ms; }
 .live .hero-copy > :nth-child(5) { animation-delay: 520ms; }
+.live .hero-copy > :nth-child(6) { animation-delay: 640ms; }
 .ready .cup-wrap { opacity: 1; animation: fade 2.4s ease backwards; animation-delay: 200ms; }
 .live .context { opacity: 1; animation: fade 1.8s ease backwards; animation-delay: 2000ms; }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
@@ -130,6 +135,14 @@ td.n, th.n { text-align: right; padding-left: 18px; }
 .note-odd { color: var(--alert); font-style: italic; }
 .sim { font-style: italic; color: var(--label3); }
 
+/* the tally: what the pours in the chart add up to, set as figures over it */
+.tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; margin: 0 0 34px; padding: 0; list-style: none; }
+.tally li { padding-top: 14px; border-top: 1px solid var(--hair); }
+.tally b { display: block; font-weight: 400; font-size: 60px; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: lining-nums; }
+.tally b small { font-size: 0.42em; letter-spacing: 0; color: var(--label2); }
+.tally span { display: block; margin-top: 8px; max-width: 17em; font-style: italic; color: var(--label2); font-size: 17px; line-height: 1.35; }
+.tally .good b { color: var(--accent); }
+
 /* the history chart */
 .chart-key { display: flex; gap: 22px; font-style: italic; color: var(--label2); font-size: 16px; }
 .chart-key span { display: inline-flex; align-items: center; gap: 8px; }
@@ -213,6 +226,12 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .section-head { flex-wrap: wrap; gap: 4px 24px; }
   #map { height: 320px; }
 }
+/* The pinned hero only has room for the sentence about Clarity when the window is tall for its width
+   (the words above it grow with the width, up to their largest size). Shorter windows leave it out,
+   and the full account's tally says the same thing. */
+@media (min-width: 1181px) {
+  #about { overflow: hidden; max-height: clamp(0px, (100vh - min(34.2vw, 568px) - 300px) * 100, 30em); }
+}
 /* small laptop windows: the notes' explanations are set narrower, so an open one stays clear of the headline column */
 @media (min-width: 1181px) and (max-width: 1320px) {
   .tag .txt { width: 176px; }
@@ -232,6 +251,9 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .section-head h2, .page h2 { font-size: 30px; }
   .lede { font-size: 22px; }
   .pull { font-size: 23px; }
+  .tally { gap: 18px; margin-bottom: 26px; }
+  .tally b { font-size: 40px; }
+  .tally span { font-size: 15px; }
   #history { overflow-x: auto; }
   #history svg { min-width: 880px; }
 }

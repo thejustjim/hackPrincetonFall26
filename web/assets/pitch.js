@@ -1,7 +1,8 @@
 /* The pitch. It runs on top of the live /demo page, which is already loaded underneath.
 
    Arriving at /pitch lands here (see pitch/index.html and the script in demo/index.html's head):
-     1. The page opens on black. One brown drop gathers, falls, clears as it falls, and lands.
+     1. The page opens on black. One brown drop gathers; a filter swings in and catches it; a
+        clear drop falls from the filter and lands.
      2. On impact the page colour comes up and the title rises over the glass.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
      4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
@@ -138,10 +139,13 @@
       setTimeout(() => TapHero.drip(0.5), 1300);    // the first drop, at half speed
     };
     if (window.TapHero) start(); else addEventListener("hero3d:ready", start, { once: true });
-    setTimeout(reveal, 9000);                        // no 3D, or nothing landed: carry on regardless
+    // Carry on regardless if there is no 3D glass after five seconds, or if nothing has landed after
+    // sixteen (the drop takes about six; a machine dropping frames plays it slower, and it is worth the wait).
+    setTimeout(() => { if (!window.TapHero) reveal(); }, 5000);
+    setTimeout(reveal, 16000);
   }
 
-  // ---------------------------------------------------------------- slide 2: sample days per year
+  // ---------------------------------------------------------------- the problem slide: sample days per year
   // Days each year with a published specific-conductance sample for Stony Brook at Princeton
   // (USGS 01401000 and the NJ DEP stations at the same spot), from the Water Quality Portal.
   const PER_YEAR = { 1956: 2, 1957: 1, 1958: 1, 1959: 1, 1960: 4, 1961: 4, 1962: 4, 1963: 5, 1964: 3, 1965: 3, 1966: 10,
@@ -189,7 +193,7 @@
     box.addEventListener("pointerleave", cool);
   }
 
-  // ---------------------------------------------------------------- slide 7: a sketch map (no tiles, works offline)
+  // ---------------------------------------------------------------- the sources slide: a sketch map (no tiles, works offline)
   function drawMiniMap() {
     const box = $("#mini-map");
     if (!box || !window.TapSample) return;

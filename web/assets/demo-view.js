@@ -25,6 +25,40 @@
     return a.verdict === "SAFE" ? `${what} ${did}, and the retest came back in range.` : `${what} ${did}, but the retest is still out of range.`;
   }
 
+  /* What the pours in the history chart add up to: how many were left alone because they read in
+     range, and how many of the filtered ones the retest found back in range. */
+  const SHOWN = 14;
+  function tally(store) {
+    const pours = store.pours().slice(-SHOWN);
+    const decided = pours.filter((p) => p.before.ai_filter);
+    return {
+      n: pours.length, decided: decided.length,
+      skipped: decided.filter((p) => p.before.ai_filter === "NONE" && p.before.verdict === "SAFE").length,
+      tried: pours.filter((p) => p.after).length,
+      fixed: pours.filter((p) => p.after && p.before.verdict !== "SAFE" && p.after.verdict === "SAFE").length,
+    };
+  }
+  /* the live half of the hero's one-sentence account of Clarity; empty until there are a few pours */
+  function tallyLine(store) {
+    const t = tally(store);
+    if (t.decided < 3) return "";
+    if (!t.skipped) return `None of the last ${t.decided} pours here read in range.`;
+    if (t.skipped === t.decided) return `All of the last ${t.decided} pours here read in range.`;
+    return `${t.skipped} of the last ${t.decided} pours here needed no filter.`;
+  }
+  /* Fade an element out and back in on swapText's timing, so it is unseen at the moment the lines
+     above it change height and it lands in its new place. `mid` runs while it is out. */
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function dip(el, mid) {
+    if (still) { mid?.(); return; }
+    el.getAnimations().forEach((a) => a.cancel());
+    el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320, easing: "ease-in", fill: "forwards" }).finished.then(() => {
+      mid?.();
+      el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1100, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" });
+    }).catch(() => { mid?.(); });
+  }
+  let heroWas = null;
+
   /* Each pour as a pair: a ring where it started, a dot where it ended, on one ppm scale. */
   function historyChart(pours) {
     const { esc, clock, FILTER_NAME } = TapUI;
@@ -109,8 +143,17 @@
       row.querySelectorAll(".cx").forEach((el) => { if (!items.some((i) => i.id === el.dataset.note)) el.remove(); });
     },
 
-    hero(store) {
-      TapUI.swapText(document.getElementById("standfirst"), TapUI.typo(account(store)));
+    hero(store, v) {
+      const text = TapUI.typo(account(store));
+      const now = `${v?.title}|${v?.sub}|${text}`, moved = heroWas != null && now !== heroWas;
+      heroWas = now;
+      TapUI.swapText(document.getElementById("standfirst"), text);
+      // the headline and account above can change height: what sits under them steps out while they do
+      const when = document.getElementById("when"), about = document.getElementById("about");
+      if (moved && when && when.dataset.text === when.textContent) dip(when);   // unless its own text is already fading over
+      const live = document.getElementById("about-tally"), line = tallyLine(store);
+      const put = () => { if (live && live.textContent !== line) live.textContent = line; };
+      if (moved && about) dip(about, put); else put();
     },
 
     render(store, what) {
@@ -169,13 +212,16 @@
             <tr><td>Verdict</td><td class="n word${b.verdict !== "SAFE" ? " warn" : ""}">${esc(VERDICT[b.verdict] || b.verdict)}</td><td class="n word${a && a.verdict !== "SAFE" ? " warn" : ""}">${a ? esc(VERDICT[a.verdict] || a.verdict) : "–"}</td></tr>
           </tbody></table>`;
 
-        const pours = store.pours().slice(-14);
+        const pours = store.pours().slice(-SHOWN);
         $("#history-fig").hidden = pours.length < 2;
         if (pours.length >= 2) {
+          const sum = tally(store);
+          $("#tally").innerHTML = `
+            <li><b>${sum.n}</b><span>pours in this chart</span></li>
+            <li${sum.skipped ? ' class="good"' : ""}><b>${sum.skipped}</b><span>needed no filter</span></li>
+            <li${sum.fixed ? ' class="good"' : ""}><b>${sum.tried ? `${sum.fixed}<small> of ${sum.tried}</small>` : "0"}</b><span>${sum.tried ? "came back in range after filtering" : "filtered and retested so far"}</span></li>`;
           $("#history").innerHTML = historyChart(pours);
-          const fixed = pours.filter((x) => x.after && x.before.verdict !== "SAFE" && x.after.verdict === "SAFE").length;
-          const tried = pours.filter((x) => x.after).length;
-          $("#history-cap").textContent = `Dissolved solids for the last ${pours.length} pours at ${store.nodeName(store.tank)}. ${tried ? `${tried} went through a filter; ${fixed} of those came back in range.` : "None has needed a filter."} Pours without a dot were not filtered.`;
+          $("#history-cap").textContent = `Dissolved solids for the last ${pours.length} pours at ${store.nodeName(store.tank)}. Pours without a dot were not filtered.`;
         }
       }
 

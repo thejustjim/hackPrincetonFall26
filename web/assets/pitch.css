@@ -73,6 +73,12 @@
 #pitch .loop h3 { margin-top: 30px; font-size: 46px; line-height: 1.1; letter-spacing: -0.015em; }
 #pitch .loop p { margin: 14px 0 0; font-size: 27px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
 
+/* ---- what measuring first saves (after the loop): three ruled columns */
+#pitch .why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 72px; margin-top: auto; }
+#pitch .why li { padding-top: 26px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
+#pitch .why h3 { font-size: 42px; line-height: 1.1; letter-spacing: -0.015em; }
+#pitch .why p { margin: 16px 0 0; font-size: 29px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
+
 /* ---- 4. hardware: one line across the slide. Solid for a device, dashed for the link between two. */
 #pitch .chain { display: flex; margin-top: auto; }
 #pitch .chain li { flex: 1 1 0; min-width: 0; padding: 22px 16px 0 0; border-top: 2px solid var(--text); }
@@ -142,9 +148,13 @@
 #pitch.stacked .p-title .tagline { font-size: clamp(24px, 6vw, 38px); }
 #pitch.stacked .p-lede { font-size: 18px; }
 #pitch.stacked h2 { font-size: clamp(30px, 6.4vw, 52px); line-height: 1.1; margin-bottom: 0; }
-#pitch.stacked .split, #pitch.stacked .two, #pitch.stacked .open, #pitch.stacked .loop,
+#pitch.stacked .split, #pitch.stacked .two, #pitch.stacked .open, #pitch.stacked .loop, #pitch.stacked .why,
 #pitch.stacked .s-problem .split, #pitch.stacked .s-ai .split, #pitch.stacked .s-sources .split { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-top: 32px; }
 #pitch.stacked .loop { gap: 26px; }
+#pitch.stacked .why { gap: 0; }
+#pitch.stacked .why li { padding: 16px 0 18px; }
+#pitch.stacked .why h3 { font-size: 26px; }
+#pitch.stacked .why p { margin-top: 4px; font-size: 19px; }
 #pitch.stacked .loop li { display: grid; grid-template-columns: 54px minmax(0, 1fr); column-gap: 8px; padding-top: 16px; }
 #pitch.stacked .loop .n { grid-row: span 2; font-size: 54px; }
 #pitch.stacked .loop h3 { margin-top: 4px; font-size: 26px; }
