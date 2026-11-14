@@ -146,23 +146,6 @@ html.opening .glow { filter: opacity(0); }
 .only-details .hero { display: none; }
 .only-details .sheet { margin-top: 64px; }
 
-/* ---- map */
-#map { background: #07161B; }
-.leaflet-container { background: #07161B; font-family: var(--sans); }
-.leaflet-tile-pane { filter: brightness(0.62) sepia(0.45) hue-rotate(160deg) saturate(1.5); }
-.leaflet-popup-content-wrapper, .leaflet-popup-tip, .leaflet-tooltip { background: var(--panel-2); color: var(--text); border: 1px solid var(--hair); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); }
-.leaflet-popup-content-wrapper { border-radius: 14px; }
-.leaflet-tooltip { border-radius: 999px; font-size: 13px; padding: 4px 10px; }
-.leaflet-tooltip-top::before { border-top-color: var(--hair); }
-.leaflet-popup-content { margin: 12px 14px; font-size: 14px; line-height: 1.45; }
-.leaflet-container a.leaflet-popup-close-button { color: var(--label2); }
-.leaflet-bar a, .leaflet-bar a:hover { background: var(--panel-2); color: var(--text); border-bottom-color: var(--hair); }
-.leaflet-bar { border: 1px solid var(--hair) !important; border-radius: 10px !important; overflow: hidden; }
-.leaflet-control-attribution { background: rgba(11, 32, 39, 0.85) !important; color: var(--label3); }
-.leaflet-control-attribution a { color: var(--label3); }
-.ref-pin { width: 13px; height: 13px; transform: rotate(45deg); border: 2px solid var(--text); background: rgba(247, 240, 240, 0.18); }
-.pop-meta { color: var(--label2); }
-
 /* ---- phones: no pinned hero; the notes sit in a grid under the cup */
 @media (max-width: 760px) {
   :root { --cup-h: 56vh; --cup-w: 100vw; --cup-y: 28vh; }

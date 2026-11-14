@@ -5,7 +5,7 @@
 Pour water into one cup. Clarity measures pH, dissolved solids (TDS) and clarity (shown as transparency on the dashboard), an AI agent
 on the base station picks a filter, and the cup tips itself into ZeroWater or Brita. Pour the
 clean water back in to retest. Results travel over a direct radio link (no WiFi or cell) to a
-Raspberry Pi base station that maps every node around Princeton.
+Raspberry Pi base station that stores every node's readings and serves the dashboard.
 
 ```
 Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 receiver --USB--> Pi 4B gateway --WebSocket--> dashboard
@@ -64,7 +64,7 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
   - `{"type":"decision","id":..,"node":..,"test":..,"ai_filter":..,"explanation":..,"source":"claude"|"local_rule"}`
   - `{"type":"filters","filters":[...same as GET /api/filters]}` - after every tip and every retest
   - `{"type":"report","node":..,"test":..,"summary":"..","findings":[..],"actions":[..],"filter":..,"source":"deepagents","model":..}`
-- `GET /api/nodes` - every node, location, latest reading (draw the map from this)
+- `GET /api/nodes` - every node, location, latest reading
 - `GET /api/readings?node=tank-01&limit=200` - history, newest first
 - `GET /api/tests/{node}/{test}` - the before/after pair for the before/after card
 - `GET /api/filters` - `[{"filter":"ZEROWATER","liters":3.2,"last_after_tds":8,"status":"OK"|"REPLACE_SOON"|"REPLACE", ...}]` (see below)
@@ -98,7 +98,7 @@ After each `after` test, a LangChain deep agent (Claude Opus 5.5) calls `get_sit
 `python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake
 Carnegie from the Water Quality Portal (waterqualitydata.us; USGS and NJ DEP samples), estimates
 TDS = 0.65 x conductance, and caches it to `gateway/reference.json` (committed, so the demo works
-offline). Re-run it to refresh. On the map, label these as published, not measured.
+offline). Re-run it to refresh. Wherever they are shown, label these as published, not measured.
 
 ## Cloud copy (Tiger Cloud: TimescaleDB on AWS)
 The base station stores every reading in SQLite and serves the pages itself, so it needs no internet.

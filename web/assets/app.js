@@ -170,45 +170,6 @@
     return out;
   }
 
-  // ------------------------------------------------------------ map (shared)
-  function mountMap(el, store) {
-    if (!window.L || !el) return { place() {}, fit() {} };
-    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.25 }).setView([40.35, -74.655], 12);
-    const esri = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/";
-    L.tileLayer(esri + "World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 16, attribution: "Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors" }).addTo(map);
-    L.tileLayer(esri + "World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", { maxZoom: 16 }).addTo(map);
-    const markers = new Map();
-    function place(n) {
-      if (!n || n.lat == null) return;
-      const r = n.latest, warn = r && r.verdict !== "SAFE", odd = r && r.anomaly >= 0.6;
-      const fill = warn ? css("--warn") : css("--accent");
-      const style = n.sim
-        ? { radius: 6, color: odd ? css("--alert") : css("--neutral"), weight: 1.5, dashArray: "3 3", fillColor: fill, fillOpacity: 0.3 }
-        : { radius: 10, color: css("--text"), weight: 2, fillColor: fill, fillOpacity: 0.95 };
-      let m = markers.get(n.node);
-      if (!m) {
-        m = L.circleMarker([n.lat, n.lon], style).addTo(map);
-        m.bindTooltip(n.sim ? `${n.name} (simulated)` : n.name, { direction: "top", offset: [0, -8], permanent: !n.sim });
-        markers.set(n.node, m);
-      } else m.setStyle(style);
-      m.bindPopup(`<b>${esc(n.name)}</b><br><span class="pop-meta">${n.sim ? "Simulated node" : "Measured by Clarity"}${r ? `, ${esc(ago(r.ts))}` : ""}</span>${
-        r ? `<br>${r.tds} ppm, pH ${fmt(r.ph, 1)}, transparency ${fmt(r.clarity, 2)}<br>${esc(VERDICT[r.verdict] || r.verdict)}${odd ? ", unusual for this site" : ""}` : ""}`);
-      if (!n.sim) m.bringToFront();
-    }
-    store.nodes.forEach(place);
-    store.reference.forEach((s) => {
-      const icon = L.divIcon({ className: "", html: '<div class="ref-pin"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
-      L.marker([s.lat, s.lon], { icon, title: s.site }).addTo(map)
-        .bindTooltip(`${s.site}: ~${s.tds_est} ppm (${s.source}, ${String(s.date).slice(0, 4)})`, { direction: "top", offset: [0, -8] });
-    });
-    const pts = [...store.nodes.values()].filter((n) => n.lat != null).map((n) => [n.lat, n.lon]).concat(store.reference.map((s) => [s.lat, s.lon]));
-    const fit = () => { map.invalidateSize(); if (pts.length > 1) map.fitBounds(pts, { padding: [24, 24] }); };
-    fit();
-    if (window.ResizeObserver) new ResizeObserver(() => map.invalidateSize()).observe(el);
-    return { place, fit };
-  }
-
   // ------------------------------------------------------------ the slow scroll
   function scrolling(orbit, stackBelow) {
     const hero = $("#hero"), inner = $("#hero-inner"), bar = $(".bar");
@@ -240,7 +201,7 @@
     };
     if (!reduced && matchMedia("(pointer: fine)").matches) {
       window.addEventListener("wheel", (e) => {
-        if (e.ctrlKey || narrow.matches || document.documentElement.classList.contains("pitching") || e.target.closest?.(".leaflet-container")) return;
+        if (e.ctrlKey || narrow.matches || document.documentElement.classList.contains("pitching")) return;
         e.preventDefault();
         if (!raf) target = cur = scrollY;
         glideTo(target + e.deltaY * (e.deltaMode === 1 ? 32 : 1) * 0.9);
@@ -296,11 +257,10 @@
     if (!pitching()) document.body.classList.add("live");      // the copy and notes make their entrance (the pitch does this when it ends)
     window.TapApp = { store, refresh: renderHero, current: () => current(store) };
     window.dispatchEvent(new Event("app:ready"));
-    const map = mountMap($("#map"), store);
     store.on((type, payload) => {
       if (type === "pour") { renderHero(); M.render(store, "pour"); if (payload === "before") window.TapHero?.drip(); }
       else if (type === "filters" || type === "report") { renderHero(); M.render(store, type); }
-      else if (type === "reading") { map.place(store.nodes.get(payload.node)); renderNotes(); M.render(store, "feed", payload); }
+      else if (type === "reading") { renderNotes(); M.render(store, "feed", payload); }
       else if (type === "conn") M.render(store, "conn");
     });
     setInterval(async () => { await store.refreshHealth(); renderHero(); M.render(store, "all"); }, 30000);   // keep "x minutes ago" and the counts honest
@@ -308,7 +268,7 @@
 
     // for screenshots: ?open=tds holds one note open, ?view=details shows the full view on its own
     if (params.has("open")) { orbit.pin(params.get("open")); document.querySelector(`[data-note="${CSS.escape(params.get("open"))}"]`)?.classList.add("pinned"); }
-    if (params.get("view") === "details") { document.body.classList.add("only-details"); map.fit(); }
+    if (params.get("view") === "details") document.body.classList.add("only-details");
   }
 
   boot().catch((err) => {
