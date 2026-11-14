@@ -1,4 +1,4 @@
-"""TapTest base station (runs on the Raspberry Pi 4B, or any laptop).
+"""Clarity base station (runs on the Raspberry Pi 4B, or any laptop).
 
 Reads JSON lines from the receiver ESP32 over USB serial, adds time, location and an
 anomaly score, stores everything in SQLite, asks Claude which filter to use (and why),
@@ -55,7 +55,7 @@ MODEL = "claude-opus-5-5"
 # ---------------------------------------------------------------- nodes
 # The real tank plus simulated nodes around Princeton. Simulated ones are flagged "sim": true.
 NODES = {
-    "tank-01": {"name": "TapTest demo (HackPrinceton)", "lat": 40.3467, "lon": -74.6553, "sim": False},
+    "tank-01": {"name": "Clarity demo (HackPrinceton)", "lat": 40.3467, "lon": -74.6553, "sim": False},
 }
 SIM_SITES = [
     ("Carnegie Lake", 40.3380, -74.6380, 180), ("Kingston", 40.3762, -74.6143, 230),
@@ -207,7 +207,7 @@ def load_reference():
 
 # ---------------------------------------------------------------- Claude agent
 SYSTEM = (
-    "You are the decision agent inside TapTest, a water tester with two filters: ZEROWATER "
+    "You are the decision agent inside Clarity, a water tester with two filters: ZEROWATER "
     "(removes dissolved solids, best for high TDS) and BRITA (activated carbon, best for colour, "
     "cloudiness and taste). You get one water test plus that site's recent history. Choose the "
     "filter the cup should be tipped into, or NONE if the water is fine or no filter helps "
@@ -523,7 +523,7 @@ async def simulate_nodes():
 
 
 # ---------------------------------------------------------------- web app
-app = FastAPI(title="TapTest base station")
+app = FastAPI(title="Clarity base station")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 

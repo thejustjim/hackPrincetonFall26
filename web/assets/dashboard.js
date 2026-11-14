@@ -1,4 +1,4 @@
-/* TapTest dashboard. Talks to the gateway (same origin, or ?api=http://<pi>:8000);
+/* Clarity dashboard. Talks to the gateway (same origin, or ?api=http://<pi>:8000);
    falls back to demo data when there is no gateway, or with ?demo. */
 (function () {
   "use strict";
@@ -48,11 +48,13 @@
   function setConn(kind) {
     const el = $("#conn");
     el.dataset.state = kind;
-    $("#conn-text").textContent = {
-      live: state.health.ai ? "Live from the gateway, Claude on" : "Live from the gateway, local rule only (no Anthropic key)",
-      down: "Lost the gateway, reconnecting",
-      demo: "Demo data: no gateway reachable",
-    }[kind] || "Connecting to the gateway";
+    const [short, long] = {
+      live: state.health.ai ? ["Live, Claude on", "Live from the gateway; Claude picks filters"] : ["Live, local rule", "Live from the gateway; no Anthropic key, so the tank's own rule picks filters"],
+      down: ["Reconnecting", "Lost the gateway; reconnecting"],
+      demo: ["Demo data", "No gateway reachable, so this is demo data"],
+    }[kind] || ["Connecting", "Connecting to the gateway"];
+    $("#conn-text").textContent = short;
+    el.title = long;
   }
 
   // ------------------------------------------------------------ helpers
@@ -96,8 +98,8 @@
     return `${TapCup.svg(r, { rise })}
       <figcaption>
         <p class="phase">${phaseLabel}, ${esc(clock(r.ts))}</p>
-        <p class="big num">${r.tds}<span class="unit">ppm</span></p>
-        <dl class="mini"><div><dt>pH</dt><dd>${fmt(r.ph, 1)}</dd></div><div><dt>Clarity</dt><dd>${fmt(r.clarity, 2)}</dd></div></dl>
+        <p class="big">${r.tds}<span class="unit">ppm</span></p>
+        <dl class="mini"><div><dt>pH</dt><dd>${fmt(r.ph, 1)}</dd></div><div><dt>Transparency</dt><dd>${fmt(r.clarity, 2)}</dd></div></dl>
         ${chip(r.verdict)}
       </figcaption>`;
   }
@@ -108,40 +110,48 @@
     return v > 0 ? Math.min(Math.round(v), a > 0 ? 99 : 100) : Math.round(v);
   }
 
+  const APP_ICON = `<span class="app" aria-hidden="true"><svg viewBox="0 0 160 200"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#F7F0F0" fill-opacity=".55"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="16" stroke-linejoin="round"/></svg></span>`;
+
+  function notice(from, when, title, body, pending) {
+    return `<div class="notice">${APP_ICON}
+      <div class="notice-top"><span>${esc(from)}</span><span>${esc(when)}</span></div>
+      <p class="notice-title${pending ? " deciding" : ""}">${esc(title)}</p>
+      ${body ? `<p class="notice-body">${esc(body)}</p>` : ""}</div>`;
+  }
+
   function renderPour(rise = false) {
     const p = state.pour;
-    $("#pour-meta").textContent = p?.before ? `${nodeName(p.before.node)}, pour ${p.before.test}, ${ago(p.before.ts)}` : "";
+    $("#pour-meta").textContent = p?.before ? `Pour ${p.before.test}, ${ago(p.before.ts)}` : "";
     if (!p || !p.before) {
       $("#before").innerHTML = cupFigure(null, "Before", "Pour a cup into the tank and press its button.");
-      $("#decision").innerHTML = `<p class="quiet">The tank measures pH, dissolved solids and clarity, then picks a filter.</p>`;
+      $("#decision").innerHTML = `<p class="quiet">The tank measures pH, dissolved solids and transparency, then picks a filter.</p>`;
       $("#after").innerHTML = cupFigure(null, "After", "The retest shows up here.");
+      $("#delta").innerHTML = "";
       return;
     }
     const { before, after, decision } = p;
     $("#before").innerHTML = cupFigure(before, "Before", "");
 
-    let d;
     if (!decision) {
-      d = `<div class="flow idle"><span class="line"></span><b class="deciding">Choosing a filter</b><span class="line"></span><svg viewBox="0 0 12 14" aria-hidden="true"><path d="M0 0 L12 7 L0 14Z"/></svg></div>`;
+      $("#decision").innerHTML = notice("Clarity", "now", "Choosing a filter", "", true);
     } else {
       const f = decision.ai_filter;
-      const who = decision.source === "claude" ? "Claude" : "the tank's own rule";
       const head = f === "NONE"
         ? (before.verdict === "SAFE" ? "No filter needed" : "No filter helps here")
         : `Tipped into ${FILTER_NAME[f] || f}`;
-      d = `<div class="flow${f === "NONE" ? " idle" : ""}"><span class="line"></span><b>${esc(FILTER_NAME[f] || f)}</b><span class="line"></span><svg viewBox="0 0 12 14" aria-hidden="true"><path d="M0 0 L12 7 L0 14Z"/></svg></div>
-        <h2>${esc(head)} <span class="who">by ${who}</span></h2>
-        ${decision.explanation ? `<p class="why">${esc(decision.explanation)}</p>` : `<p class="quiet">No AI explanation for this pour: the tank used its built-in thresholds.</p>`}`;
+      const body = decision.explanation || "No AI explanation for this pour: the tank used its built-in thresholds.";
+      $("#decision").innerHTML = notice(decision.source === "claude" ? "Claude" : "Tank rule", ago(before.ts), head, body);
     }
+
     if (after) {
-      const tdsDrop = pct(after.tds, before.tds);
-      d += `<ul class="delta">
-        <li>Dissolved solids <strong>${before.tds} → ${after.tds} ppm</strong> <span class="${tdsDrop >= 0 ? "better" : "worse"}">${tdsDrop >= 0 ? `down ${tdsDrop}%` : `up ${-tdsDrop}%`}</span></li>
-        <li>Clarity <strong>${fmt(before.clarity, 2)} → ${fmt(after.clarity, 2)}</strong></li>
-        <li>pH <strong>${fmt(before.ph, 1)} → ${fmt(after.ph, 1)}</strong></li>
-      </ul>`;
+      const drop = pct(after.tds, before.tds);
+      $("#delta").innerHTML = `
+        <li><span>Dissolved solids, ppm</span><strong>${before.tds} → ${after.tds}</strong><span class="${drop >= 0 ? "better" : "worse"}">${drop >= 0 ? `Down ${drop}%` : `Up ${-drop}%`}</span></li>
+        <li><span>Transparency</span><strong>${fmt(before.clarity, 2)} → ${fmt(after.clarity, 2)}</strong></li>
+        <li><span>pH</span><strong>${fmt(before.ph, 1)} → ${fmt(after.ph, 1)}</strong></li>`;
+    } else {
+      $("#delta").innerHTML = "";
     }
-    $("#decision").innerHTML = d;
 
     const noFilter = decision && decision.ai_filter === "NONE";
     $("#after").innerHTML = after
@@ -167,10 +177,10 @@
 
   function popupFor(n) {
     const r = n.latest;
-    const kind = n.sim ? "Simulated node" : "Measured by a TapTest";
+    const kind = n.sim ? "Simulated node" : "Measured by Clarity";
     if (!r) return `<b>${esc(n.name)}</b><br><span class="pop-meta">${kind}. No readings yet.</span>`;
     return `<b>${esc(n.name)}</b><br><span class="pop-meta">${kind}, ${esc(ago(r.ts))}</span><br>
-      ${r.tds} ppm, pH ${fmt(r.ph, 1)}, clarity ${fmt(r.clarity, 2)}<br>${esc((VERDICT[r.verdict] || [r.verdict])[0])}${r.anomaly >= 0.6 ? ", unusual for this site" : ""}`;
+      ${r.tds} ppm, pH ${fmt(r.ph, 1)}, transparency ${fmt(r.clarity, 2)}<br>${esc((VERDICT[r.verdict] || [r.verdict])[0])}${r.anomaly >= 0.6 ? ", unusual for this site" : ""}`;
   }
 
   function placeNode(n) {
@@ -211,30 +221,37 @@
   }
 
   // ------------------------------------------------------------ filters
+  function ring(frac, cls) {
+    const r = 21, c = 2 * Math.PI * r;
+    const off = c * (1 - Math.max(0, Math.min(1, frac)));
+    return `<svg class="ring ${cls}" viewBox="0 0 52 52" aria-hidden="true">
+      <circle class="track" cx="26" cy="26" r="${r}" fill="none" stroke-width="7"/>
+      <circle class="val" cx="26" cy="26" r="${r}" fill="none" stroke-width="7" stroke-linecap="round"
+        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 26 26)"/></svg>`;
+  }
+
   function renderFilters() {
     const list = state.filters;
     if (!list.length) { $("#filters").innerHTML = `<p class="quiet">No filter data yet. It starts with the first tip.</p>`; return; }
     $("#filters").innerHTML = list.map((f) => {
       const [label, cls] = STATUS[f.status] || [f.status, ""];
       const name = f.name || FILTER_NAME[f.filter] || f.filter;
-      let meter;
+      let frac, detail;
       if (f.filter === "ZEROWATER") {
-        const limit = f.replace_at_tds || 6;
-        const last = f.last_after_tds;
-        const w = last == null ? 0 : Math.min(100, (last / 10) * 100);
-        meter = `<div class="meter ${cls}" role="img" aria-label="Last retest ${last ?? "none"} ppm, replace at ${limit} ppm"><span style="width:${w}%"></span><i style="left:${(limit / 10) * 100}%"></i></div>
-          <p class="meter-note">${last == null ? "No retest yet." : `Last retest read ${last} ppm.`} Replace at ${limit} ppm, ZeroWater's own rule.</p>`;
+        const limit = f.replace_at_tds || 6, last = f.last_after_tds;
+        frac = last == null ? 0 : last / limit;
+        detail = `${fmt(f.liters, 1)} L filtered. ${last == null ? "No retest yet" : `Last retest ${last} ppm`}; replace at ${limit}.`;
       } else {
         const rated = f.rated_liters || 450;
-        const w = Math.min(100, (f.liters / rated) * 100);
-        meter = `<div class="meter ${cls}" role="img" aria-label="${f.liters} of about ${rated} liters used"><span style="width:${w}%"></span></div>
-          <p class="meter-note">${Math.max(0, rated - f.liters).toFixed(1)} L left of about ${rated} L.</p>`;
+        frac = f.liters / rated;
+        detail = `${fmt(f.liters, 1)} of about ${rated} L used.`;
       }
-      return `<div class="filter">
-        <div class="filter-head"><h3>${esc(name)}</h3><p class="chip ${cls}">${esc(label)}</p></div>
-        <p class="liters"><span class="num">${fmt(f.liters, 1)}</span>L filtered</p>
-        ${meter}
-        <button class="btn" type="button" data-replace="${esc(f.filter)}">Mark as replaced</button>
+      return `<div class="f-row">
+        ${ring(frac, cls)}
+        <span class="f-name">${esc(name)}</span>
+        <p class="chip ${cls}">${esc(label)}</p>
+        <p class="f-detail">${esc(detail)}</p>
+        <div class="f-actions"><button class="text-btn" type="button" data-replace="${esc(f.filter)}">Mark as replaced</button></div>
       </div>`;
     }).join("");
   }
@@ -265,14 +282,14 @@
   // ------------------------------------------------------------ investigator
   function renderReport() {
     const r = state.report;
+    $("#report-meta").textContent = r ? `Pour ${r.test}${r.ts ? `, ${ago(r.ts)}` : ""}` : "";
     if (!r) {
       $("#report").innerHTML = state.health.investigator
-        ? `<p class="quiet">The investigator writes a report after each retest: what changed, how this site compares, and what to do next.</p>`
+        ? `<p class="quiet">After each retest, the investigator explains what changed, how this site compares, and what to do next.</p>`
         : `<p class="quiet">Reports appear after each retest once the gateway has an Anthropic key. Add it to .env and restart the gateway.</p>`;
       return;
     }
     $("#report").innerHTML = `
-      <p class="report-meta">${esc(nodeName(r.node))}, pour ${esc(r.test)}${r.filter ? `, ${esc(FILTER_NAME[r.filter] || r.filter)} run` : ""}${r.ts ? `, ${esc(ago(r.ts))}` : ""}</p>
       <p class="report-summary">${esc(r.summary)}</p>
       ${r.findings?.length ? `<h3>Findings</h3><ul>${r.findings.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${r.actions?.length ? `<h3>What to do next</h3><ol>${r.actions.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}`;
@@ -280,25 +297,26 @@
 
   // ------------------------------------------------------------ feed
   function rowHTML(r, fresh) {
-    const n = state.nodes.get(r.node);
-    const sim = r.sim ?? n?.sim;
-    return `<tr class="${fresh ? "fresh" : ""}" data-sim="${sim ? 1 : 0}">
-      <td>${esc(clock(r.ts))}</td>
-      <td class="site">${esc(nodeName(r.node))}${sim ? '<span class="tag-sim">sim</span>' : ""}</td>
-      <td>${r.phase === "after" ? `<span class="retest">${esc(r.test)}, retest</span>` : esc(r.test)}</td>
-      <td class="n">${fmt(r.ph, 2)}</td>
-      <td class="n">${esc(r.tds)}</td>
-      <td class="n">${fmt(r.clarity, 2)}</td>
-      <td>${esc((VERDICT[r.verdict] || [r.verdict])[0])}</td>
-      <td class="n${r.anomaly >= 0.6 ? " high" : ""}">${fmt(r.anomaly, 2)}</td>
-    </tr>`;
+    const sim = r.sim ?? state.nodes.get(r.node)?.sim;
+    const [label, cls] = VERDICT[r.verdict] || [r.verdict, ""];
+    const pour = r.phase === "after" ? `Pour ${r.test}, retest` : `Pour ${r.test}`;
+    return `<li class="row ${cls}${fresh ? " fresh" : ""}">
+      <span class="dot" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-title">${esc(nodeName(r.node))}${sim ? '<span class="tag-sim">Simulated</span>' : ""}</div>
+        <div class="row-sub">${esc(pour)}, ${esc(clock(r.ts))}, pH ${fmt(r.ph, 1)}, transparency ${fmt(r.clarity, 2)}</div>
+      </div>
+      <div class="row-val"><b>${esc(r.tds)}</b> <small>ppm</small>
+        ${r.verdict !== "SAFE" ? `<span class="flag">${esc(label)}</span>` : ""}
+        ${r.anomaly >= 0.6 ? `<span class="flag unusual">Unusual here</span>` : ""}</div>
+    </li>`;
   }
 
   function renderFeed(freshId) {
     const showSim = $("#show-sim").checked;
     $("#feed").innerHTML = state.feed
       .filter((r) => showSim || !(r.sim ?? state.nodes.get(r.node)?.sim))
-      .slice(0, 40)
+      .slice(0, 24)
       .map((r) => rowHTML(r, r.id === freshId))
       .join("");
   }
@@ -332,6 +350,14 @@
     }
   }
 
+  function renderSummary() {
+    const all = [...state.nodes.values()];
+    const measured = all.filter((n) => !n.sim).length, sims = all.length - measured;
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    $("#network-summary").textContent =
+      `${plural(measured, "Clarity node measuring", "Clarity nodes measuring")}, ${plural(sims, "simulated node", "simulated nodes")}, ${plural(state.reference.length, "published site", "published sites")}`;
+  }
+
   // ------------------------------------------------------------ boot
   async function boot() {
     const api = params.get("api");
@@ -346,6 +372,8 @@
       } catch { /* no gateway: demo */ }
     }
     if (!source) { source = TapDemo.create(); state.health = await source.get("/health"); }
+    const water = window.TapWater && TapWater.create($("#water"), { still: matchMedia("(prefers-reduced-motion: reduce)").matches });
+    if (water) document.documentElement.classList.add("has-water");
 
     initMap();
     const soft = (p, fallback) => source.get(p).catch(() => fallback);
@@ -363,6 +391,7 @@
     const lastTank = readings.find((r) => r.node === state.tank) || state.nodes.get(state.tank)?.latest;
     if (lastTank) state.pour = pourFromPair(await soft(`/api/tests/${state.tank}/${lastTank.test}`, [lastTank]));
 
+    renderSummary();
     renderPour();
     renderFilters();
     renderReport();
@@ -372,7 +401,7 @@
     if (map) map.invalidateSize();
     fitMap();
     source.subscribe(onMessage, setConn);
-    setInterval(() => { renderFeed(); if (state.pour?.before) $("#pour-meta").textContent = `${nodeName(state.pour.before.node)}, pour ${state.pour.before.test}, ${ago(state.pour.before.ts)}`; }, 30000);
+    setInterval(() => { renderFeed(); renderPour(); renderReport(); }, 30000);   // keep "x minutes ago" honest
   }
 
   boot().catch((err) => {

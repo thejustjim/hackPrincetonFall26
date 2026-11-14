@@ -1,4 +1,4 @@
-// TapTest - base station receiver (Inland ESP32 Core Board, plugged into the Pi or laptop)
+// Clarity - base station receiver (Inland ESP32 Core Board, plugged into the Pi or laptop)
 // Prints every reading from the tank as one JSON line on USB serial (115200), with "rssi" added.
 // Any line the Pi writes to this serial port is broadcast back to the tank (AI commands).
 //

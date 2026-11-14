@@ -1,4 +1,4 @@
-// TapTest - Arduino Uno main sketch
+// Clarity - Arduino Uno main sketch
 // Reads pH, TDS and clarity, decides a filter, tips the cup, reports over radio.
 //
 // Libraries (Arduino IDE > Library Manager): "LiquidCrystal I2C" by Frank de Brabander.
@@ -198,7 +198,7 @@ void showLine(uint8_t row, const __FlashStringHelper* s) {
 void idleScreen() {
   lcd.clear();
   if (waitingRetest) { lcd.print(F("Pour clean water")); lcd.setCursor(0, 1); lcd.print(F("back, press btn")); led(1, 0, 1); }
-  else { lcd.print(F("TapTest ready")); lcd.setCursor(0, 1); lcd.print(F("Pour + press btn")); led(0, 0, 1); }
+  else { lcd.print(F("Clarity ready")); lcd.setCursor(0, 1); lcd.print(F("Pour + press btn")); led(0, 0, 1); }
 }
 
 void runTest() {

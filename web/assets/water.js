@@ -1,5 +1,5 @@
-/* A slow water surface behind the glass, drawn with WebGL.
-   Pools of the palette's light drift and breathe; drop() sends a ripple across, and its crests
+/* A slow lava lamp behind the glass, drawn with WebGL.
+   Soft blobs of the accent rise, sink and merge, and small bubbles drift up; drop() sends a ripple across, and its crests
    catch the light. pan(n) eases the pools to a new arrangement (parallax between slides).
    Falls back to the CSS .scene pools if WebGL is unavailable. */
 (function () {
@@ -51,20 +51,42 @@ void main() {
   }
   vec2 q = p + disp;
 
-  // #0B2027 is the background. The blue is an accent: two faint glows that breathe on a slow
-  // ~7 s pulse; the gray only lends depth. Pan moves each glow by its own depth (parallax).
-  float t = uTime * 0.035;
-  float pulse = 0.5 + 0.5 * sin(uTime * 0.9);                  // slow breath, ~7 s
-  float breath = mix(0.55, 1.0, pulse * pulse * (3.0 - 2.0 * pulse));
-  vec2 pan = vec2(sin(uPan * 0.9) * 0.22, cos(uPan * 0.7) * 0.10) + uMouse * 0.03;
+  // #0B2027 is the background. A slow lava lamp: soft blobs of the accent rise, sink and
+  // merge (a metaball field), breathing on a ~7 s pulse; a few small bubbles drift up.
+  float t = uTime;
+  float pulse = 0.5 + 0.5 * sin(t * 0.9);
+  float breath = mix(0.7, 1.0, pulse * pulse * (3.0 - 2.0 * pulse));
+  vec2 pan = vec2(sin(uPan * 0.9) * 0.16, cos(uPan * 0.7) * 0.06) + uMouse * 0.025;
+  vec2 lq = q + pan;
+  float field = 0.0;
+  for (int i = 0; i < 7; i++) {
+    float fi = float(i);
+    float speed = 0.07 + 0.025 * mod(fi * 1.7, 3.0);           // 40-90 s per rise and fall
+    float x = (0.12 + 0.13 * fi) * aspect + 0.05 * sin(t * 0.11 + fi * 2.3);
+    float y = 0.5 + 0.48 * sin(t * speed + fi * 1.9);
+    float r = 0.075 + 0.035 * mod(fi * 2.3, 2.0);
+    vec2 d = lq - vec2(x, y);
+    field += r * r / (dot(d, d) + 0.0004);
+  }
+  float blob = smoothstep(0.9, 1.7, field);                    // the wax: soft-edged, merging
+  float core = smoothstep(1.7, 5.0, field);                    // brighter where it is thick
+  float halo = smoothstep(0.25, 1.2, field);                   // glow around it
   vec3 col = DEEP;
-  col = mix(col, BLUE, 0.17 * breath * pool(q + pan * 0.5, vec2(0.18 * aspect + 0.07 * sin(t * 1.3), 0.95 + 0.05 * cos(t)), 0.55));
-  col = mix(col, BLUE, 0.10 * breath * pool(q + pan * 1.5, vec2(0.62 * aspect + 0.09 * sin(t * 0.7 + 2.0), 0.0 + 0.05 * cos(t * 1.7)), 0.42));
-  col = mix(col, GRAY, 0.06 * pool(q + pan * 1.0, vec2(0.95 * aspect + 0.05 * cos(t * 1.1), 0.5 + 0.07 * sin(t * 0.9)), 0.45));
+  col = mix(col, mix(DEEP, BLUE, 0.42), blob * 0.62 * breath);
+  col += BLUE * (0.045 * halo + 0.07 * core) * breath;
+  col = mix(col, GRAY, 0.05 * pool(q, vec2(0.95 * aspect, 0.5), 0.5));
 
-  // the surface itself barely moves
-  float s = sin(q.x * 5.0 + uTime * 0.14) * sin(q.y * 4.0 - uTime * 0.11) + 0.5 * sin((q.x + q.y) * 8.0 + uTime * 0.09);
-  col += 0.006 * s * BLUE;
+  // small bubbles, rising slowly and wobbling: faint rings that catch a little light
+  for (int i = 0; i < 12; i++) {
+    float fi = float(i);
+    float sp = 0.012 + 0.008 * mod(fi * 1.3, 3.0);
+    float by = fract(t * sp + fi * 0.37) * 1.25 - 0.12;
+    float bx = (0.04 + 0.083 * fi) * aspect + 0.012 * sin(t * 0.8 + fi * 4.0);
+    float br = 0.0035 + 0.0035 * mod(fi * 1.9, 2.0);
+    float bd = length(q - vec2(bx, by));
+    float ring = smoothstep(br, br * 0.7, bd) - smoothstep(br * 0.7, br * 0.35, bd) * 0.7;
+    col += SHELL * ring * 0.09 * smoothstep(-0.1, 0.15, by) * smoothstep(1.12, 0.9, by);
+  }
 
   // ripple crests catch the accent light, troughs fall into the dark
   col += mix(BLUE, SHELL, 0.35) * max(h, 0.0) * 0.16;

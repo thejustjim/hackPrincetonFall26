@@ -1,6 +1,8 @@
-# TapTest
+# Clarity
 
-Pour water into one cup. TapTest measures pH, dissolved solids (TDS) and clarity, an AI agent
+*What you deserve.*
+
+Pour water into one cup. Clarity measures pH, dissolved solids (TDS) and clarity (shown as transparency on the dashboard), an AI agent
 on the base station picks a filter, and the cup tips itself into ZeroWater or Brita. Pour the
 clean water back in to retest. Results travel over a direct radio link (no WiFi or cell) to a
 Raspberry Pi base station that maps every node around Princeton.
@@ -93,7 +95,7 @@ Without a key, the gateway uses the tank's local rule only. With one, Claude pic
 
 ## Hardware bring-up order (Uno)
 Upload `taptest_uno`, open Serial Monitor at 115200, type `h`.
-1. LCD shows "TapTest ready". If blank, turn the blue pot on the I2C backpack; if still blank try address 0x3F.
+1. LCD shows "Clarity ready". If blank, turn the blue pot on the I2C backpack; if still blank try address 0x3F.
 2. `v` prints raw values. TDS in tap water should read roughly 50-300 ppm.
 3. pH: probe in the 6.86 buffer, wait 1 min, type `a6.86`. Rinse, 4.00 buffer, type `b4.00`. `m` should now read close to the buffer.
 4. Clarity: clean water in the cup, type `c` (or long-press the button). `m` should show clarity near 1.00; tea should drop well below 0.70.

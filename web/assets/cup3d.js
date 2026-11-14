@@ -1,6 +1,6 @@
 /* A glass of water in three.js for the title slide.
    It starts murky (amber specks of dissolved solids, tea-brown tint), a drop lands, and the
-   water clears to the palette's blue while the specks sink and fade: the TapTest story in
+   water clears to the palette's blue while the specks sink and fade: the Clarity story in
    one object. The cup leans toward the pointer and the water sloshes behind the motion.
    window.TapCup3D = { play(), drop(strength), setActive(bool) } once mounted.
    If WebGL or the module fails, the SVG cups already in the vitrine stay. */

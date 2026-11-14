@@ -1,4 +1,4 @@
-"""Fake TapTest hardware. Produces exactly the lines the receiver ESP32 prints.
+"""Fake Clarity hardware. Produces exactly the lines the receiver ESP32 prints.
 
 Run on its own to see the format:   python mock.py
 The gateway uses it with:           MOCK=1 python gateway.py

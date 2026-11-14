@@ -323,7 +323,7 @@
     const t = sites.find((x) => !x.sim);
     s += `<circle cx="${px(t.lon)}" cy="${py(t.lat)}" r="18" fill="rgba(90,155,189,.18)"/>`;
     s += `<circle class="tank" cx="${px(t.lon)}" cy="${py(t.lat)}" r="10" fill="var(--accent)" stroke="var(--text)" stroke-width="2"/>`;
-    s += `<text class="label-tank" x="${px(t.lon) - 20}" y="${py(t.lat) + 5}" text-anchor="end">TapTest tank</text>`;
+    s += `<text class="label-tank" x="${px(t.lon) - 20}" y="${py(t.lat) + 5}" text-anchor="end">Clarity tank</text>`;
     s += `</svg>`;
     $("#mini-map").innerHTML = s;
   }

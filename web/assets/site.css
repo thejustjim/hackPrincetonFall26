@@ -1,19 +1,31 @@
-/* TapTest shared styles: tokens, glass, scene, header. Dark only.
-   Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580 */
+/* Clarity shared design system. Dark only.
+   Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580
+   Structure borrows from iOS: translucent materials, widgets with icon headers, inset grouped
+   lists, a segmented control, label colours as opacities of one ink. Display type is a serif
+   (Newsreader, in the spirit of Apple's New York); interface type is San Francisco. */
 :root {
   color-scheme: dark;
   /* the palette */
-  --deep: #0B2027;       /* page */
-  --text: #F7F0F0;
-  --accent: #5A9BBD;     /* measured, safe, links, focus */
-  --neutral: #717580;    /* rules, tracks, simulated markers */
-  /* derived */
-  --muted: #A3A6AE;      /* secondary text: --neutral lifted to 5.7:1 so small text stays legible */
-  --well: #07161B;       /* insets: map, meters */
-  --line: rgba(247, 240, 240, 0.12);
-  --glass: linear-gradient(150deg, rgba(247, 240, 240, 0.07), rgba(247, 240, 240, 0.018));
-  --glass-edge: rgba(247, 240, 240, 0.14);
-  --glass-blur: blur(22px) saturate(150%);
+  --deep: #0B2027;       /* background */
+  --text: #F7F0F0;       /* primary label */
+  --accent: #5A9BBD;     /* tint: measured, safe, links, focus */
+  --neutral: #717580;    /* fills, separators, simulated markers */
+  /* labels, iOS-style: one ink at decreasing opacity */
+  --label2: rgba(247, 240, 240, 0.64);   /* secondary, 6.4:1 on the background */
+  --label3: rgba(247, 240, 240, 0.42);   /* tertiary: never the only carrier of meaning */
+  --muted: var(--label2);
+  /* materials */
+  --material: rgba(247, 240, 240, 0.055);
+  --material-thick: rgba(16, 38, 47, 0.72);
+  --material-blur: blur(30px) saturate(180%);
+  --hairline: rgba(247, 240, 240, 0.11);
+  --fill: rgba(113, 117, 128, 0.26);     /* controls, tracks */
+  --well: rgba(3, 12, 16, 0.5);
+  --line: var(--hairline);
+  /* older names, kept so every page reads the same tokens */
+  --glass: var(--material);
+  --glass-edge: var(--hairline);
+  --glass-blur: var(--material-blur);
   /* status: only ever shown with a text label */
   --warn: #E2BE5E;
   --alert: #D9667E;
@@ -22,92 +34,126 @@
   --mineral: #E2BE5E;
   --tannin: #A8794F;
 
-  --font: "Archivo", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: "Newsreader", "New York", ui-serif, Georgia, serif;
+  --font: var(--sans);
+  --r-widget: 22px;
+  --r-group: 14px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; background: var(--deep); }
 body {
   margin: 0;
-  background: transparent;   /* the page colour lives on html, so .scene shows through */
+  background: transparent;   /* the page colour lives on html, so the background layer shows */
   color: var(--text);
-  font-family: var(--font);
-  font-size: 16px;
-  line-height: 1.5;
+  font-family: var(--sans);
+  font-size: 17px;           /* iOS body */
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
-a { color: var(--accent); text-underline-offset: 3px; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 .num { font-variant-numeric: tabular-nums; }
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap;
 }
+.icon-sprite { display: none; }
+.i { width: 1.15em; height: 1.15em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ---- glass */
-.glass {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-edge);
-  box-shadow: inset 0 1px 0 rgba(247, 240, 240, 0.10), 0 30px 60px -32px rgba(0, 0, 0, 0.55);
+/* ---- type */
+.large-title { margin: 0; font-family: var(--serif); font-weight: 450; font-size: 46px; line-height: 1.04; letter-spacing: -0.015em; font-optical-sizing: auto; }
+.serif-num { font-family: var(--serif); font-weight: 400; font-variant-numeric: lining-nums tabular-nums; letter-spacing: -0.02em; }
+
+/* ---- material surfaces */
+.glass, .material {
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 1px 0 rgba(247, 240, 240, 0.06) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.6);
 }
 
-/* ---- scene: slow pools of light behind the glass */
-.scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--deep); }
-.scene .pool { position: absolute; border-radius: 50%; filter: blur(90px); will-change: transform; }
+/* ---- background: WebGL lava lamp (water.js), with soft CSS pools when WebGL is missing */
+#water { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; display: block; }
+.has-water .scene { display: none; }
+.scene { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; background: var(--deep); }
+.scene .pool { position: absolute; border-radius: 50%; filter: blur(90px); }
 .scene .p1 { width: 56vmax; height: 56vmax; left: -14vmax; top: -18vmax; background: rgba(90, 155, 189, 0.16); animation: breathe 7s ease-in-out infinite; }
 .scene .p2 { width: 46vmax; height: 46vmax; right: -16vmax; top: 22vh; background: rgba(113, 117, 128, 0.07); }
 .scene .p3 { width: 40vmax; height: 40vmax; left: 22vw; bottom: -26vmax; background: rgba(90, 155, 189, 0.10); animation: breathe 7s ease-in-out -3.5s infinite; }
 .scene .p4 { width: 22vmax; height: 22vmax; right: 18vw; top: -8vmax; background: rgba(247, 240, 240, 0.02); }
-/* the accent glows breathe slowly; #0B2027 stays the background */
 @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-/* ---- header */
+
+/* ---- navigation bar */
 .top {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 28px;
-  padding: 14px 24px;
-  background: rgba(11, 32, 39, 0.55);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px;
+  padding: 12px 24px;
+  background: var(--material-thick);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-bottom: 1px solid var(--hairline);
 }
 .wordmark {
-  display: inline-flex; align-items: center; gap: 10px;
-  color: var(--text); text-decoration: none;
-  font-stretch: 125%; font-weight: 800; font-size: 21px; letter-spacing: -0.01em;
+  justify-self: start; display: inline-flex; align-items: center; gap: 9px;
+  color: var(--text); font-family: var(--serif); font-size: 22px; font-weight: 500; letter-spacing: -0.01em;
 }
-.wordmark svg { width: 20px; height: 24px; }
-.top nav { display: flex; gap: 4px; }
-.top nav a {
-  color: var(--muted); text-decoration: none; font-weight: 500;
-  padding: 6px 14px; border-radius: 999px;
+.wordmark:hover { text-decoration: none; }
+.wordmark svg { width: 17px; height: 21px; }
+
+/* segmented control */
+.segmented { display: inline-flex; padding: 2px; border-radius: 9px; background: var(--fill); }
+.segmented a {
+  min-width: 108px; padding: 6px 18px; border-radius: 7px; text-align: center;
+  color: var(--text); font-size: 13px; font-weight: 500; letter-spacing: 0;
 }
-.top nav a:hover { color: var(--text); }
-.top nav a[aria-current="page"] { color: var(--text); background: rgba(247, 240, 240, 0.08); box-shadow: inset 0 0 0 1px var(--glass-edge); }
+.segmented a:hover { text-decoration: none; }
+.segmented a[aria-current="page"] {
+  background: rgba(113, 117, 128, 0.72); font-weight: 600;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18), 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
 .conn {
-  margin: 0 0 0 auto;
-  display: flex; align-items: center; gap: 8px;
-  color: var(--muted); font-size: 14px;
+  justify-self: end; margin: 0;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 999px; background: var(--fill);
+  color: var(--label2); font-size: 13px; letter-spacing: 0;
 }
-.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
-.conn[data-state="live"] .dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(90, 155, 189, 0.22); }
+.conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); }
+.conn[data-state="live"] .dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(90, 155, 189, 0.25); }
 .conn[data-state="demo"] .dot { background: var(--warn); }
 .conn[data-state="down"] .dot { background: var(--alert); }
 
+/* iOS switch */
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; color: var(--label2); font-size: 15px; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track { position: relative; width: 46px; height: 28px; border-radius: 999px; background: var(--fill); transition: background 0.25s; flex: none; }
+.switch .track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--text); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2), 0 1px 1px rgba(0, 0, 0, 0.16);
+  transition: transform 0.3s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::after { transform: translateX(18px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 /* ---- cups (drawn by cup.js) */
 .cup { display: block; overflow: visible; }
-.cup .glass-line {
-  fill: none; stroke: var(--text); stroke-opacity: 0.6;
-  stroke-width: 3; stroke-linejoin: round; stroke-linecap: round;
-}
+.cup .glass-line { fill: none; stroke: var(--text); stroke-opacity: 0.6; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .cup .meniscus { stroke: var(--text); stroke-opacity: 0.4; stroke-width: 1.5; }
 .cup-empty .glass-line { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
 .cup .rise { animation: rise 1.6s cubic-bezier(.2, .7, .2, 1); }
 @keyframes rise { from { transform: translateY(140px); } to { transform: none; } }
 
-@media (max-width: 640px) {
-  .top { flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; }
-  .conn { margin: 0; width: 100%; }
+@media (max-width: 720px) {
+  .top { grid-template-columns: 1fr auto; padding: 10px 16px; gap: 10px; }
+  .segmented { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; }
+  .segmented a { flex: 1; min-width: 0; }
+  .large-title { font-size: 36px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

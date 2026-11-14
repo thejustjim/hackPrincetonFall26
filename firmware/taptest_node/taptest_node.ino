@@ -1,4 +1,4 @@
-// TapTest - tank radio node (Adafruit HUZZAH32 Feather)
+// Clarity - tank radio node (Adafruit HUZZAH32 Feather)
 // Uno D3 -> divider -> Feather RX (GPIO16). Feather TX (GPIO17) -> Uno D9.
 // Every line the Uno prints is broadcast over ESP-NOW. Commands from the base
 // station (lines containing "cmd") are passed back to the Uno.
@@ -50,7 +50,7 @@ void setup() {
   Serial1.begin(9600, SERIAL_8N1, 16, 17);    // RX=16 (from Uno), TX=17 (to Uno)
   pinMode(LED_PIN, OUTPUT);
   radioSetup();
-  Serial.print("TapTest node ready, MAC "); Serial.println(WiFi.macAddress());
+  Serial.print("Clarity node ready, MAC "); Serial.println(WiFi.macAddress());
 }
 
 char line[250];

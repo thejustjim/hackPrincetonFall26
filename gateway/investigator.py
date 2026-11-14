@@ -31,7 +31,7 @@ class Report(BaseModel):
     actions: list[str] = Field(description="One to three practical next steps, most important first.")
 
 
-SYSTEM = """You are the investigator inside TapTest, a low-cost water tester near Princeton, NJ.
+SYSTEM = """You are the investigator inside Clarity, a low-cost water tester near Princeton, NJ.
 A cup of water was measured (the "before" test), tipped through a filter (ZEROWATER removes
 dissolved solids; BRITA is activated carbon for colour, cloudiness and taste), then poured
 back and measured again (the "after" test). You get both readings. Find out what they mean.

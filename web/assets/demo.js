@@ -5,7 +5,7 @@
   "use strict";
 
   const SITES = [
-    ["tank-01", "TapTest demo (HackPrinceton)", 40.3467, -74.6553, false, 0],
+    ["tank-01", "Clarity demo (HackPrinceton)", 40.3467, -74.6553, false, 0],
     ["sim-01", "Carnegie Lake", 40.3380, -74.6380, true, 180], ["sim-02", "Kingston", 40.3762, -74.6143, true, 230],
     ["sim-03", "Rocky Hill", 40.3990, -74.6385, true, 260], ["sim-04", "Lawrenceville", 40.2973, -74.7296, true, 210],
     ["sim-05", "Plainsboro", 40.3335, -74.5927, true, 170], ["sim-06", "Hopewell (well)", 40.3893, -74.7621, true, 420],
@@ -34,9 +34,9 @@
 
   function explain(r, filt) {
     if (filt === "ZEROWATER") return `TDS is ${r.tds} ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater strips dissolved solids, so the cup goes there. Pour it back afterwards to confirm.`;
-    if (filt === "BRITA") return `Clarity is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita's carbon handles colour and cloudiness. Pour it back afterwards to confirm.`;
+    if (filt === "BRITA") return `Transparency is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita's carbon handles colour and cloudiness. Pour it back afterwards to confirm.`;
     if (r.verdict === "PH_WARN") return `pH is ${r.ph}, outside 6.5 to 8.5. Neither filter fixes pH, so no filter this time. Check the source.`;
-    return `pH ${r.ph}, ${r.tds} ppm and clarity ${r.clarity.toFixed(2)} are all in the normal range. No filter needed.`;
+    return `pH ${r.ph}, ${r.tds} ppm and transparency ${r.clarity.toFixed(2)} are all in the normal range. No filter needed.`;
   }
 
   function create() {
@@ -99,7 +99,7 @@
            `Published: the Millstone River typically runs about 248 ppm (NJ DEP, 2024 to 2025), so ${before.tds} ppm is far saltier than local surface water.`,
            `Simulated: nearby sim nodes read ${lo} to ${hi} ppm, so nothing unusual around the tank.`,
            `Filter: ZeroWater has filtered ${f.liters} L; this retest read ${after.tds} ppm against its 6 ppm replace point.`]
-        : [`Measured: clarity went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
+        : [`Measured: transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
            `Published: Lake Carnegie typically reads about 177 ppm (NJ DEP, 2022 to 2023), similar to this sample.`,
            `Simulated: nearby sim nodes read ${lo} to ${hi} ppm.`,
            `Filter: Brita Elite has filtered ${f.liters} L of its ~450 L rating (${f.percent_used}%).`];
@@ -112,7 +112,7 @@
             : ["Order a replacement Brita Elite cartridge; this one is past 90% of its rating.", "The filtered water is clear enough to drink for now."]);
       const summary = zw
         ? `ZeroWater took this cup from ${before.tds} ppm to ${after.tds} ppm of dissolved solids${after.tds >= 6 ? ", but that is at its replace point" : ", so the filter did its job"}.`
-        : `Brita cleared the cup from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)} clarity, so the filter did its job.`;
+        : `Brita took the cup's transparency from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}, so the filter did its job.`;
       return { type: "report", id: ++reportId, ts: now(), node: after.node, test: after.test, reading_id: after.id,
                filter: used, summary, findings, actions, source: "deepagents", model: "demo" };
     }
