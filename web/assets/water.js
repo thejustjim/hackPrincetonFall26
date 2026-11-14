@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   const MAX_RIPPLES = 12;
-  const SCALE = 0.5;                       // render at half resolution: it is soft, and sits under blur
+  const SCALE = 1;                         // full CSS resolution: half-res made dark gradients blocky
 
   const VERT = `
 attribute vec2 aPos;
@@ -51,41 +51,38 @@ void main() {
   }
   vec2 q = p + disp;
 
-  // #0B2027 is the background. A slow lava lamp: soft blobs of the accent rise, sink and
-  // merge (a metaball field), breathing on a ~7 s pulse; a few small bubbles drift up.
+  // #0B2027 is the background, and it stays that dark. A slow lava lamp: four large, very
+  // soft shapes of the accent rise, sink and merge, lifting the dark only slightly, on a
+  // ~7 s breath; a few faint bubbles drift up.
   float t = uTime;
   float pulse = 0.5 + 0.5 * sin(t * 0.9);
-  float breath = mix(0.7, 1.0, pulse * pulse * (3.0 - 2.0 * pulse));
-  vec2 pan = vec2(sin(uPan * 0.9) * 0.16, cos(uPan * 0.7) * 0.06) + uMouse * 0.025;
+  float breath = mix(0.75, 1.0, pulse * pulse * (3.0 - 2.0 * pulse));
+  vec2 pan = vec2(sin(uPan * 0.9) * 0.14, cos(uPan * 0.7) * 0.05) + uMouse * 0.02;
   vec2 lq = q + pan;
   float field = 0.0;
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 4; i++) {
     float fi = float(i);
-    float speed = 0.07 + 0.025 * mod(fi * 1.7, 3.0);           // 40-90 s per rise and fall
-    float x = (0.12 + 0.13 * fi) * aspect + 0.05 * sin(t * 0.11 + fi * 2.3);
-    float y = 0.5 + 0.48 * sin(t * speed + fi * 1.9);
-    float r = 0.075 + 0.035 * mod(fi * 2.3, 2.0);
+    float speed = 0.055 + 0.02 * fi;                            // about 60-110 s per rise and fall
+    float x = (0.16 + 0.24 * fi) * aspect + 0.06 * sin(t * 0.07 + fi * 2.1);
+    float y = 0.5 + 0.42 * sin(t * speed + fi * 2.4);
+    float r = 0.17 + 0.04 * mod(fi * 1.7, 2.0);
     vec2 d = lq - vec2(x, y);
-    field += r * r / (dot(d, d) + 0.0004);
+    field += r * r / (dot(d, d) + 0.002);
   }
-  float blob = smoothstep(0.9, 1.7, field);                    // the wax: soft-edged, merging
-  float core = smoothstep(1.7, 5.0, field);                    // brighter where it is thick
-  float halo = smoothstep(0.25, 1.2, field);                   // glow around it
+  float blob = smoothstep(0.5, 2.2, field);                    // wide, soft edges: no outlines
   vec3 col = DEEP;
-  col = mix(col, mix(DEEP, BLUE, 0.42), blob * 0.62 * breath);
-  col += BLUE * (0.045 * halo + 0.07 * core) * breath;
-  col = mix(col, GRAY, 0.05 * pool(q, vec2(0.95 * aspect, 0.5), 0.5));
+  col = mix(col, mix(DEEP, BLUE, 0.32), blob * 0.38 * breath);
 
-  // small bubbles, rising slowly and wobbling: faint rings that catch a little light
-  for (int i = 0; i < 12; i++) {
+  // a few faint bubbles
+  for (int i = 0; i < 6; i++) {
     float fi = float(i);
-    float sp = 0.012 + 0.008 * mod(fi * 1.3, 3.0);
-    float by = fract(t * sp + fi * 0.37) * 1.25 - 0.12;
-    float bx = (0.04 + 0.083 * fi) * aspect + 0.012 * sin(t * 0.8 + fi * 4.0);
-    float br = 0.0035 + 0.0035 * mod(fi * 1.9, 2.0);
+    float sp = 0.01 + 0.006 * mod(fi * 1.3, 3.0);
+    float by = fract(t * sp + fi * 0.41) * 1.25 - 0.12;
+    float bx = (0.1 + 0.16 * fi) * aspect + 0.012 * sin(t * 0.7 + fi * 4.0);
+    float br = 0.004 + 0.003 * mod(fi * 1.9, 2.0);
     float bd = length(q - vec2(bx, by));
     float ring = smoothstep(br, br * 0.7, bd) - smoothstep(br * 0.7, br * 0.35, bd) * 0.7;
-    col += SHELL * ring * 0.09 * smoothstep(-0.1, 0.15, by) * smoothstep(1.12, 0.9, by);
+    col += SHELL * ring * 0.045 * smoothstep(-0.1, 0.15, by) * smoothstep(1.12, 0.9, by);
   }
 
   // ripple crests catch the accent light, troughs fall into the dark
@@ -94,7 +91,9 @@ void main() {
 
   // vignette into deeper dark at the edges
   float v = smoothstep(1.25, 0.25, length((vUv - 0.5) * vec2(aspect, 1.0)));
-  col *= mix(0.6, 1.0, v);
+  col *= mix(0.62, 1.0, v);
+  // dither: dark gradients band into visible steps on 8-bit screens; noise of one level hides it
+  col += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);
 }`;
 

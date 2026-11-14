@@ -15,8 +15,8 @@
   --label3: rgba(247, 240, 240, 0.42);   /* tertiary: never the only carrier of meaning */
   --muted: var(--label2);
   /* materials */
-  --material: rgba(247, 240, 240, 0.055);
-  --material-thick: rgba(16, 38, 47, 0.72);
+  --material: rgba(247, 240, 240, 0.045);
+  --material-thick: rgba(11, 32, 39, 0.78);
   --material-blur: blur(30px) saturate(180%);
   --hairline: rgba(247, 240, 240, 0.11);
   --fill: rgba(113, 117, 128, 0.26);     /* controls, tracks */
