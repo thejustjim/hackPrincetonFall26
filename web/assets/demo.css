@@ -213,6 +213,19 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .section-head { flex-wrap: wrap; gap: 4px 24px; }
   #map { height: 320px; }
 }
+/* small laptop windows: the notes' explanations are set narrower, so an open one stays clear of the headline column */
+@media (min-width: 1181px) and (max-width: 1320px) {
+  .tag .txt { width: 176px; }
+}
+/* tablets and small windows: the words on the left, the glass with its notes under it on the right */
+@media (min-width: 761px) and (max-width: 1180px) {
+  :root { --cup-h: 54vh; --cup-w: min(46vw, 40vh); }
+  #hero-inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .hero-copy { padding-top: 7vh; }
+  .stage { grid-column: 2; }
+  .tags { max-width: none; padding-left: 0; }
+  .context { grid-column: 1 / -1; max-width: none; margin: 4px 0 24px; }   /* no auto margins: as a grid item it would shrink and centre */
+}
 @media (max-width: 640px) {
   :root { --cup-y: 30vh; --cup-h: 60vh; }
   .bar .tagline { display: none; }
