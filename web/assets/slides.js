@@ -68,41 +68,90 @@
 
   // ---------------------------------------------------------------- transitions
   const settle = (els) => els.forEach((el) => el.getAnimations().forEach((a) => a.cancel()));
+  let pending = [];                                    // this slide's scheduled ripples
+  const later = (ms, fn) => pending.push(setTimeout(fn, ms));
+  const clearPending = () => { pending.forEach(clearTimeout); pending = []; };
+  const cup = () => window.TapCup3D;
+
+  // a ripple that comes from an element: centred on it, sized to it
+  function rippleFrom(rect, strength) {
+    if (!water || !rect || !rect.width) return;
+    const size = Math.min(1.5, Math.max(0.45, Math.sqrt(rect.width * rect.height) / (0.32 * innerHeight)));
+    water.drop(rect.left + rect.width / 2, rect.top + rect.height / 2, strength, size);
+  }
+  const focusOf = (s) => (s.dataset.focus ? s.querySelector(s.dataset.focus) : null);
+  const echoesOf = (s) => (s.dataset.echo ? [...s.querySelectorAll(s.dataset.echo)] : []);
 
   function enter(i, dir, delay) {
+    const s = slides[i];
     const { words, panels } = parts[i];
     settle(words.concat(panels));
+    // measure where the focus and echoes will rest, before anything starts moving
+    const focus = focusOf(s), echoes = echoesOf(s);
+    const focusRect = focus && focus.getBoundingClientRect();
+    const echoRects = echoes.map((el) => el.getBoundingClientRect());
     if (still.matches) {
-      slides[i].animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, fill: "both" });
+      s.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 400, fill: "both" });
       return;
     }
     words.forEach((w, k) => w.animate(
       [{ transform: `translateY(${dir >= 0 ? 108 : -108}%)`, opacity: 0, filter: "blur(6px)" },
        { transform: "none", opacity: 1, filter: "blur(0)" }],
       { duration: WORD, delay: delay + k * WORD_GAP, easing: LUX, fill: "both" }));
+    const wordsLand = delay + Math.max(0, words.length - 1) * WORD_GAP + WORD * 0.4;
     const start = delay + 220 + Math.min(words.length, 6) * WORD_GAP;
-    panels.forEach((el, k) => el.animate(
-      [{ opacity: 0, transform: `translateY(${dir >= 0 ? 46 : -46}px) scale(0.985)`, filter: "blur(12px)" },
-       { opacity: 1, transform: "none", filter: "blur(0)" }],
-      { duration: PANEL, delay: start + k * PANEL_GAP, easing: LUX, fill: "both" }));
+    const lands = new Map();                           // element -> ms when it has mostly settled
+    panels.forEach((el, k) => {
+      el.animate(
+        [{ opacity: 0, transform: `translateY(${dir >= 0 ? 46 : -46}px) scale(0.985)`, filter: "blur(12px)" },
+         { opacity: 1, transform: "none", filter: "blur(0)" }],
+        { duration: PANEL, delay: start + k * PANEL_GAP, easing: LUX, fill: "both" });
+      lands.set(el, start + k * PANEL_GAP + PANEL * 0.4);
+    });
+    const landing = (el) => lands.get(el.closest("[data-depth]")) ?? wordsLand;
+
+    // The hierarchy decides the water: the focus lands first and strongest, sized to itself;
+    // echoes follow it as small ripples, one at a time, in reading order.
+    let t = 0;
+    if (focus) {
+      t = landing(focus);
+      if (i === 0) {
+        // the cup loads as a module and may arrive late: decide when the slide lands
+        later(t, () => {
+          if (!cup()) return rippleFrom(focusRect, 1);
+          cup().play();                                 // the cup's own drop lands 2.2 s into its pour,
+          later(2200, () => rippleFrom(focusRect, 1));  // and the water outside answers it
+        });
+      } else {
+        later(t, () => rippleFrom(focusRect, 1));
+      }
+    }
+    echoes.forEach((el, k) => {
+      t = Math.max(landing(el), focus ? t + 320 : t + 170);
+      later(t, () => rippleFrom(echoRects[k], focus ? 0.38 : 0.5));
+    });
   }
 
   function exit(i, dir) {
     const els = parts[i].all;
     const s = slides[i];
     s.classList.add("leaving");
+    // the old focus lets go with a faint ripple: immediate feedback for the input
+    const f = focusOf(s) || echoesOf(s)[0] || els[0];
+    if (f) rippleFrom(f.getBoundingClientRect(), 0.22);
+    const done = () => {
+      s.classList.remove("leaving");
+      if (!s.classList.contains("on")) { settle(els); settle(parts[i].words); if (i === 0) cup()?.setActive(false); }
+    };
     if (still.matches) {
       return s.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, fill: "both" }).finished
-        .then(() => { s.classList.remove("leaving"); s.getAnimations().forEach((a) => a.cancel()); });
+        .then(() => { s.getAnimations().forEach((a) => a.cancel()); done(); });
     }
     const runs = els.map((el, k) => el.animate(
       [{ opacity: 1, transform: "none", filter: "blur(0)" },
        { opacity: 0, transform: `translateY(${dir >= 0 ? -30 : 30}px)`, filter: "blur(10px)" }],
       { duration: EXIT, delay: k * 45, easing: SOFT, fill: "both" }));
-    return Promise.all(runs.map((a) => a.finished.catch(() => {}))).then(() => {
-      s.classList.remove("leaving");
-      if (!s.classList.contains("on")) { settle(els); settle(parts[i].words); }
-    });
+    return Promise.all(runs.map((a) => a.finished.catch(() => {}))).then(done);
   }
 
   let at = -1, lockedUntil = 0, queued = 0;
@@ -118,20 +167,22 @@
     if (!deckMode()) { slides[n].scrollIntoView({ behavior: still.matches ? "auto" : "smooth" }); return; }
 
     lockedUntil = now + (still.matches ? 400 : LOCK);
+    clearPending();
     if (from >= 0) {
       slides[from].classList.remove("on");
       exit(from, dir);
     }
     slides[n].classList.add("on");
+    if (n === 0) cup()?.setActive(true);
     enter(n, dir, from >= 0 ? ENTER_AT : 250);
-    if (water) {
-      water.pan(n);
-      water.drop(innerWidth / 2, innerHeight / 2, from >= 0 ? 1 : 0.7);
-    }
+    water?.pan(n);
     setTimeout(() => {           // one queued step, so a second flick isn't lost
       if (queued && performance.now() >= lockedUntil) { const q = queued; queued = 0; go(at + q); }
     }, (still.matches ? 400 : LOCK) + 20);
   }
+
+  // the 3D cup loads as a module, after this script: sync it with wherever we are
+  window.addEventListener("cup3d:ready", () => { cup().setActive(at === 0 && deckMode()); });
 
   // ---------------------------------------------------------------- input
   let acc = 0, lastWheel = 0, quietUntil = 0;
@@ -168,11 +219,20 @@
     if (Math.abs(dy) > 40) go(at + Math.sign(dy));
   });
 
-  // a tap on open water makes a small ripple
+  // the water answers the pointer: a press makes a ripple, gliding over glass leaves faint ones
   document.addEventListener("pointerdown", (e) => {
     if (!water || e.target.closest("a, button, .chart-box")) return;
-    water.drop(e.clientX, e.clientY, 0.55);
+    water.drop(e.clientX, e.clientY, 0.5, 0.75);
   });
+  let lastTrail = 0, trailX = 0, trailY = 0;
+  document.addEventListener("pointermove", (e) => {
+    if (!water || e.pointerType !== "mouse" || !deckMode()) return;
+    const now = performance.now();
+    if (now - lastTrail < 650 || !e.target.closest(".slide.on .glass")) return;
+    if (Math.hypot(e.clientX - trailX, e.clientY - trailY) < 60) return;
+    lastTrail = now; trailX = e.clientX; trailY = e.clientY;
+    water.drop(e.clientX, e.clientY, 0.14, 0.5);
+  }, { passive: true });
 
   window.addEventListener("hashchange", () => {
     const n = (parseInt(location.hash.slice(1), 10) || 1) - 1;
@@ -248,15 +308,22 @@
     sites.filter((x) => x.sim).forEach((x) => {
       s += `<circle cx="${px(x.lon)}" cy="${py(x.lat)}" r="7" fill="none" stroke="var(--neutral)" stroke-width="2" stroke-dasharray="3 3"/>`;
     });
-    ref.forEach((r) => {
-      const cx = px(r.lon), cy = py(r.lat);
-      s += `<rect x="${cx - 7}" y="${cy - 7}" width="14" height="14" transform="rotate(45 ${cx} ${cy})" fill="rgba(247,240,240,.15)" stroke="var(--text)" stroke-width="2.5"/>`;
-      s += `<text class="label-pub" x="${cx + 14}" y="${cy + 22}">${r.site}</text>`;
+    // published sites sit close together, so their labels go in a column with leader lines
+    const pubs = ref.map((r) => ({ r, cx: px(r.lon), cy: py(r.lat) })).sort((a, b) => a.cx - b.cx);   // left to right: the leaders fan out without crossing
+    pubs.forEach((p, k) => {
+      const ly = 74 + k * 40, colX = W - 26;
+      const text = `${p.r.site} ~${p.r.typical_tds_est} ppm`;
+      const x0 = colX - text.length * 7.7 - 12;
+      s += `<path d="M${p.cx + 6} ${p.cy - 6} L${x0} ${ly - 5} H${x0 + 4}" fill="none" stroke="var(--neutral)" stroke-width="1"/>`;
+      s += `<text class="label-pub" x="${colX}" y="${ly}" text-anchor="end">${text}</text>`;
+    });
+    pubs.forEach(({ cx, cy }) => {
+      s += `<rect class="pub" x="${cx - 7}" y="${cy - 7}" width="14" height="14" transform="rotate(45 ${cx} ${cy})" fill="rgba(247,240,240,.15)" stroke="var(--text)" stroke-width="2.5"/>`;
     });
     const t = sites.find((x) => !x.sim);
     s += `<circle cx="${px(t.lon)}" cy="${py(t.lat)}" r="18" fill="rgba(90,155,189,.18)"/>`;
-    s += `<circle cx="${px(t.lon)}" cy="${py(t.lat)}" r="10" fill="var(--accent)" stroke="var(--text)" stroke-width="2"/>`;
-    s += `<text class="label-tank" x="${px(t.lon) + 18}" y="${py(t.lat) - 12}">TapTest tank</text>`;
+    s += `<circle class="tank" cx="${px(t.lon)}" cy="${py(t.lat)}" r="10" fill="var(--accent)" stroke="var(--text)" stroke-width="2"/>`;
+    s += `<text class="label-tank" x="${px(t.lon) - 20}" y="${py(t.lat) + 5}" text-anchor="end">TapTest tank</text>`;
     s += `</svg>`;
     $("#mini-map").innerHTML = s;
   }

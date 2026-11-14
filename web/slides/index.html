@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
   <link rel="stylesheet" href="../assets/site.css">
   <link rel="stylesheet" href="../assets/slides.css">
+  <script type="importmap">{ "imports": { "three": "../vendor/three/three.module.min.js" } }</script>
 </head>
 <body class="deck-page">
   <div class="scene" aria-hidden="true"><div class="pool p1"></div><div class="pool p2"></div><div class="pool p3"></div><div class="pool p4"></div></div>
@@ -25,99 +26,96 @@
       <a href="../">Dashboard</a>
       <a href="./" aria-current="page">Pitch</a>
     </nav>
-    <p class="conn deck-help">Scroll, arrow keys or swipe to move. F for full screen.</p>
   </header>
 
+  <!-- data-focus: where the main ripple lands as the slide settles.
+       data-echo: smaller ripples, one per element, in reveal order. -->
   <main class="deck" id="deck">
 
-    <section class="slide s-title" aria-label="TapTest">
+    <section class="slide s-title" aria-label="TapTest" data-focus=".vitrine">
       <div class="frame">
         <div class="title-text">
           <h1 data-depth="0.25">TapTest</h1>
           <p class="lede" data-depth="0.45">Affordable water monitoring that leads to action.</p>
-          <p class="foot" data-depth="0.6">HackPrinceton, Fall 2026</p>
         </div>
-        <div class="vitrine glass" data-depth="0.8" aria-hidden="true">
-          <div class="cup-slot" data-cup='{"tds":210,"clarity":0.42,"ph":6.9,"test":3}'></div>
-          <svg class="pour-arrow" viewBox="0 0 120 20"><path d="M0 10 H104"/><path d="M100 3 L114 10 L100 17Z" class="head"/></svg>
-          <div class="cup-slot" data-cup='{"tds":189,"clarity":0.91,"ph":6.8,"test":3}'></div>
-          <p class="vitrine-cap"><span>Tea, before</span><span>After Brita</span></p>
+        <div class="vitrine glass" data-depth="0.8" data-cup3d>
+          <div class="cup-fallback" aria-hidden="true">
+            <div class="cup-slot" data-cup='{"tds":210,"clarity":0.42,"ph":6.9,"test":3}'></div>
+            <svg class="pour-arrow" viewBox="0 0 120 20"><path d="M0 10 H104"/><path d="M100 3 L114 10 L100 17Z" class="head"/></svg>
+            <div class="cup-slot" data-cup='{"tds":189,"clarity":0.91,"ph":6.8,"test":3}'></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="slide s-problem" aria-label="The problem">
+    <section class="slide s-problem" aria-label="The problem" data-focus=".bracket">
       <div class="frame">
         <h2 data-depth="0.25">Water gets checked rarely, and the result doesn't say what to do</h2>
         <div class="problem-grid">
           <figure class="chart glass" data-depth="0.6">
             <figcaption>
               <span class="chart-title">Days per year with a published conductance sample, Stony Brook at Princeton</span>
-              <span class="chart-source">USGS and NJ DEP samples via the Water Quality Portal, 1956 to 2025</span>
+              <span class="chart-source">USGS and NJ DEP, via the Water Quality Portal</span>
             </figcaption>
             <div class="chart-box" id="sample-chart"></div>
           </figure>
           <ul class="points" data-depth="0.85">
-            <li>Stony Brook runs through Princeton. Since 2000 it has been sampled on <strong>17 days</strong>, none since 2023.</li>
-            <li>Places with weak infrastructure or no cell coverage get checked least.</li>
-            <li>Even with a sample, a number on a report doesn't tell you what to do next.</li>
+            <li><strong>17 sample days since 2000.</strong> None since 2023.</li>
+            <li>A number on a report doesn't say what to do next.</li>
           </ul>
         </div>
       </div>
     </section>
 
-    <section class="slide s-loop" aria-label="How TapTest works">
+    <section class="slide s-loop" aria-label="How TapTest works" data-echo=".loop li">
       <div class="frame">
         <h2 data-depth="0.25">One cup, one loop</h2>
         <ol class="loop">
-          <li class="glass" data-depth="0.5"><h3>Measure</h3><p>Pour a cup. TapTest reads pH, dissolved solids (TDS) and clarity.</p></li>
-          <li class="glass" data-depth="0.65"><h3>Interpret</h3><p>Claude reads the numbers and the site's history, and explains them in plain language.</p></li>
-          <li class="glass" data-depth="0.8"><h3>Act</h3><p>The cup tips itself into the right filter: ZeroWater for dissolved solids, Brita for cloudiness.</p></li>
-          <li class="glass" data-depth="0.95"><h3>Compare</h3><p>Pour the filtered water back. The retest shows whether it worked.</p></li>
+          <li class="glass" data-depth="0.5"><h3>Measure</h3><p>pH, dissolved solids and clarity from one pour.</p></li>
+          <li class="glass" data-depth="0.65"><h3>Interpret</h3><p>Claude explains the reading and the site's history.</p></li>
+          <li class="glass" data-depth="0.8"><h3>Act</h3><p>The cup tips itself into the right filter.</p></li>
+          <li class="glass" data-depth="0.95"><h3>Compare</h3><p>Pour it back. The retest shows if it worked.</p></li>
         </ol>
       </div>
     </section>
 
-    <section class="slide s-hardware" aria-label="Hardware">
+    <section class="slide s-hardware" aria-label="Hardware" data-echo=".chain li.glass">
       <div class="frame">
         <h2 data-depth="0.25">From the cup to the base station, without WiFi or cell</h2>
         <ol class="chain">
-          <li class="glass" data-depth="0.45"><b>Arduino Uno</b><span>pH, TDS and clarity sensors, LCD, servo</span></li>
+          <li class="glass" data-depth="0.45"><b>Arduino Uno</b><span>sensors, LCD, servo</span></li>
           <li class="link" data-depth="0.5">serial</li>
           <li class="glass" data-depth="0.55"><b>Feather ESP32</b><span>on the tank</span></li>
-          <li class="link" data-depth="0.6">ESP-NOW radio</li>
-          <li class="glass" data-depth="0.65"><b>ESP32 receiver</b><span>at the base station</span></li>
+          <li class="link" data-depth="0.6">ESP-NOW</li>
+          <li class="glass" data-depth="0.65"><b>ESP32 receiver</b><span>base station</span></li>
           <li class="link" data-depth="0.7">USB</li>
-          <li class="glass" data-depth="0.75"><b>Raspberry Pi</b><span>gateway: history, Claude, investigator</span></li>
+          <li class="glass" data-depth="0.75"><b>Raspberry Pi</b><span>Claude, history, investigator</span></li>
           <li class="link" data-depth="0.8">WebSocket</li>
-          <li class="glass" data-depth="0.85"><b>Dashboard</b><span>live readings and map</span></li>
+          <li class="glass" data-depth="0.85"><b>Dashboard</b><span>live map</span></li>
         </ol>
-        <ul class="points two-col" data-depth="0.95">
-          <li>A servo tips the cup into one of two gravity-fed filters: ZeroWater on the left, Brita on the right.</li>
-          <li>We planned on LoRa for long range. The parts weren't available, so the prototype uses ESP-NOW.</li>
-        </ul>
+        <p class="hw-note" data-depth="0.95">LoRa parts didn't arrive, so the prototype radios over ESP-NOW.</p>
       </div>
     </section>
 
-    <section class="slide s-ai" aria-label="AI">
+    <section class="slide s-ai" aria-label="AI" data-focus=".mock-decision">
       <div class="frame">
         <h2 data-depth="0.25">AI that explains, inside guardrails</h2>
         <div class="ai-grid">
           <div class="mock-decision glass" data-depth="0.6" aria-label="Example decision">
             <p class="mock-flow"><span></span><b>ZeroWater</b><span></span></p>
             <p class="mock-head">Tipped into ZeroWater <span>by Claude</span></p>
-            <p class="mock-why">TDS is 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater strips dissolved solids, so the cup goes there. Pour it back afterwards to confirm.</p>
+            <p class="mock-why">TDS is 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater strips dissolved solids, so the cup goes there.</p>
           </div>
           <ul class="points" data-depth="0.85">
-            <li>Claude picks the filter and says why. If it hasn't answered within 6 seconds, the tank uses its own thresholds, so the cup always moves.</li>
-            <li>After every retest, a LangChain deep agent checks the site's history, nearby nodes, filter life and published data, then writes findings and next steps.</li>
-            <li>It never claims to find lead, bacteria or specific contaminants. Our sensors can't, so neither can it.</li>
+            <li>Claude picks the filter in under 6 s, or the tank's own rule does.</li>
+            <li>A LangChain deep agent investigates every retest.</li>
+            <li>No claims about lead or bacteria. The sensors can't tell.</li>
           </ul>
         </div>
       </div>
     </section>
 
-    <section class="slide s-filters" aria-label="Filter life">
+    <section class="slide s-filters" aria-label="Filter life" data-focus=".mf-chip.now">
       <div class="frame">
         <h2 data-depth="0.25">Filters that say when they're done</h2>
         <div class="filters-grid">
@@ -125,66 +123,64 @@
             <p class="mf-head"><b>ZeroWater</b><span class="mf-chip now">Replace now</span></p>
             <p class="mf-liters"><span>3.4</span>L filtered</p>
             <div class="mf-meter"><span class="now" style="width:60%"></span><i style="left:60%"></i></div>
-            <p class="mf-note">Retest read 6 ppm. ZeroWater's own rule: replace at 6.</p>
+            <p class="mf-note">Replace at 6 ppm</p>
           </div>
           <div class="mock-filter glass" data-depth="0.7">
             <p class="mf-head"><b>Brita Elite</b><span class="mf-chip ok">Fine</span></p>
             <p class="mf-liters"><span>41.2</span>L filtered</p>
             <div class="mf-meter"><span style="width:9.2%"></span></div>
-            <p class="mf-note">409 L left of about 450 L.</p>
+            <p class="mf-note">409 of ~450 L left</p>
           </div>
           <ul class="points" data-depth="0.9">
-            <li>Every tip sends about 0.1 L through a filter, so the gateway keeps count.</li>
-            <li>ZeroWater is spent once filtered water reads 6 ppm. Brita Elite is rated for about 450 L; we warn at 90%.</li>
+            <li>About 0.1 L per tip, counted automatically.</li>
             <li>Next: reorder the right cartridge the moment one says replace.</li>
           </ul>
         </div>
       </div>
     </section>
 
-    <section class="slide s-map" aria-label="Data sources">
+    <section class="slide s-map" aria-label="Data sources" data-focus="#mini-map .tank" data-echo="#mini-map .pub">
       <div class="frame">
         <h2 data-depth="0.25">Every point on the map says where it came from</h2>
         <div class="map-grid">
           <div class="mini-map glass" id="mini-map" data-depth="0.6" role="img" aria-label="Sketch of TapTest, simulated and published sites around Princeton"></div>
           <dl class="sources" data-depth="0.85">
-            <div><dt><span class="key key-measured"></span>Measured</dt><dd>Our TapTest tank. Real readings, every pour.</dd></div>
-            <div><dt><span class="key key-published"></span>Published</dt><dd>USGS and NJ DEP samples from the Water Quality Portal, with TDS estimated as 0.65 × conductance. Recently typical: Stony Brook about 190 ppm, Millstone River about 248, Lake Carnegie about 177.</dd></div>
-            <div><dt><span class="key key-sim"></span>Simulated</dt><dd>Twelve nodes that show how a network would look. Always labelled as simulated.</dd></div>
+            <div><dt><span class="key key-measured"></span>Measured</dt><dd>Our tank, every pour.</dd></div>
+            <div><dt><span class="key key-published"></span>Published</dt><dd>USGS and NJ DEP samples. TDS ≈ 0.65 × conductance.</dd></div>
+            <div><dt><span class="key key-sim"></span>Simulated</dt><dd>Twelve nodes, always labelled.</dd></div>
           </dl>
         </div>
       </div>
     </section>
 
-    <section class="slide s-demo" aria-label="Live demo">
+    <section class="slide s-demo" aria-label="Live demo" data-focus=".big-link">
       <div class="frame">
         <h2 data-depth="0.25">Live demo</h2>
         <ol class="demo-steps glass" data-depth="0.6">
-          <li>Pour salty water. TDS reads high and Claude sends it to ZeroWater.</li>
-          <li>Pour it back. The retest drops to a few ppm, and the filter count goes up.</li>
-          <li>Pour tea. It reads cloudy and goes to Brita instead.</li>
+          <li>Salty water goes to ZeroWater.</li>
+          <li>The retest reads a few ppm.</li>
+          <li>Tea goes to Brita.</li>
         </ol>
         <p data-depth="0.85"><a class="big-link" href="../">Open the dashboard</a></p>
       </div>
     </section>
 
-    <section class="slide s-next" aria-label="Open questions">
+    <section class="slide s-next" aria-label="Open questions" data-echo=".questions li">
       <div class="frame">
         <h2 data-depth="0.25">What we're still deciding</h2>
         <ul class="questions">
-          <li class="glass" data-depth="0.5"><b>Who it's for first</b><span>Towns and utilities watching many sites, or households with one tap.</span></li>
-          <li class="glass" data-depth="0.65"><b>How much it does on its own</b><span>Flag problems for experts, recommend a filter, or route water automatically.</span></li>
-          <li class="glass" data-depth="0.8"><b>Range</b><span>A LoRa network for places without cell coverage, once we have the parts.</span></li>
-          <li class="glass" data-depth="0.95"><b>Proof</b><span>Calibrate the sensors against lab samples before anyone relies on them.</span></li>
+          <li class="glass" data-depth="0.5"><b>Who it's for first</b><span>Towns and utilities, or households.</span></li>
+          <li class="glass" data-depth="0.65"><b>How much it does alone</b><span>Flag, recommend, or route the water itself.</span></li>
+          <li class="glass" data-depth="0.8"><b>Range</b><span>LoRa, once the parts arrive.</span></li>
+          <li class="glass" data-depth="0.95"><b>Proof</b><span>Calibrate against lab samples.</span></li>
         </ul>
       </div>
     </section>
 
-    <section class="slide s-close" aria-label="Team">
+    <section class="slide s-close" aria-label="Team" data-focus="h2">
       <div class="frame">
-        <p class="close-loop" data-depth="0.6">Measure, interpret, act, compare.</p>
         <h2 data-depth="0.3">TapTest</h2>
-        <p class="team" data-depth="0.8">Built at HackPrinceton by Jim, Ethan, Bharath and Verna.</p>
+        <p class="team" data-depth="0.8">Jim, Ethan, Bharath and Verna</p>
       </div>
     </section>
 
@@ -192,7 +188,7 @@
 
   <nav class="dots glass" aria-label="Slides">
     <ol id="dots"></ol>
-    <span id="count" class="num" aria-live="polite"></span>
+    <span id="count" class="visually-hidden" aria-live="polite"></span>
   </nav>
   <div class="tip glass" id="tip" hidden></div>
 
@@ -200,5 +196,6 @@
   <script src="../assets/demo.js"></script>
   <script src="../assets/water.js"></script>
   <script src="../assets/slides.js"></script>
+  <script type="module" src="../assets/cup3d.js"></script>
 </body>
 </html>

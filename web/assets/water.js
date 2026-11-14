@@ -4,7 +4,7 @@
    Falls back to the CSS .scene pools if WebGL is unavailable. */
 (function () {
   "use strict";
-  const MAX_RIPPLES = 6;
+  const MAX_RIPPLES = 12;
   const SCALE = 0.5;                       // render at half resolution: it is soft, and sits under blur
 
   const VERT = `
@@ -18,7 +18,8 @@ uniform vec2 uRes;
 uniform float uTime;
 uniform float uPan;
 uniform vec2 uMouse;
-uniform vec4 uRip[${MAX_RIPPLES}];
+uniform vec4 uRip[${MAX_RIPPLES}];   // x, y (0..1), start time, strength
+uniform float uRipS[${MAX_RIPPLES}];  // size: wavelength and reach scale with the element it came from
 varying vec2 vUv;
 
 const vec3 DEEP = vec3(0.043, 0.125, 0.153);   // #0B2027
@@ -39,10 +40,11 @@ void main() {
     vec4 r = uRip[i];
     float t = uTime - r.z;
     if (r.w <= 0.0 || t < 0.0) continue;
+    float sc = uRipS[i];
     vec2 d = p - vec2(r.x * aspect, r.y);
     float dist = length(d);
-    float x = dist - t * 0.19;
-    float env = exp(-x * x * 22.0) * exp(-t * 0.42) * r.w * smoothstep(0.0, 0.25, t);
+    float x = (dist - t * 0.19 * sc) / sc;
+    float env = exp(-x * x * 22.0) * exp(-t * 0.42 / sc) * r.w * smoothstep(0.0, 0.25, t);
     float wave = sin(x * 42.0) * env;
     h += wave;
     disp += (d / max(dist, 1e-4)) * wave * 0.014;
@@ -101,10 +103,11 @@ void main() {
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
     const u = (n) => gl.getUniformLocation(prog, n);
-    const uRes = u("uRes"), uTime = u("uTime"), uPan = u("uPan"), uMouse = u("uMouse"), uRip = u("uRip");
+    const uRes = u("uRes"), uTime = u("uTime"), uPan = u("uPan"), uMouse = u("uMouse"), uRip = u("uRip"), uRipS = u("uRipS");
 
     const still = !!opts.still;
     const ripples = new Float32Array(MAX_RIPPLES * 4);
+    const sizes = new Float32Array(MAX_RIPPLES).fill(1);
     let next = 0;
     const t0 = performance.now();
     const clock = () => (still ? 40 : (performance.now() - t0) / 1000);
@@ -131,6 +134,7 @@ void main() {
       gl.uniform1f(uPan, pan);
       gl.uniform2f(uMouse, mouse[0], mouse[1]);
       gl.uniform4fv(uRip, ripples);
+      gl.uniform1fv(uRipS, sizes);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
 
@@ -152,11 +156,12 @@ void main() {
     start();
 
     return {
-      /** a drop at viewport point (x, y) in CSS px; strength 0..1 */
-      drop(x, y, strength = 1) {
+      /** a drop at viewport point (x, y) in CSS px; strength 0..1; size ~0.4 (tight) to ~1.5 (broad) */
+      drop(x, y, strength = 1, size = 1) {
         if (still) return;
         const i = next++ % MAX_RIPPLES;
         ripples.set([x / innerWidth, 1 - y / innerHeight, clock(), strength], i * 4);
+        sizes[i] = size;
       },
       /** ease the pools to the arrangement for slide n */
       pan(n, ms = 2600) {

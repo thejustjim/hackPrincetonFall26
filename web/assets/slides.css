@@ -46,16 +46,14 @@
 .s-title .frame { flex-direction: row; align-items: center; justify-content: space-between; }
 .s-title h1 { font-size: 156px; line-height: 0.9; }
 .lede { margin-top: 36px !important; font-size: 40px; line-height: 1.25; max-width: 18ch; }
-.foot { margin-top: 64px !important; color: var(--muted); font-size: 24px; }
-.vitrine {
-  flex: none; display: grid; grid-template-columns: auto auto auto; align-items: end; gap: 22px;
-  padding: 44px 44px 30px; border-radius: 32px !important;
-}
-.vitrine .cup { width: 148px; height: auto; }
-.pour-arrow { width: 84px; height: 20px; margin-bottom: 76px; }
+.vitrine { flex: none; position: relative; width: 500px; height: 600px; padding: 0; border-radius: 36px !important; cursor: pointer; }
+.cup-fallback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 22px; }
+.cup-fallback .cup { width: 148px; height: auto; }
+.vitrine.has-3d .cup-fallback { display: none; }
+.cup3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border-radius: inherit; }
+.pour-arrow { width: 84px; height: 20px; margin-top: 60px; }
 .pour-arrow path { stroke: var(--neutral); stroke-width: 2.5; fill: none; }
 .pour-arrow .head { fill: var(--neutral); stroke: none; }
-.vitrine-cap { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 18px; padding: 0 12px; }
 
 /* 2. problem chart */
 .problem-grid { display: grid; grid-template-columns: 1fr 470px; gap: 64px; align-items: center; }
@@ -82,6 +80,7 @@
 .loop p { margin-top: 14px !important; font-size: 25px; line-height: 1.42; }
 
 /* 4. hardware chain */
+.hw-note { font-size: 26px; color: var(--muted); }
 .chain { margin: 0; padding: 0; list-style: none; display: flex; align-items: stretch; }
 .chain li.glass { flex: 1; border-radius: 20px; padding: 22px 22px 24px; display: grid; gap: 8px; align-content: start; }
 .chain b { font-size: 25px; font-stretch: 112%; }
@@ -149,7 +148,6 @@
 
 /* 10. close */
 .s-close .frame { justify-content: center; gap: 26px; }
-.close-loop { font-size: 34px; color: var(--accent); }
 .s-close h2 { font-size: 168px; line-height: 0.9; }
 .team { font-size: 30px; color: var(--muted); }
 
@@ -186,11 +184,10 @@
   .s-title .frame { flex-direction: column; align-items: flex-start; gap: 32px; padding-top: 120px; }
   .s-title h1 { font-size: 76px; }
   .lede { font-size: 24px; margin-top: 16px !important; }
-  .foot { margin-top: 20px !important; font-size: 16px; }
-  .vitrine { padding: 24px 20px 16px; gap: 12px; }
-  .vitrine .cup { width: 96px; }
-  .pour-arrow { width: 44px; margin-bottom: 46px; }
-  .vitrine-cap { font-size: 14px; }
+  .vitrine { width: 100%; height: 420px; }
+  .cup-fallback .cup { width: 96px; }
+  .pour-arrow { width: 44px; margin-top: 40px; }
+  .hw-note { font-size: 17px; }
   .problem-grid, .ai-grid, .filters-grid, .map-grid, .points.two-col, .questions { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .chart { padding: 18px 16px 12px; }
   .chart-box { height: 240px; overflow-x: auto; }
@@ -219,5 +216,5 @@
   .questions b { font-size: 21px; }
   .questions span { font-size: 17px; }
   .s-close h2 { font-size: 72px; }
-  .close-loop, .team { font-size: 20px; }
+  .team { font-size: 20px; }
 }
