@@ -19,9 +19,14 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
   - `investigator.py` - deepagents (LangChain) agent that writes a report after every `after` test
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
-- `web` - dark-mode dashboard at `/` and the pitch deck at `/slides/`. The gateway serves this folder at
-  http://<pi>:8000/. With no gateway reachable (static hosting, opened as a file, or `?demo`) the dashboard
-  runs on built-in demo data in the same shapes; `?api=http://<pi>:8000` points it at another gateway.
+- `web` - two pages, served by the gateway at http://<pi>:8000/:
+  - `/demo/` - the live view: the latest cup, the notes around it, then the full account below.
+  - `/pitch/` - the pitch. It opens on black with one drop, runs through the slides (scroll, swipe or
+    arrow keys; `End` jumps to the last one), and scrolling past the last slide lands on `/demo/`.
+    There is no way back up from the demo; reload `/pitch/` to start again.
+  - Slides are in `web/pitch/slides.html`. The pitch is drawn over the demo page, so both are one document.
+  - With no gateway reachable (static hosting, or `?demo`) the pages run on built-in sample data in the
+    same shapes, labelled as sample data; `?api=http://<pi>:8000` points them at another gateway.
 
 ## Data format
 The receiver prints one JSON object per line at 115200 baud:
@@ -36,12 +41,16 @@ The receiver prints one JSON object per line at 115200 baud:
 | ph | 0-14, expect 5.5-9 |
 | tds | ppm, 0-1000 (sensor tops out near 1000) |
 | clarity | 0-1, 1 = as clear as clean water |
-| verdict | `SAFE`, `HIGH_TDS` (>300 ppm), `CLOUDY` (clarity < 0.70), `PH_WARN` (outside 6.5-8.5) |
+| verdict | `SAFE`, `HIGH_TDS` (>300 ppm), `CLOUDY` (clarity < 0.70), `PH_WARN` (outside 6.5-8.5). `SAFE` only means these three readings are in range; the pages show it as "In range". Nothing here tests for lead, bacteria or any specific contaminant. |
 | filter | the tank's own rule: `NONE`, `ZEROWATER`, `BRITA` |
 | rssi | radio signal strength, dBm |
 
 The gateway adds `id`, `ts` (UTC ISO), `lat`, `lon`, `sim`, `anomaly` (0-1), and later
 `ai_filter` + `explanation` once Claude answers.
+
+Lines are checked before they are stored: the node must be one the gateway knows (`ALLOW_UNKNOWN_NODES=1`
+lifts that), and the phase, verdict and number ranges must be valid. Anything else is dropped with a
+logged reason.
 
 Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,"filter":"BRITA"}`
 
@@ -55,12 +64,17 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
 - `GET /api/readings?node=tank-01&limit=200` - history, newest first
 - `GET /api/tests/{node}/{test}` - the before/after pair for the before/after card
 - `GET /api/filters` - `[{"filter":"ZEROWATER","liters":3.2,"last_after_tds":8,"status":"OK"|"REPLACE_SOON"|"REPLACE", ...}]` (see below)
-- `POST /api/filters/{zerowater|brita}/replace` - a new filter went in: start its count over
+- `POST /api/filters/{zerowater|brita}/replace` - a new filter went in: start its count over (a control, see below)
 - `GET /api/reference` - `[{"site":"Stony Brook","lat":..,"lon":..,"tds_est":109,"date":"2023-07-27","source":"NJ DEP"|"USGS", ...}]`,
   the latest published sample per site plus `typical_tds_est` and `history` (cached, works offline)
 - `GET /api/reports?node=tank-01&limit=20` - investigator reports, newest first, same shape as the `/ws` message
-- `POST /api/cmd?test=17&filter=BRITA` - manual override
+- `POST /api/cmd?test=17&filter=BRITA` - manual override (a control, see below)
 - `GET /health`, `GET /docs` (interactive API docs)
+
+**Controls.** The two `POST` endpoints move hardware or reset counters, so they are not open to the network.
+By default only the machine running the gateway can call them. To use them from another device, set
+`CONTROL_TOKEN` in `.env` and send it as the `X-Clarity-Token` header; the demo page asks for it once and
+remembers it in that browser. `GET /health` reports which mode is on (`"control":"local"` or `"token"`).
 
 ## Filter life
 Every time the cup tips into a filter, the gateway counts about 0.1 L through it (`LITERS_PER_TIP`).
@@ -87,8 +101,13 @@ cd gateway
 python3 -m venv .venv && . .venv/bin/activate   # Python 3.11+
 pip install -r requirements.txt
 MOCK=1 python gateway.py              # no hardware: fake tank + 12 simulated nodes
-python gateway.py                     # real receiver on /dev/ttyUSB0 or /dev/ttyACM0
+python gateway.py                     # real receiver, found automatically
 ```
+`requirements.lock.txt` has the exact versions this was tested with (`pip install -r requirements.lock.txt`).
+
+The gateway looks for the receiver's USB serial port itself, trying USB-serial adapters (the ESP32
+receiver) before boards like the Uno. If more than one is plugged in it says which it picked; set
+`SERIAL_PORT=/dev/...` to choose.
 Without a key, the gateway uses the tank's local rule only. With one, Claude picks filters
 (`"source":"claude"`) and the investigator writes reports.
 `python mock.py` alone prints the exact receiver lines, so you can test a parser.

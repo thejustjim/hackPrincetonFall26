@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clarity</title>
+  <meta name="description" content="Clarity: what you deserve. The latest cup of water, what was done about it, and whether it worked.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 200'%3E%3Cpath d='M17 60 L25 190 L135 190 L143 60Z' fill='%235A9BBD' fill-opacity='.5'/%3E%3Cpath d='M10 10 L25 190 L135 190 L150 10' fill='none' stroke='%23F7F0F0' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+  <link rel="stylesheet" href="../vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="../assets/base.css">
+  <link rel="stylesheet" href="../assets/demo.css">
+  <link rel="stylesheet" href="../assets/pitch.css">
+  <script>
+    // Arriving from /pitch: start in the pitch, on black, with the demo hidden until the pitch ends.
+    // The address bar shows /pitch until then. (Same folder depth, so relative links still resolve.)
+    if (location.hash === "#pitch") {
+      document.documentElement.classList.add("pitching", "opening");
+      try { history.replaceState(null, "", "../pitch/" + location.search); } catch (e) { /* opened as a file */ }
+    }
+  </script>
+  <script type="importmap">{ "imports": { "three": "../vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+  </svg>
+  <div class="glow" aria-hidden="true"></div>
+
+  <header class="bar">
+    <a class="wordmark" href="./">
+      <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="13" stroke-linejoin="round"/></svg>
+      Clarity
+    </a>
+    <p class="tagline">What you deserve.</p>
+    <span class="spacer"></span>
+    <p class="dateline" id="dateline"></p>
+    <p class="conn" id="conn" data-state="connecting" role="status"><span class="dot"></span><span id="conn-text">Connecting</span></p>
+    <nav class="links" aria-label="On this page">
+      <a href="#details" data-glide="details">Full account</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="hero" aria-label="The latest cup">
+      <div id="hero-inner">
+        <div class="hero-copy">
+          <p id="site"></p>
+          <h1 id="verdict">Connecting</h1>
+          <p id="sub"></p>
+          <p id="standfirst"></p>
+          <p id="when"></p>
+        </div>
+        <div class="stage" id="stage">
+          <svg class="leaders" id="leaders" aria-hidden="true"></svg>
+          <div class="cup-wrap" id="cup" data-hero3d><div id="cup-fallback"></div></div>
+          <div class="tags" id="tags"></div>
+        </div>
+        <div class="context">
+          <div class="cx-row" id="context"></div>
+          <a class="cx-more" href="#details" data-glide="details">Full account<svg class="i"><use href="#i-down"/></svg></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="sheet" id="details" aria-label="Full account">
+      <div class="page">
+        <header class="section-head">
+          <h2>The latest pour</h2>
+          <p id="sheet-when"></p>
+        </header>
+        <div class="cols">
+          <figure class="col-5 plate" id="plate"></figure>
+          <div class="col-7">
+            <div id="why"></div>
+            <div id="figures"></div>
+          </div>
+        </div>
+
+        <figure class="ruled wide" id="history-fig">
+          <header class="section-head">
+            <h2>Every pour here</h2>
+            <p class="chart-key" aria-hidden="true"><span><i class="k-before"></i>before</span><span><i class="k-after"></i>after filtering</span></p>
+          </header>
+          <div id="history"></div>
+          <figcaption id="history-cap"></figcaption>
+        </figure>
+
+        <div class="cols ruled">
+          <section class="col-7" id="report" aria-label="Investigator"></section>
+          <div class="col-5">
+            <section id="filters" aria-label="Filters"></section>
+            <section id="nearby" aria-label="Nearby water"></section>
+          </div>
+        </div>
+
+        <figure class="ruled wide">
+          <header class="section-head"><h2>The network</h2></header>
+          <div id="map" role="region" aria-label="Map of monitoring sites around Princeton"></div>
+          <figcaption>Sites around Princeton. Solid markers are measured by Clarity, dashed ones are simulated, and diamonds are published USGS and NJ DEP samples.</figcaption>
+        </figure>
+
+        <section class="ruled" aria-label="Readings">
+          <header class="section-head">
+            <h2>Readings</h2>
+            <label class="check"><input type="checkbox" id="show-sim"> Include simulated nodes</label>
+          </header>
+          <div id="ledger"></div>
+        </section>
+
+        <footer class="colophon ruled">
+          <p class="mark">Clarity</p>
+          <p class="tagline">What you deserve.</p>
+          <p class="fine">The tank reads pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant. Published figures are USGS and NJ DEP samples from the Water Quality Portal, with dissolved solids estimated as 0.65 × conductance. Simulated nodes show how a network would look and are always labelled.</p>
+          <p class="fine"><a href="#hero" data-glide="top">Back to the cup</a><a href="/docs" id="api-link" hidden>The API</a></p>
+        </footer>
+      </div>
+    </section>
+  </main>
+
+  <div class="tip" id="tip" hidden></div>
+  <div id="pitch" hidden></div>
+
+  <script src="../vendor/leaflet/leaflet.js"></script>
+  <script src="../assets/cup.js"></script>
+  <script src="../assets/sample.js"></script>
+  <script src="../assets/data.js"></script>
+  <script src="../assets/notes.js"></script>
+  <script src="../assets/demo-view.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/pitch.js"></script>
+  <script type="module" src="../assets/glass.js"></script>
+</body>
+</html>

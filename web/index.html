@@ -3,93 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clarity Dashboard</title>
-  <meta name="description" content="Clarity: live water readings, filter decisions and filter life from nodes around Princeton.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 200'%3E%3Cpath d='M17 60 L25 190 L135 190 L143 60Z' fill='%235A9BBD' fill-opacity='.5'/%3E%3Cpath d='M10 10 L25 190 L135 190 L150 10' fill='none' stroke='%23F7F0F0' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="assets/site.css">
-  <link rel="stylesheet" href="assets/dashboard.css">
+  <title>Clarity</title>
+  <style>html { background: #0B2027; }</style>
+  <script>
+    // Two pages: /demo is the live view, /pitch is the pitch that ends on it. The root goes to the demo.
+    location.replace("demo/" + location.search);
+  </script>
+  <meta http-equiv="refresh" content="0; url=demo/">
 </head>
-<body>
-  <svg class="icon-sprite" aria-hidden="true">
-    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.5c3.2 4 6 7.4 6 10.6a6 6 0 0 1-12 0C6 10.9 8.8 7.5 12 3.5z"/></symbol>
-    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11 3.5l1.7 4.6 4.6 1.7-4.6 1.7L11 16.1l-1.7-4.6-4.6-1.7 4.6-1.7z"/><path d="M18 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
-    <symbol id="i-funnel" viewBox="0 0 24 24"><path d="M4 5h16l-6.2 7.6V19l-3.6-1.8v-4.6z"/></symbol>
-    <symbol id="i-map" viewBox="0 0 24 24"><path d="M12 21s-6.2-5.7-6.2-11.1a6.2 6.2 0 0 1 12.4 0C18.2 15.3 12 21 12 21z"/><circle cx="12" cy="9.9" r="2.2"/></symbol>
-    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.6"/></symbol>
-  </svg>
-  <div class="scene" aria-hidden="true"><div class="pool p1"></div><div class="pool p2"></div><div class="pool p3"></div><div class="pool p4"></div></div>
-  <canvas id="water" aria-hidden="true"></canvas>
-
-  <header class="top">
-    <a class="wordmark" href="./">
-      <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="13" stroke-linejoin="round"/></svg>
-      Clarity
-    </a>
-    <nav class="segmented" aria-label="Site">
-      <a href="./" aria-current="page">Dashboard</a>
-      <a href="slides/">Pitch</a>
-    </nav>
-    <p class="conn" id="conn" data-state="connecting" role="status"><span class="dot"></span><span id="conn-text">Connecting</span></p>
-  </header>
-
-  <main>
-    <section class="hero">
-      <h1 class="large-title">Princeton</h1>
-      <p class="hero-sub" id="network-summary"></p>
-    </section>
-
-    <div class="widgets">
-      <article class="widget w-pour" aria-labelledby="pour-title">
-        <header class="w-head"><svg class="i"><use href="#i-drop"/></svg><h2 id="pour-title">Latest pour</h2><span class="w-meta" id="pour-meta"></span></header>
-        <div class="pour-body">
-          <figure class="cup-col" id="before"></figure>
-          <div class="decision" id="decision" aria-live="polite"></div>
-          <figure class="cup-col" id="after"></figure>
-        </div>
-        <ul class="delta" id="delta"></ul>
-      </article>
-
-      <article class="widget w-filters" aria-labelledby="filters-title">
-        <header class="w-head"><svg class="i"><use href="#i-funnel"/></svg><h2 id="filters-title">Filters</h2></header>
-        <div id="filters"></div>
-      </article>
-
-      <article class="widget w-map" aria-labelledby="map-title">
-        <header class="w-head"><svg class="i"><use href="#i-map"/></svg><h2 id="map-title">Princeton network</h2>
-          <ul class="legend">
-            <li><span class="key key-measured"></span>Measured</li>
-            <li><span class="key key-sim"></span>Simulated</li>
-            <li><span class="key key-published"></span>Published</li>
-          </ul>
-        </header>
-        <div id="map" role="region" aria-label="Map of monitoring sites around Princeton"></div>
-      </article>
-
-      <article class="widget w-report" aria-labelledby="report-title">
-        <header class="w-head"><svg class="i"><use href="#i-sparkles"/></svg><h2 id="report-title">Investigator</h2><span class="w-meta" id="report-meta"></span></header>
-        <div id="report" aria-live="polite"></div>
-      </article>
-
-      <section class="w-readings" aria-labelledby="feed-title">
-        <div class="group-head">
-          <h2 id="feed-title"><svg class="i"><use href="#i-list"/></svg>Readings</h2>
-          <label class="switch"><input type="checkbox" id="show-sim" checked><span class="track"></span>Simulated nodes</label>
-        </div>
-        <ul class="group" id="feed"></ul>
-      </section>
-    </div>
-  </main>
-
-  <p class="toast" id="toast" role="status" hidden></p>
-
-  <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="assets/cup.js"></script>
-  <script src="assets/demo.js"></script>
-  <script src="assets/water.js"></script>
-  <script src="assets/dashboard.js"></script>
-</body>
+<body></body>
 </html>

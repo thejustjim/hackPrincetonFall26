@@ -1,0 +1,142 @@
+<!-- The pitch. Loaded by assets/pitch.js and laid over the /demo page when you arrive at /pitch.
+     The first slide is see-through: the live cup shows behind it. Scrolling past the last slide
+     hands over to /demo. `data-rise` marks what floats in, in order. -->
+
+<section class="slide s-title" aria-label="Clarity" data-clear>
+  <div class="p-title">
+    <h1>Clarity</h1>
+    <p class="tagline" data-rise>What you deserve.</p>
+    <p class="p-lede" data-rise>Affordable water monitoring that leads to action.</p>
+  </div>
+  <p class="p-hint" data-rise>Scroll<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
+</section>
+
+<section class="slide s-problem" aria-label="The problem">
+  <div class="frame">
+    <h2>Stony Brook's flow is measured every fifteen minutes. Its dissolved solids were last sampled in 2023.</h2>
+    <div class="split">
+      <figure class="p-chart" data-rise>
+        <figcaption>Days each year with a published conductance sample, the usual stand-in for dissolved solids. Stony Brook at Princeton.</figcaption>
+        <div id="sample-chart"></div>
+        <p class="src">USGS and NJ DEP records, from the Water Quality Portal and the USGS gauge at Princeton.</p>
+      </figure>
+      <div class="p-stat" data-rise>
+        <p class="num">17</p>
+        <p class="what">sample days since 2000</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide s-loop" aria-label="How Clarity works">
+  <div class="frame">
+    <h2>One cup, one loop</h2>
+    <ol class="loop">
+      <li data-rise><span class="n">1</span><h3>Measure</h3><p>pH, dissolved solids and transparency, from one pour.</p></li>
+      <li data-rise><span class="n">2</span><h3>Interpret</h3><p>Claude explains the reading against this site's history.</p></li>
+      <li data-rise><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits.</p></li>
+      <li data-rise><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows whether it worked.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="slide s-hardware" aria-label="Hardware">
+  <div class="frame">
+    <h2>The cup reaches the base station by direct radio. No router, no cell.</h2>
+    <ol class="chain" data-rise>
+      <li><b>Arduino Uno</b><span>sensors, screen, servo</span></li>
+      <li class="link">serial</li>
+      <li><b>Feather ESP32</b><span>on the tank</span></li>
+      <li class="link">ESP-NOW</li>
+      <li><b>ESP32 receiver</b><span>at the base station</span></li>
+      <li class="link">USB</li>
+      <li><b>Raspberry Pi</b><span>history, Claude, investigator</span></li>
+      <li class="link">WebSocket</li>
+      <li><b>This page</b><span>live</span></li>
+    </ol>
+    <div class="two">
+      <p data-rise>The base station needs the internet only to ask Claude. Without it, the tank's own rule decides.</p>
+      <p data-rise>ESP-NOW reaches about a hundred metres. LoRa was planned for range; the parts didn't arrive.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide s-ai" aria-label="AI">
+  <div class="frame">
+    <h2>AI that explains, inside limits</h2>
+    <div class="split">
+      <figure class="p-plate" data-rise>
+        <span class="lab">Sent through</span>
+        <span class="val">ZeroWater</span>
+        <span class="txt">Dissolved solids read 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater removes dissolved solids, so the cup goes there.</span>
+        <figcaption>An example of the explanation Claude is asked for.</figcaption>
+      </figure>
+      <ul class="says">
+        <li data-rise>Claude chooses the filter if it answers within six seconds. If not, the tank's own rule does, so the cup always moves.</li>
+        <li data-rise>After each retest, an investigator agent built with LangChain compares this site's history, nearby nodes, filter life and published data, and writes what to do next.</li>
+        <li data-rise>Neither will call water safe. Three readings can't show that.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide s-filters" aria-label="Filter life">
+  <div class="frame">
+    <h2>Filters that say when they're done</h2>
+    <div class="split">
+      <div class="p-filters" data-rise>
+        <div class="f">
+          <p class="name">ZeroWater<span class="st now">Replace now</span></p>
+          <p class="line">The retest read 6 ppm. Its maker says replace at 6.</p>
+          <div class="life status-now"><span style="width:100%"></span></div>
+        </div>
+        <div class="f">
+          <p class="name">Brita Elite<span class="st ok">Fine</span></p>
+          <p class="line">41 of about 450 L used.</p>
+          <div class="life"><span style="width:9%"></span></div>
+        </div>
+      </div>
+      <ul class="says">
+        <li data-rise>Every tip sends about a tenth of a litre through a filter, and the base station keeps count.</li>
+        <li data-rise>Next: estimate life from the solids each cup removes, and offer the right cartridge to reorder.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide s-sources" aria-label="Where the data comes from">
+  <div class="frame">
+    <h2>Every point says where it came from</h2>
+    <div class="split">
+      <figure class="p-map" data-rise>
+        <div id="mini-map" role="img" aria-label="Sketch of the Clarity tank, simulated nodes and published sites around Princeton"></div>
+      </figure>
+      <dl class="sources">
+        <div data-rise><dt><span class="key key-measured"></span>Measured</dt><dd>Our tank, every pour.</dd></div>
+        <div data-rise><dt><span class="key key-published"></span>Published</dt><dd>USGS and NJ DEP samples, with dissolved solids estimated as 0.65 × conductance. Stony Brook runs about 180 ppm, the Millstone River 248, Lake Carnegie 177.</dd></div>
+        <div data-rise><dt><span class="key key-sim"></span>Simulated</dt><dd>Twelve nodes that show how a network would look. Always labelled.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="slide s-open" aria-label="Open questions">
+  <div class="frame">
+    <h2>What we're still deciding</h2>
+    <dl class="open">
+      <div data-rise><dt>Who it's for first</dt><dd>Towns and utilities, or households.</dd></div>
+      <div data-rise><dt>How much it does alone</dt><dd>Flag, recommend, or route the water itself.</dd></div>
+      <div data-rise><dt>Range</dt><dd>LoRa, once the parts arrive.</dd></div>
+      <div data-rise><dt>Proof</dt><dd>Calibrate against lab samples before anyone relies on it.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="slide s-close" aria-label="Team">
+  <div class="frame">
+    <h2>Clarity</h2>
+    <p class="tagline" data-rise>What you deserve.</p>
+    <p class="team" data-rise>Jim, Ethan, Bharath and Verna</p>
+    <p class="p-hint" data-rise>Keep scrolling for the live demo<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
+  </div>
+</section>

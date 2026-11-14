@@ -1,0 +1,183 @@
+/* Clarity: base styles for /demo and the pitch that opens over it.
+   Flat #0B2027, barely moving: one faint glow behind the cup that breathes very slowly.
+   No frosted glass: panels are solid, so nothing lightens the page.
+   Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580 */
+:root {
+  color-scheme: dark;
+  --deep: #0B2027;       /* background */
+  --text: #F7F0F0;
+  --accent: #5A9BBD;
+  --neutral: #717580;
+  --panel: #10282F;      /* solid surfaces: one step up from the background */
+  --panel-2: #163039;
+  --hair: rgba(247, 240, 240, 0.11);
+  --label2: rgba(247, 240, 240, 0.64);
+  --label3: rgba(247, 240, 240, 0.54);   /* small grey text still reads at 4.5:1 */
+  --fill: rgba(113, 117, 128, 0.28);
+  --warn: #E2BE5E;
+  --alert: #D9667E;
+  --water: rgba(90, 155, 189, 0.22);
+  --mineral: #E2BE5E;
+  --tannin: #A8794F;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --serif: "Newsreader", "New York", ui-serif, Georgia, serif;
+  --lux: cubic-bezier(0.16, 1, 0.3, 1);   /* long, soft landing */
+  /* where the cup sits in the hero */
+  --cup-x: 50%;
+  --cup-y: 55%;
+  --cup-h: 92vh;
+  --cup-w: 64vh;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--deep); -webkit-text-size-adjust: 100%; transition: background-color 3s ease; }
+/* The pitch opens on black; the page colour arrives when the first drop lands. */
+html.opening { background: #000; }
+/* While the pitch is showing, the demo underneath is hidden and can't scroll. Only the cup shows through. */
+html.pitching, html.pitching body { overflow: hidden; height: 100%; }
+html.pitching .bar, html.pitching .sheet { visibility: hidden; }
+html.pitching .bar { opacity: 0; }
+html.pitching .tags, html.pitching .leaders, html.pitching .context, html.pitching .hero-copy { visibility: hidden; }
+body { margin: 0; color: var(--text); font: 17px/1.4 var(--sans); letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+h1, h2, h3, p, figure { margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.icon-sprite { display: none; }
+.i { width: 1.1em; height: 1.1em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* the only background motion: a faint glow behind the cup, breathing over 16 s */
+.glow {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; transition: filter 3.5s ease;
+  background: radial-gradient(52vmin 52vmin at var(--cup-x) var(--cup-y), rgba(90, 155, 189, 0.13), rgba(90, 155, 189, 0) 72%);
+  animation: breathe 16s ease-in-out infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+html.opening .glow { filter: opacity(0); }
+
+/* ---- top bar */
+.bar {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 30; display: flex; align-items: center; gap: 20px; padding: 14px 28px;
+  border-bottom: 1px solid transparent; transition: background 0.5s, border-color 0.5s, opacity 2s ease 0.4s;
+}
+/* once the full view is under it, the bar turns solid so nothing shows through */
+.bar.solid { background: var(--deep); border-bottom-color: var(--hair); }
+.wordmark { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-family: var(--serif); font-size: 22px; font-weight: 500; }
+.wordmark:hover { text-decoration: none; }
+.wordmark svg { width: 16px; height: 20px; }
+.bar .spacer { flex: 1; }
+.conn { display: inline-flex; align-items: center; gap: 7px; color: var(--label2); font-size: 13px; letter-spacing: 0; }
+.conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); }
+.conn[data-state="live"] .dot { background: var(--accent); }
+.conn[data-state="demo"] .dot { background: var(--warn); }
+.conn[data-state="down"] .dot { background: var(--alert); }
+
+/* ---- hero: pinned while the full view rises over it */
+.hero { position: sticky; top: 0; z-index: 1; height: 100vh; height: 100dvh; overflow: hidden; }
+#hero-inner { position: absolute; inset: 0; transform-origin: 50% 40%; will-change: transform, opacity; }
+.stage { position: absolute; inset: 0; }
+.cup-wrap {
+  position: absolute; z-index: 2; pointer-events: none;
+  width: var(--cup-w); height: var(--cup-h);
+  left: calc(var(--cup-x) - var(--cup-w) / 2); top: calc(var(--cup-y) - var(--cup-h) / 2);
+}
+/* the pipette fades in from the top edge instead of starting at a hard line */
+.hero3d-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 9%); mask-image: linear-gradient(to bottom, transparent 0, #000 9%); }
+#cup-fallback { position: absolute; left: 50%; top: 55%; width: 30%; transform: translate(-50%, -50%); }
+#cup-fallback .cup { width: 100%; height: auto; display: block; overflow: visible; }
+.cup-wrap.has-3d #cup-fallback { display: none; }
+.cup .glass-line { fill: none; stroke: var(--text); stroke-opacity: 0.6; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.cup .meniscus { stroke: var(--text); stroke-opacity: 0.4; stroke-width: 1.5; }
+.cup-empty .glass-line { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
+
+/* ---- notes around the cup (placed by notes.js). The explanation unfolds; the label never moves. */
+.tags { position: absolute; inset: 0; }
+.tag {
+  position: absolute; left: 0; top: 0; margin: 0; border: 0; background: none; padding: 0;
+  display: inline-flex; flex-direction: column; align-items: flex-start; text-align: left;
+  cursor: default; will-change: transform;
+}
+.tag[data-side="left"] { align-items: flex-end; text-align: right; }
+.tag[data-grow="up"] { flex-direction: column-reverse; }
+.tag .more { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 0.6s var(--lux), opacity 0.45s ease; }
+.tag .more > span { overflow: hidden; min-height: 0; }
+.tag:hover .more, .tag:focus-visible .more, .tag.pinned .more { grid-template-rows: 1fr; opacity: 1; }
+.tag:hover, .tag:focus-visible, .tag.pinned { z-index: 6; }
+/* a note that no longer applies fades away before it is removed */
+.tag.gone, .live .tag.gone { opacity: 0 !important; pointer-events: none; }
+.leader { transition: opacity 0.6s ease; }
+.leader.gone { opacity: 0; }
+/* while one note is open the others step back, so it never half-covers a neighbour */
+.tag { transition: opacity 0.45s ease; }
+.live .tags:has(.tag:hover, .tag:focus-visible, .tag.pinned) .tag:not(:hover):not(:focus-visible):not(.pinned) { opacity: 0.12; }
+.leaders { transition: opacity 0.45s ease; }
+.stage:has(.tag:hover, .tag:focus-visible, .tag.pinned) .leaders { opacity: 0.3; }
+.tag:focus-visible { outline: none; }
+/* entrance (.live): notes arrive one after another, then their lines draw */
+.tag { opacity: 0; }
+.live .tag { opacity: 1; animation: note-in 1.5s var(--lux) backwards; animation-delay: calc(900ms + var(--k, 0) * 130ms); }
+@keyframes note-in { from { opacity: 0; } }
+.tag.changed > :not(.more) { animation: changed 1.4s var(--lux); }
+@keyframes changed { from { opacity: 0.25; } }
+
+.leaders { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: visible; }
+.leader line { stroke: var(--text); stroke-opacity: 0.42; stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.leader circle { fill: var(--text); opacity: 0; }
+.live .leader line { animation: draw 1.6s var(--lux) forwards; animation-delay: calc(1500ms + var(--k, 0) * 130ms); }
+.live .leader circle { animation: dot-in 0.8s ease forwards; animation-delay: calc(2700ms + var(--k, 0) * 130ms); }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes dot-in { to { opacity: 0.8; } }
+
+.more-hint {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 4;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 2px;
+  color: var(--label2); font-size: 13px; letter-spacing: 0;
+}
+.more-hint:hover { color: var(--text); text-decoration: none; }
+.more-hint svg { width: 18px; height: 18px; animation: nudge 3.2s ease-in-out infinite; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
+/* ---- the full view */
+.sheet { position: relative; z-index: 2; min-height: 100vh; background: var(--deep); }
+/* ?view=details: the full view on its own (for screenshots) */
+.only-details .hero { display: none; }
+.only-details .sheet { margin-top: 64px; }
+
+/* ---- map */
+#map { background: #07161B; }
+.leaflet-container { background: #07161B; font-family: var(--sans); }
+.leaflet-tile-pane { filter: brightness(0.62) sepia(0.45) hue-rotate(160deg) saturate(1.5); }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip, .leaflet-tooltip { background: var(--panel-2); color: var(--text); border: 1px solid var(--hair); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); }
+.leaflet-popup-content-wrapper { border-radius: 14px; }
+.leaflet-tooltip { border-radius: 999px; font-size: 13px; padding: 4px 10px; }
+.leaflet-tooltip-top::before { border-top-color: var(--hair); }
+.leaflet-popup-content { margin: 12px 14px; font-size: 14px; line-height: 1.45; }
+.leaflet-container a.leaflet-popup-close-button { color: var(--label2); }
+.leaflet-bar a, .leaflet-bar a:hover { background: var(--panel-2); color: var(--text); border-bottom-color: var(--hair); }
+.leaflet-bar { border: 1px solid var(--hair) !important; border-radius: 10px !important; overflow: hidden; }
+.leaflet-control-attribution { background: rgba(11, 32, 39, 0.85) !important; color: var(--label3); }
+.leaflet-control-attribution a { color: var(--label3); }
+.ref-pin { width: 13px; height: 13px; transform: rotate(45deg); border: 2px solid var(--text); background: rgba(247, 240, 240, 0.18); }
+.pop-meta { color: var(--label2); }
+
+/* ---- phones: no pinned hero; the notes sit in a grid under the cup */
+@media (max-width: 760px) {
+  :root { --cup-h: 56vh; --cup-w: 100vw; --cup-y: 28vh; }
+  .bar { position: static; padding: 12px 16px; }
+  .hero { position: relative; height: auto; overflow: visible; }
+  #hero-inner { position: relative; }
+  .stage { position: relative; }
+  .cup-wrap { position: relative; left: 0; top: 0; }
+  .tags { position: static; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 28px; }
+  .tag, .tag[data-side], .tag[data-grow] { position: static; transform: none; width: 100%; flex-direction: column; align-items: flex-start; text-align: left; }
+  .leaders, .more-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .live .tag { opacity: 1; }
+  .leader line { stroke-dashoffset: 0; }
+  .leader circle { opacity: 0.8; }
+}

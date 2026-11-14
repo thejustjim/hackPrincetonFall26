@@ -1,0 +1,184 @@
+/* The pitch: slides laid over the live /demo page (see pitch.js). The first slide is see-through,
+   so the glass shows behind the title. Each later slide is a 1600 x 900 frame scaled to fit the
+   window. On narrow screens the slides become one scrolling column. Everything is scoped to #pitch. */
+#pitch { position: fixed; inset: 0; z-index: 50; overflow: hidden; font-family: var(--serif); font-optical-sizing: auto; color: var(--text); letter-spacing: 0; transition: opacity 2s ease; }
+#pitch[hidden] { display: none; }
+#pitch.leaving { opacity: 0; pointer-events: none; }
+#pitch h1, #pitch h2, #pitch h3 { font-weight: 400; margin: 0; }
+#pitch ol, #pitch ul, #pitch dl, #pitch dd { margin: 0; padding: 0; list-style: none; }
+
+/* ---- one slide at a time. Slides already passed rest a little higher, slides to come a little lower. */
+#pitch .slide { position: absolute; inset: 0; overflow: hidden; background: var(--deep); opacity: 0; visibility: hidden; --dy: 44px; transition: opacity 1.2s ease, visibility 0s linear 1.2s; }
+#pitch .slide.past { --dy: -44px; }
+#pitch .slide.on { opacity: 1; visibility: visible; --dy: 0px; transition: opacity 1.2s ease, visibility 0s; }
+#pitch .slide[data-clear] { background: none; }
+/* 900 units tall and as wide as the window, scaled to fit; its side padding is the demo's page margin */
+#pitch .frame {
+  position: absolute; left: 0; top: 50%; width: calc(100vw / var(--s, 1)); height: 900px; margin-top: -450px;
+  padding: 104px calc(var(--page-x) / var(--s, 1)) 92px; display: flex; flex-direction: column;
+  transform-origin: 0 50%; transform: translateY(var(--dy)) scale(var(--s, 1)); transition: transform 1.7s var(--lux);
+}
+
+/* what floats in: heading words first, then each marked block in turn */
+#pitch .w { display: inline-block; opacity: 0; transform: translateY(0.3em); transition: opacity 0.5s ease, transform 0.5s ease; }
+#pitch .slide.in .w { opacity: 1; transform: none; transition: opacity 1.3s ease, transform 1.7s var(--lux); transition-delay: calc(200ms + var(--w, 0) * 60ms); }
+#pitch [data-rise] { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
+#pitch .slide.in [data-rise] { opacity: 1; transform: none; transition: opacity 1.5s ease, transform 1.9s var(--lux); transition-delay: calc(var(--after, 700ms) + var(--i, 0) * 170ms); }
+
+/* ---- furniture: the wordmark where the demo's bar will put it, and a quiet page count */
+#pitch .p-mark { position: absolute; left: var(--page-x); top: 12px; z-index: 2; opacity: 0; transition: opacity 1.2s ease; }
+#pitch .p-count { position: absolute; right: var(--page-x); bottom: 26px; z-index: 2; margin: 0; font: 13px var(--sans); color: var(--label3); font-variant-numeric: tabular-nums; opacity: 0; transition: opacity 1.2s ease; }
+#pitch[data-at]:not([data-at="0"]) .p-mark, #pitch[data-at]:not([data-at="0"]) .p-count { opacity: 1; }
+#pitch .p-hint { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: 13px var(--sans); color: var(--label2); }
+#pitch .p-hint svg { width: 16px; height: 16px; animation: nudge 3.2s ease-in-out infinite; }
+#pitch .p-end { display: none; }
+
+/* ---- 1. title: over the glass, in the place the demo's headline will take */
+#pitch .p-title { position: absolute; left: var(--page-x); top: 22vh; width: min(40vw, 700px); transform: translateY(var(--dy)); transition: transform 1.7s var(--lux); }
+#pitch .p-title h1 { font-size: clamp(96px, 11vw, 216px); line-height: 0.92; letter-spacing: -0.04em; margin-left: -0.04em; }
+#pitch .tagline { margin: 0; font-style: italic; color: var(--accent); }
+#pitch .p-title .tagline { margin-top: 0.5em; font-size: clamp(28px, 2.9vw, 54px); line-height: 1.1; }
+#pitch .p-lede { margin: 1.5em 0 0; max-width: 19em; font-size: clamp(18px, 1.5vw, 27px); line-height: 1.45; color: var(--label2); }
+#pitch .s-title { --after: 900ms; }
+#pitch .s-title .p-hint { position: absolute; left: var(--page-x); bottom: 30px; }
+
+/* ---- shared */
+#pitch h2 { font-size: 74px; line-height: 1.06; letter-spacing: -0.025em; max-width: 1280px; margin-bottom: 44px; text-wrap: balance; }
+#pitch .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 96px; margin-top: auto; }
+#pitch .says { display: grid; gap: 0; align-content: end; }
+#pitch .says li { padding: 26px 0 30px; border-top: 1px solid rgba(247, 240, 240, 0.28); font-size: 31px; line-height: 1.34; text-wrap: pretty; }
+#pitch .says li:last-child { padding-bottom: 0; }
+#pitch figure { margin: 0; }
+#pitch figcaption { margin: 0; max-width: none; font-style: italic; font-size: 24px; line-height: 1.35; color: var(--label2); }
+
+/* ---- 2. the problem */
+#pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 330px; gap: 90px; align-items: end; }
+#pitch #sample-chart { margin-top: 18px; }
+#pitch #sample-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+#pitch #sample-chart .col { fill: var(--accent); transition: fill 0.3s ease; }
+#pitch #sample-chart .col.hot { fill: #8DBDD8; }
+#pitch #sample-chart .hit { fill: transparent; }
+#pitch #sample-chart .base { stroke: rgba(247, 240, 240, 0.4); stroke-width: 1; }
+#pitch #sample-chart text { font: 17px var(--sans); fill: var(--label2); font-variant-numeric: tabular-nums; }
+#pitch #sample-chart .note { font: italic 21px var(--serif); fill: var(--text); }
+#pitch #sample-chart .bracket { stroke: var(--text); stroke-opacity: 0.7; stroke-width: 1; fill: none; }
+#pitch .src { margin: 14px 0 0; font: 15px var(--sans); color: var(--label3); }
+#pitch .p-stat .num { margin: 0; font-size: 300px; line-height: 0.8; letter-spacing: -0.04em; color: var(--accent); font-variant-numeric: lining-nums; }
+#pitch .p-stat .what { margin: 26px 0 0; font-style: italic; font-size: 36px; line-height: 1.15; }
+
+/* ---- 3. the loop */
+#pitch .loop { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 56px; margin-top: auto; }
+#pitch .loop li { padding-top: 26px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
+#pitch .loop .n { display: block; font-style: italic; font-size: 104px; line-height: 1; color: var(--accent); font-variant-numeric: lining-nums; }
+#pitch .loop h3 { margin-top: 30px; font-size: 46px; line-height: 1.1; letter-spacing: -0.015em; }
+#pitch .loop p { margin: 14px 0 0; font-size: 27px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
+
+/* ---- 4. hardware: one line across the slide. Solid for a device, dashed for the link between two. */
+#pitch .chain { display: flex; margin-top: auto; }
+#pitch .chain li { flex: 1 1 0; min-width: 0; padding: 22px 16px 0 0; border-top: 2px solid var(--text); }
+#pitch .chain b { display: block; font-weight: 400; font-size: 30px; line-height: 1.15; white-space: nowrap; }
+#pitch .chain span { display: block; margin-top: 6px; font-style: italic; font-size: 22px; line-height: 1.25; color: var(--label2); }
+#pitch .chain .link { flex: 0 0 104px; padding: 16px 0 0; border-top: 2px dashed var(--accent); text-align: center; font: 15px var(--sans); letter-spacing: 0.02em; color: var(--accent); }
+#pitch .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 96px; margin-top: auto; }
+#pitch .two p { margin: 0; padding-top: 26px; border-top: 1px solid rgba(247, 240, 240, 0.28); font-size: 31px; line-height: 1.34; text-wrap: pretty; }
+#pitch .two p + p { color: var(--label2); }
+
+/* ---- 5. AI: an example note, set like the ones around the glass */
+#pitch .s-ai .split { grid-template-columns: 540px minmax(0, 1fr); gap: 110px; align-items: end; }
+#pitch .p-plate { display: flex; flex-direction: column; padding: 34px 40px 36px; box-shadow: 0 0 0 1px rgba(247, 240, 240, 0.22), 0 40px 70px -40px rgba(0, 0, 0, 0.9); }
+#pitch .p-plate .lab { font-style: italic; font-size: 26px; color: var(--label2); }
+#pitch .p-plate .val { font-size: 76px; line-height: 1.1; letter-spacing: -0.02em; }
+#pitch .p-plate .txt { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--hair); font-size: 27px; line-height: 1.4; color: var(--label2); }
+#pitch .p-plate figcaption { margin-top: 26px; font-size: 20px; color: var(--label3); }
+
+/* ---- 6. filter life */
+#pitch .s-filters .split { align-items: end; }
+#pitch .p-filters .f { padding: 26px 0 38px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
+#pitch .p-filters .f:last-child { padding-bottom: 0; }
+#pitch .p-filters .name { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin: 0; font-size: 50px; line-height: 1.1; letter-spacing: -0.015em; }
+#pitch .p-filters .st { font-style: italic; font-size: 27px; letter-spacing: 0; }
+#pitch .p-filters .st.now { color: var(--alert); }
+#pitch .p-filters .st.ok { color: var(--accent); }
+#pitch .p-filters .line { margin: 12px 0 0; font-size: 27px; color: var(--label2); }
+#pitch .p-filters .life { height: 5px; margin-top: 22px; }
+
+/* ---- 7. where the data comes from */
+#pitch .s-sources .split { grid-template-columns: 560px minmax(0, 1fr); gap: 110px; align-items: end; }
+#pitch #mini-map svg { display: block; width: 100%; height: auto; overflow: visible; }
+#pitch #mini-map text { font: italic 21px var(--serif); fill: var(--label2); paint-order: stroke; stroke: var(--deep); stroke-width: 7px; stroke-linejoin: round; }
+#pitch #mini-map .label-tank { fill: var(--text); }
+#pitch .sources > div { padding: 24px 0 28px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
+#pitch .sources > div:last-child { padding-bottom: 0; }
+#pitch .sources dt { display: flex; align-items: center; gap: 16px; font-size: 38px; line-height: 1.1; }
+#pitch .sources dd { margin-top: 10px; font-size: 26px; line-height: 1.38; color: var(--label2); text-wrap: pretty; }
+#pitch .key { flex: none; width: 17px; height: 17px; }
+#pitch .key-measured { border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--text); }
+#pitch .key-published { transform: rotate(45deg) scale(0.86); border: 2px solid var(--text); background: rgba(247, 240, 240, 0.16); }
+#pitch .key-sim { border-radius: 50%; border: 2px dashed var(--neutral); }
+
+/* ---- 8. open questions */
+#pitch .open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 96px; margin-top: auto; }
+#pitch .open > div { padding: 26px 0 50px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
+#pitch .open > div:nth-last-child(-n + 2) { padding-bottom: 0; }
+#pitch .open dt { font-size: 42px; line-height: 1.1; letter-spacing: -0.015em; }
+#pitch .open dd { margin-top: 12px; font-size: 29px; line-height: 1.36; color: var(--label2); }
+
+/* ---- 9. close */
+#pitch .s-close .frame { align-items: center; justify-content: center; text-align: center; }
+#pitch .s-close h2 { font-size: 236px; line-height: 0.92; letter-spacing: -0.04em; margin-bottom: 0; }
+#pitch .s-close .tagline { margin-top: 30px; font-size: 60px; line-height: 1.1; }
+#pitch .s-close .team { margin: 54px 0 0; font-size: 29px; color: var(--label2); }
+#pitch .s-close .p-hint { position: absolute; left: 50%; bottom: 84px; translate: -50% 0; font-size: 16px; white-space: nowrap; }
+
+/* ---- narrow screens: one scrolling column. Reaching the end hands over to the demo. */
+#pitch.stacked { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#pitch.stacked .slide { position: relative; inset: auto; display: block; overflow: visible; opacity: 1; visibility: visible; --dy: 0px; padding: 64px var(--page-x) 72px; transition: none; }
+#pitch.stacked .slide + .slide { border-top: 1px solid var(--hair); }
+#pitch.stacked .frame { position: static; width: auto; height: auto; margin: 0; padding: 0; display: block; transform: none; }
+#pitch.stacked .p-mark, #pitch.stacked .p-count { display: none; }
+#pitch.stacked .s-title { min-height: 100vh; min-height: 100svh; padding: 0; pointer-events: none; }
+#pitch.stacked .p-title { position: relative; left: auto; top: auto; width: auto; padding: 9vh var(--page-x) 0; }
+#pitch.stacked .p-title h1 { font-size: clamp(64px, 19vw, 132px); }
+#pitch.stacked .p-title .tagline { font-size: clamp(24px, 6vw, 38px); }
+#pitch.stacked .p-lede { font-size: 18px; }
+#pitch.stacked h2 { font-size: clamp(30px, 6.4vw, 52px); line-height: 1.1; margin-bottom: 0; }
+#pitch.stacked .split, #pitch.stacked .two, #pitch.stacked .open, #pitch.stacked .loop,
+#pitch.stacked .s-problem .split, #pitch.stacked .s-ai .split, #pitch.stacked .s-sources .split { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-top: 32px; }
+#pitch.stacked .loop { gap: 26px; }
+#pitch.stacked .loop li { display: grid; grid-template-columns: 54px minmax(0, 1fr); column-gap: 8px; padding-top: 16px; }
+#pitch.stacked .loop .n { grid-row: span 2; font-size: 54px; }
+#pitch.stacked .loop h3 { margin-top: 4px; font-size: 26px; }
+#pitch.stacked .loop p, #pitch.stacked .says li, #pitch.stacked .two p, #pitch.stacked .open dd, #pitch.stacked .sources dd,
+#pitch.stacked .p-plate .txt, #pitch.stacked .p-filters .line { font-size: 19px; }
+#pitch.stacked .loop p { margin-top: 4px; }
+#pitch.stacked .says li, #pitch.stacked .two p, #pitch.stacked .open > div, #pitch.stacked .sources > div, #pitch.stacked .p-filters .f { padding: 16px 0 18px; }
+#pitch.stacked figcaption { font-size: 17px; }
+#pitch.stacked #sample-chart { overflow-x: auto; }
+#pitch.stacked #sample-chart svg { min-width: 640px; }
+#pitch.stacked .p-stat { display: flex; align-items: baseline; gap: 16px; }
+#pitch.stacked .p-stat .num { font-size: 104px; }
+#pitch.stacked .p-stat .what { margin: 0; font-size: 22px; }
+#pitch.stacked .chain { flex-direction: column; margin-top: 32px; }
+#pitch.stacked .chain li { flex: none; padding: 2px 0 2px 18px; border-top: 0; border-left: 2px solid var(--text); }
+#pitch.stacked .chain b { font-size: 23px; }
+#pitch.stacked .chain span { margin-top: 0; font-size: 17px; }
+#pitch.stacked .chain .link { flex: none; padding: 10px 0 10px 18px; border-top: 0; border-left: 2px dashed var(--accent); text-align: left; font-size: 13px; }
+#pitch.stacked .p-plate { padding: 22px 24px 24px; }
+#pitch.stacked .p-plate .lab { font-size: 18px; }
+#pitch.stacked .p-plate .val { font-size: 44px; }
+#pitch.stacked .p-plate figcaption { font-size: 15px; }
+#pitch.stacked .p-filters .name { font-size: 30px; }
+#pitch.stacked .p-filters .st { font-size: 19px; }
+#pitch.stacked .sources dt { font-size: 25px; }
+#pitch.stacked .open dt { font-size: 26px; }
+#pitch.stacked #mini-map { max-width: 460px; }
+#pitch.stacked .s-close { text-align: center; padding-bottom: 40px; }
+#pitch.stacked .s-close h2 { font-size: clamp(72px, 22vw, 150px); }
+#pitch.stacked .s-close .tagline { margin-top: 12px; font-size: clamp(24px, 6vw, 38px); }
+#pitch.stacked .s-close .team { margin-top: 28px; font-size: 19px; }
+#pitch.stacked .s-close .p-hint { position: static; translate: none; margin-top: 44px; font-size: 14px; }
+#pitch.stacked .p-end { display: block; height: 46vh; background: var(--deep); }
+
+@media (prefers-reduced-motion: reduce) {
+  #pitch .w, #pitch [data-rise] { opacity: 1; transform: none; }
+}
