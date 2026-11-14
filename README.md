@@ -15,6 +15,8 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `firmware/taptest_node` - HUZZAH32 Feather on the tank: serial <-> ESP-NOW
 - `firmware/taptest_receiver` - Inland ESP32 board at the base station: ESP-NOW <-> USB serial
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
+  - `investigator.py` - deepagents (LangChain) agent that writes a report after every `after` test
+  - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
 - `web` - dashboard (Jim + Verna). The gateway serves this folder at http://<pi>:8000/
 
 ## Data format
@@ -43,21 +45,47 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
 - `WS /ws` - live messages:
   - `{"type":"reading", ...all fields above}`
   - `{"type":"decision","id":..,"node":..,"test":..,"ai_filter":..,"explanation":..,"source":"claude"|"local_rule"}`
+  - `{"type":"filters","filters":[...same as GET /api/filters]}` - after every tip and every retest
+  - `{"type":"report","id":..,"node":..,"test":..,"filter":..,"report":"<markdown>","source":"deepagents","model":..}`
 - `GET /api/nodes` - every node, location, latest reading (draw the map from this)
 - `GET /api/readings?node=tank-01&limit=200` - history, newest first
 - `GET /api/tests/{node}/{test}` - the before/after pair for the before/after card
+- `GET /api/filters` - filter life per tank (see below)
+- `POST /api/filters/{zerowater|brita}/replace` - a new filter went in: start its count over
+- `GET /api/reference` - published Stony Brook / Millstone River / Lake Carnegie data (cached, works offline)
+- `GET /api/reports?node=tank-01&limit=20` - investigator reports, newest first
 - `POST /api/cmd?test=17&filter=BRITA` - manual override
 - `GET /health`, `GET /docs` (interactive API docs)
 
+## Filter life
+Every time the cup tips into a filter, the gateway counts about 0.1 L through it (`LITERS_PER_TIP`).
+- **ZeroWater**: `REPLACE` once an `after` test of ZeroWater-filtered water reads 6 ppm or more
+  (ZeroWater's own "006" rule). It stays `REPLACE` until you call the replace endpoint.
+- **Brita Elite**: rated for about 450 L. `LOW` at 90%, `REPLACE` at 100%.
+
+## Investigator (deepagents)
+After each `after` test, a LangChain deep agent (Claude Opus 5.5) calls `get_site_history`,
+`get_nearby_nodes`, `get_filter_life` and `get_reference_data`, writes a short Markdown report
+(result, context, filter, next step), and the gateway broadcasts it over `/ws`. It runs whenever
+`ANTHROPIC_API_KEY` is set; `INVESTIGATOR=0` turns it off, `INVESTIGATOR_EFFORT=medium` makes it dig deeper.
+
+## Published reference data
+`python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake
+Carnegie from the Water Quality Portal (waterqualitydata.us; USGS and NJ DEP samples), estimates
+TDS = 0.65 x conductance, and caches it to `gateway/reference.json` (committed, so the demo works
+offline). Re-run it to refresh. On the map, label these as published, not measured.
+
 ## Run the gateway
 ```
+cp .env.example .env                  # then put the Anthropic key in .env (never commit it)
 cd gateway
-python3 -m venv .venv && . .venv/bin/activate
+python3 -m venv .venv && . .venv/bin/activate   # Python 3.11+
 pip install -r requirements.txt
 MOCK=1 python gateway.py              # no hardware: fake tank + 12 simulated nodes
 python gateway.py                     # real receiver on /dev/ttyUSB0 or /dev/ttyACM0
-export ANTHROPIC_API_KEY=...          # optional: turns on the Claude decision agent
 ```
+Without a key, the gateway uses the tank's local rule only. With one, Claude picks filters
+(`"source":"claude"`) and the investigator writes reports.
 `python mock.py` alone prints the exact receiver lines, so you can test a parser.
 
 ## Hardware bring-up order (Uno)

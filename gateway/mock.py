@@ -40,10 +40,11 @@ def line(node, test, phase, ph, tds, clarity, verdict, filt, rssi=None):
     return json.dumps(d, separators=(",", ":"))
 
 
-def after_filter(ph, tds, clarity, filt):
-    """What the water looks like after the filter (rough real behaviour)."""
+def after_filter(ph, tds, clarity, filt, wear=0):
+    """What the water looks like after the filter (rough real behaviour).
+    wear = ppm the ZeroWater resin lets through as it gets used up (it reads 006 when spent)."""
     if filt == "ZEROWATER":   # strips nearly all dissolved solids, pH drifts a bit acidic
-        return round(ph - random.uniform(0.6, 1.0), 2), random.randint(0, 15), round(min(1.0, clarity + 0.03), 2)
+        return round(ph - random.uniform(0.6, 1.0), 2), random.randint(0, 2) + wear, round(min(1.0, clarity + 0.03), 2)
     if filt == "BRITA":       # carbon clears colour, small TDS drop
         return round(ph - 0.1, 2), int(tds * 0.9), round(random.uniform(0.86, 0.95), 2)
     return ph, tds, clarity
@@ -59,6 +60,7 @@ class MockDevice:
         self.ai_choice = {}      # test -> filter chosen by the gateway
         self.next_test_at = time.time() + 3
         self.cup_cycle = ["clean", "salty", "tea"]
+        self.zw_runs = 0         # ZeroWater runs so far; output TDS creeps up about 1 ppm per 2 runs
 
     def write(self, data: bytes):
         try:
@@ -90,7 +92,9 @@ class MockDevice:
             if isinstance(item, tuple):
                 _, test, ph, tds, clr, rule_f = item
                 f = self.ai_choice.get(test, rule_f)
-                ph2, tds2, clr2 = after_filter(ph, tds, clr, f)
+                ph2, tds2, clr2 = after_filter(ph, tds, clr, f, wear=self.zw_runs // 2)
+                if f == "ZEROWATER":
+                    self.zw_runs += 1
                 v2, _ = verdict_for(ph2, tds2, clr2)
                 item = line(self.node, test, "after", ph2, tds2, clr2, v2, "NONE")
             return (item + "\n").encode()

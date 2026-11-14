@@ -1,0 +1,1118 @@
+{
+ "source": "Water Quality Portal (USGS, EPA, NJ DEP) - waterqualitydata.us",
+ "characteristic": "Specific conductance (uS/cm at 25 C)",
+ "tds_factor": 0.65,
+ "note": "Published discrete samples, not live readings. TDS is estimated as 0.65 x specific conductance.",
+ "fetched_at": "2026-11-14T06:57:10+00:00",
+ "sites": [
+  {
+   "id": "stony-brook",
+   "name": "Stony Brook",
+   "kind": "published",
+   "lat": 40.3330555555556,
+   "lon": -74.6819444444445,
+   "latest": {
+    "date": "2023-07-27",
+    "station": "NJDEP_BFBM-FIBI070",
+    "conductance_us_cm": 167.4,
+    "tds_ppm": 109
+   },
+   "typical_tds_ppm": 190,
+   "typical_conductance_us_cm": 291.6,
+   "typical_period": [
+    "1998-04-09",
+    "2023-07-27"
+   ],
+   "typical_n": 20,
+   "n_samples": 269,
+   "first_date": "1956-05-18",
+   "last_date": "2023-07-27",
+   "stations": [
+    {
+     "id": "USGS-01401000",
+     "name": "Stony Brook at Princeton NJ",
+     "org": "U.S. Geological Survey",
+     "lat": 40.3330555555556,
+     "lon": -74.6819444444445,
+     "n": 254,
+     "first_date": "1956-05-18",
+     "last_date": "2010-06-14"
+    },
+    {
+     "id": "NJDEP_BFBM-AN0393",
+     "name": "STONY BROOK RT 206",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.33325,
+     "lon": -74.682194,
+     "n": 3,
+     "first_date": "2009-10-19",
+     "last_date": "2019-07-09"
+    },
+    {
+     "id": "NJDEP_BFBM-01401000",
+     "name": "STONY BK AT PRINCETON NJ",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.3338,
+     "lon": -74.6821,
+     "n": 8,
+     "first_date": "2009-08-19",
+     "last_date": "2011-05-02"
+    },
+    {
+     "id": "NJDEP_BFBM-FIBI070",
+     "name": "Stony Brook,Rt 583",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.326691,
+     "lon": -74.680447,
+     "n": 2,
+     "first_date": "2008-07-11",
+     "last_date": "2023-07-27"
+    },
+    {
+     "id": "NJDEP_BFBM-AN0394A",
+     "name": "Stony Brook at Alexander Rd",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.332309,
+     "lon": -74.65346,
+     "n": 2,
+     "first_date": "2014-07-28",
+     "last_date": "2019-09-05"
+    }
+   ],
+   "samples": [
+    {
+     "date": "1995-10-30",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 174.5,
+     "tds_ppm": 113
+    },
+    {
+     "date": "1996-01-17",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 403.0,
+     "tds_ppm": 262
+    },
+    {
+     "date": "1996-01-19",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 173.0,
+     "tds_ppm": 112
+    },
+    {
+     "date": "1996-03-28",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 272.0,
+     "tds_ppm": 177
+    },
+    {
+     "date": "1996-04-24",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 216.5,
+     "tds_ppm": 141
+    },
+    {
+     "date": "1996-05-13",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 201.0,
+     "tds_ppm": 131
+    },
+    {
+     "date": "1996-05-21",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 240.5,
+     "tds_ppm": 156
+    },
+    {
+     "date": "1996-06-03",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 278.0,
+     "tds_ppm": 181
+    },
+    {
+     "date": "1996-06-04",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 275.0,
+     "tds_ppm": 179
+    },
+    {
+     "date": "1996-06-13",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 177.0,
+     "tds_ppm": 115
+    },
+    {
+     "date": "1996-07-08",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 227.5,
+     "tds_ppm": 148
+    },
+    {
+     "date": "1996-07-13",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 94.0,
+     "tds_ppm": 61
+    },
+    {
+     "date": "1996-07-22",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 228.5,
+     "tds_ppm": 149
+    },
+    {
+     "date": "1996-08-07",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 239.5,
+     "tds_ppm": 156
+    },
+    {
+     "date": "1996-09-03",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 279.0,
+     "tds_ppm": 181
+    },
+    {
+     "date": "1996-10-08",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 261.5,
+     "tds_ppm": 170
+    },
+    {
+     "date": "1996-10-19",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 98.5,
+     "tds_ppm": 64
+    },
+    {
+     "date": "1996-11-07",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 228.0,
+     "tds_ppm": 148
+    },
+    {
+     "date": "1996-11-13",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 210.0,
+     "tds_ppm": 136
+    },
+    {
+     "date": "1996-12-10",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 159.0,
+     "tds_ppm": 103
+    },
+    {
+     "date": "1997-01-06",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 217.0,
+     "tds_ppm": 141
+    },
+    {
+     "date": "1997-01-27",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 215.0,
+     "tds_ppm": 140
+    },
+    {
+     "date": "1997-02-05",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 168.0,
+     "tds_ppm": 109
+    },
+    {
+     "date": "1997-02-25",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 256.0,
+     "tds_ppm": 166
+    },
+    {
+     "date": "1997-03-31",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 158.5,
+     "tds_ppm": 103
+    },
+    {
+     "date": "1997-04-01",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 253.5,
+     "tds_ppm": 165
+    },
+    {
+     "date": "1997-04-22",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 228.0,
+     "tds_ppm": 148
+    },
+    {
+     "date": "1997-05-19",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 241.5,
+     "tds_ppm": 157
+    },
+    {
+     "date": "1997-06-03",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 131.0,
+     "tds_ppm": 85
+    },
+    {
+     "date": "1997-06-09",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 219.0,
+     "tds_ppm": 142
+    },
+    {
+     "date": "1997-07-24",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 228.0,
+     "tds_ppm": 148
+    },
+    {
+     "date": "1997-07-30",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 223.5,
+     "tds_ppm": 145
+    },
+    {
+     "date": "1997-08-21",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 192.0,
+     "tds_ppm": 125
+    },
+    {
+     "date": "1997-09-22",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 331.0,
+     "tds_ppm": 215
+    },
+    {
+     "date": "1997-10-09",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 389.0,
+     "tds_ppm": 253
+    },
+    {
+     "date": "1997-11-18",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 260.5,
+     "tds_ppm": 169
+    },
+    {
+     "date": "1997-12-23",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 249.0,
+     "tds_ppm": 162
+    },
+    {
+     "date": "1998-01-16",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 147.0,
+     "tds_ppm": 96
+    },
+    {
+     "date": "1998-02-23",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 185.0,
+     "tds_ppm": 120
+    },
+    {
+     "date": "1998-03-19",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 82.0,
+     "tds_ppm": 53
+    },
+    {
+     "date": "1998-04-09",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 178.5,
+     "tds_ppm": 116
+    },
+    {
+     "date": "1998-05-07",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 132.0,
+     "tds_ppm": 86
+    },
+    {
+     "date": "1998-06-10",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 260.0,
+     "tds_ppm": 169
+    },
+    {
+     "date": "2006-06-05",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 206.0,
+     "tds_ppm": 134
+    },
+    {
+     "date": "2008-07-11",
+     "station": "NJDEP_BFBM-FIBI070",
+     "conductance_us_cm": 393000.0,
+     "tds_ppm": 255450
+    },
+    {
+     "date": "2009-08-19",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 297.0,
+     "tds_ppm": 193
+    },
+    {
+     "date": "2009-10-19",
+     "station": "NJDEP_BFBM-AN0393",
+     "conductance_us_cm": 264.0,
+     "tds_ppm": 172
+    },
+    {
+     "date": "2009-11-30",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 256.0,
+     "tds_ppm": 166
+    },
+    {
+     "date": "2010-03-01",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 365.0,
+     "tds_ppm": 237
+    },
+    {
+     "date": "2010-05-17",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 267.0,
+     "tds_ppm": 174
+    },
+    {
+     "date": "2010-06-14",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 330.0,
+     "tds_ppm": 214
+    },
+    {
+     "date": "2010-07-06",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 394.0,
+     "tds_ppm": 256
+    },
+    {
+     "date": "2010-11-15",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 352.0,
+     "tds_ppm": 229
+    },
+    {
+     "date": "2011-03-28",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 295.0,
+     "tds_ppm": 192
+    },
+    {
+     "date": "2011-05-02",
+     "station": "NJDEP_BFBM-01401000",
+     "conductance_us_cm": 249.0,
+     "tds_ppm": 162
+    },
+    {
+     "date": "2014-07-28",
+     "station": "NJDEP_BFBM-AN0394A",
+     "conductance_us_cm": 323.0,
+     "tds_ppm": 210
+    },
+    {
+     "date": "2014-08-11",
+     "station": "NJDEP_BFBM-AN0393",
+     "conductance_us_cm": 405.0,
+     "tds_ppm": 263
+    },
+    {
+     "date": "2019-07-09",
+     "station": "NJDEP_BFBM-AN0393",
+     "conductance_us_cm": 288.2,
+     "tds_ppm": 187
+    },
+    {
+     "date": "2019-09-05",
+     "station": "NJDEP_BFBM-AN0394A",
+     "conductance_us_cm": 385.7,
+     "tds_ppm": 251
+    },
+    {
+     "date": "2023-07-27",
+     "station": "NJDEP_BFBM-FIBI070",
+     "conductance_us_cm": 167.4,
+     "tds_ppm": 109
+    }
+   ]
+  },
+  {
+   "id": "millstone-river",
+   "name": "Millstone River",
+   "kind": "published",
+   "lat": 40.3133333333333,
+   "lon": -74.5891666666667,
+   "latest": {
+    "date": "2025-11-24",
+    "station": "NJDEP_BFBM-BFBM000308",
+    "conductance_us_cm": 460.1,
+    "tds_ppm": 299
+   },
+   "typical_tds_ppm": 248,
+   "typical_conductance_us_cm": 381.1,
+   "typical_period": [
+    "2024-10-21",
+    "2025-11-24"
+   ],
+   "typical_n": 20,
+   "n_samples": 261,
+   "first_date": "1959-09-24",
+   "last_date": "2025-11-24",
+   "stations": [
+    {
+     "id": "USGS-01400640",
+     "name": "Millstone River near Grovers Mill NJ",
+     "org": "U.S. Geological Survey",
+     "lat": 40.3133333333333,
+     "lon": -74.5891666666667,
+     "n": 114,
+     "first_date": "1959-09-24",
+     "last_date": "2025-03-11"
+    },
+    {
+     "id": "NJDEP_BFBM-01400640",
+     "name": "MILLSTONE RIVER NEAR GROVERS MILL",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.3137,
+     "lon": -74.5887,
+     "n": 7,
+     "first_date": "2024-05-09",
+     "last_date": "2025-11-18"
+    },
+    {
+     "id": "USGS-01401440",
+     "name": "Millstone River at Kingston NJ",
+     "org": "U.S. Geological Survey",
+     "lat": 40.3733333333333,
+     "lon": -74.6205555555556,
+     "n": 101,
+     "first_date": "1975-11-26",
+     "last_date": "2010-06-14"
+    },
+    {
+     "id": "NJDEP_BFBM-BFBM000308",
+     "name": "Millstone River at Rt 518",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.399541,
+     "lon": -74.629062,
+     "n": 39,
+     "first_date": "2022-04-11",
+     "last_date": "2025-11-24"
+    }
+   ],
+   "samples": [
+    {
+     "date": "2021-03-16",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 518.5,
+     "tds_ppm": 337
+    },
+    {
+     "date": "2021-05-12",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 382.5,
+     "tds_ppm": 249
+    },
+    {
+     "date": "2021-08-18",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 328.0,
+     "tds_ppm": 213
+    },
+    {
+     "date": "2021-11-09",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 293.0,
+     "tds_ppm": 190
+    },
+    {
+     "date": "2022-03-16",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 414.0,
+     "tds_ppm": 269
+    },
+    {
+     "date": "2022-04-11",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 254.0,
+     "tds_ppm": 165
+    },
+    {
+     "date": "2022-05-16",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 286.5,
+     "tds_ppm": 186
+    },
+    {
+     "date": "2022-05-26",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 277.0,
+     "tds_ppm": 180
+    },
+    {
+     "date": "2022-06-14",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 323.0,
+     "tds_ppm": 210
+    },
+    {
+     "date": "2022-07-21",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 534.0,
+     "tds_ppm": 347
+    },
+    {
+     "date": "2022-08-03",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 400.0,
+     "tds_ppm": 260
+    },
+    {
+     "date": "2022-08-24",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 531.0,
+     "tds_ppm": 345
+    },
+    {
+     "date": "2022-09-26",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 568.0,
+     "tds_ppm": 369
+    },
+    {
+     "date": "2022-10-26",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 345.0,
+     "tds_ppm": 224
+    },
+    {
+     "date": "2022-12-12",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 285.0,
+     "tds_ppm": 185
+    },
+    {
+     "date": "2022-12-19",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 255.0,
+     "tds_ppm": 166
+    },
+    {
+     "date": "2023-01-24",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 212.6,
+     "tds_ppm": 138
+    },
+    {
+     "date": "2023-02-15",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 374.0,
+     "tds_ppm": 243
+    },
+    {
+     "date": "2023-02-15",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 319.0,
+     "tds_ppm": 207
+    },
+    {
+     "date": "2023-02-27",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 358.3,
+     "tds_ppm": 233
+    },
+    {
+     "date": "2023-03-21",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 349.6,
+     "tds_ppm": 227
+    },
+    {
+     "date": "2023-04-25",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 296.4,
+     "tds_ppm": 193
+    },
+    {
+     "date": "2023-05-17",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 379.3,
+     "tds_ppm": 247
+    },
+    {
+     "date": "2023-06-22",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 392.3,
+     "tds_ppm": 255
+    },
+    {
+     "date": "2023-06-27",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 182.0,
+     "tds_ppm": 118
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 198.7,
+     "tds_ppm": 129
+    },
+    {
+     "date": "2023-08-16",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 316.4,
+     "tds_ppm": 206
+    },
+    {
+     "date": "2023-09-20",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 194.0,
+     "tds_ppm": 126
+    },
+    {
+     "date": "2023-09-26",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 185.2,
+     "tds_ppm": 120
+    },
+    {
+     "date": "2023-10-24",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 358.5,
+     "tds_ppm": 233
+    },
+    {
+     "date": "2023-11-29",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 227.3,
+     "tds_ppm": 148
+    },
+    {
+     "date": "2023-12-18",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 163.5,
+     "tds_ppm": 106
+    },
+    {
+     "date": "2024-05-09",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 306.4,
+     "tds_ppm": 199
+    },
+    {
+     "date": "2024-05-09",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 306.0,
+     "tds_ppm": 199
+    },
+    {
+     "date": "2024-06-19",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 368.1,
+     "tds_ppm": 239
+    },
+    {
+     "date": "2024-07-10",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 389.3,
+     "tds_ppm": 253
+    },
+    {
+     "date": "2024-08-08",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 190.5,
+     "tds_ppm": 124
+    },
+    {
+     "date": "2024-08-08",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 190.0,
+     "tds_ppm": 124
+    },
+    {
+     "date": "2024-08-27",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 294.9,
+     "tds_ppm": 192
+    },
+    {
+     "date": "2024-09-23",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 404.5,
+     "tds_ppm": 263
+    },
+    {
+     "date": "2024-10-21",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 381.3,
+     "tds_ppm": 248
+    },
+    {
+     "date": "2024-11-25",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 368.5,
+     "tds_ppm": 240
+    },
+    {
+     "date": "2024-12-11",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 330.0,
+     "tds_ppm": 214
+    },
+    {
+     "date": "2024-12-19",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 350.4,
+     "tds_ppm": 228
+    },
+    {
+     "date": "2025-01-30",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 692.0,
+     "tds_ppm": 450
+    },
+    {
+     "date": "2025-02-20",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 785.0,
+     "tds_ppm": 510
+    },
+    {
+     "date": "2025-03-11",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 517.0,
+     "tds_ppm": 336
+    },
+    {
+     "date": "2025-03-11",
+     "station": "USGS-01400640",
+     "conductance_us_cm": 517.0,
+     "tds_ppm": 336
+    },
+    {
+     "date": "2025-03-20",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 523.0,
+     "tds_ppm": 340
+    },
+    {
+     "date": "2025-04-28",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 300.2,
+     "tds_ppm": 195
+    },
+    {
+     "date": "2025-05-27",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 297.5,
+     "tds_ppm": 193
+    },
+    {
+     "date": "2025-06-25",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 393.6,
+     "tds_ppm": 256
+    },
+    {
+     "date": "2025-06-30",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 330.7,
+     "tds_ppm": 215
+    },
+    {
+     "date": "2025-07-21",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 155.4,
+     "tds_ppm": 101
+    },
+    {
+     "date": "2025-08-25",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 380.9,
+     "tds_ppm": 248
+    },
+    {
+     "date": "2025-09-22",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 411.0,
+     "tds_ppm": 267
+    },
+    {
+     "date": "2025-09-30",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 406.8,
+     "tds_ppm": 264
+    },
+    {
+     "date": "2025-11-03",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 359.0,
+     "tds_ppm": 233
+    },
+    {
+     "date": "2025-11-18",
+     "station": "NJDEP_BFBM-01400640",
+     "conductance_us_cm": 374.7,
+     "tds_ppm": 244
+    },
+    {
+     "date": "2025-11-24",
+     "station": "NJDEP_BFBM-BFBM000308",
+     "conductance_us_cm": 460.1,
+     "tds_ppm": 299
+    }
+   ]
+  },
+  {
+   "id": "lake-carnegie",
+   "name": "Lake Carnegie",
+   "kind": "published",
+   "lat": 40.344633,
+   "lon": -74.629457,
+   "latest": {
+    "date": "2023-11-29",
+    "station": "NJDEP_BFBM-BFBM000344",
+    "conductance_us_cm": 142.2,
+    "tds_ppm": 92
+   },
+   "typical_tds_ppm": 177,
+   "typical_conductance_us_cm": 272.5,
+   "typical_period": [
+    "2022-08-24",
+    "2023-11-29"
+   ],
+   "typical_n": 20,
+   "n_samples": 28,
+   "first_date": "2022-05-18",
+   "last_date": "2023-11-29",
+   "stations": [
+    {
+     "id": "NJDEP_BFBM-NJW04459-294-3",
+     "name": "Carnegie Lake-3",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.344633,
+     "lon": -74.629457,
+     "n": 5,
+     "first_date": "2022-05-18",
+     "last_date": "2023-07-19"
+    },
+    {
+     "id": "NJDEP_BFBM-NJW04459-294-1",
+     "name": "Carnegie Lake-1",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.368733,
+     "lon": -74.622473,
+     "n": 5,
+     "first_date": "2022-05-18",
+     "last_date": "2023-07-19"
+    },
+    {
+     "id": "NJDEP_BFBM-NJW04459-294-2",
+     "name": "Carnegie Lake-2",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.356634,
+     "lon": -74.625574,
+     "n": 5,
+     "first_date": "2022-05-18",
+     "last_date": "2023-07-19"
+    },
+    {
+     "id": "NJDEP_BFBM-NJW04459-294-4",
+     "name": "Carnegie Lake-4",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.342709,
+     "lon": -74.644871,
+     "n": 5,
+     "first_date": "2022-05-18",
+     "last_date": "2023-07-19"
+    },
+    {
+     "id": "NJDEP_BFBM-BFBM000344",
+     "name": "Millstone River below Carnegie Lake and Heathcote Brook",
+     "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
+     "lat": 40.3747018,
+     "lon": -74.6196439,
+     "n": 8,
+     "first_date": "2022-08-24",
+     "last_date": "2023-11-29"
+    }
+   ],
+   "samples": [
+    {
+     "date": "2022-05-18",
+     "station": "NJDEP_BFBM-NJW04459-294-1",
+     "conductance_us_cm": 283.5,
+     "tds_ppm": 184
+    },
+    {
+     "date": "2022-05-18",
+     "station": "NJDEP_BFBM-NJW04459-294-2",
+     "conductance_us_cm": 276.3,
+     "tds_ppm": 180
+    },
+    {
+     "date": "2022-05-18",
+     "station": "NJDEP_BFBM-NJW04459-294-3",
+     "conductance_us_cm": 287.7,
+     "tds_ppm": 187
+    },
+    {
+     "date": "2022-05-18",
+     "station": "NJDEP_BFBM-NJW04459-294-4",
+     "conductance_us_cm": 267.0,
+     "tds_ppm": 174
+    },
+    {
+     "date": "2022-06-29",
+     "station": "NJDEP_BFBM-NJW04459-294-1",
+     "conductance_us_cm": 356.1,
+     "tds_ppm": 231
+    },
+    {
+     "date": "2022-06-29",
+     "station": "NJDEP_BFBM-NJW04459-294-2",
+     "conductance_us_cm": 360.2,
+     "tds_ppm": 234
+    },
+    {
+     "date": "2022-06-29",
+     "station": "NJDEP_BFBM-NJW04459-294-3",
+     "conductance_us_cm": 364.5,
+     "tds_ppm": 237
+    },
+    {
+     "date": "2022-06-29",
+     "station": "NJDEP_BFBM-NJW04459-294-4",
+     "conductance_us_cm": 357.2,
+     "tds_ppm": 232
+    },
+    {
+     "date": "2022-08-24",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 408.3,
+     "tds_ppm": 265
+    },
+    {
+     "date": "2022-09-13",
+     "station": "NJDEP_BFBM-NJW04459-294-1",
+     "conductance_us_cm": 412.7,
+     "tds_ppm": 268
+    },
+    {
+     "date": "2022-09-13",
+     "station": "NJDEP_BFBM-NJW04459-294-2",
+     "conductance_us_cm": 408.0,
+     "tds_ppm": 265
+    },
+    {
+     "date": "2022-09-13",
+     "station": "NJDEP_BFBM-NJW04459-294-3",
+     "conductance_us_cm": 409.8,
+     "tds_ppm": 266
+    },
+    {
+     "date": "2022-09-13",
+     "station": "NJDEP_BFBM-NJW04459-294-4",
+     "conductance_us_cm": 402.7,
+     "tds_ppm": 262
+    },
+    {
+     "date": "2022-11-15",
+     "station": "NJDEP_BFBM-NJW04459-294-1",
+     "conductance_us_cm": 357.8,
+     "tds_ppm": 233
+    },
+    {
+     "date": "2022-11-15",
+     "station": "NJDEP_BFBM-NJW04459-294-2",
+     "conductance_us_cm": 330.4,
+     "tds_ppm": 215
+    },
+    {
+     "date": "2022-11-15",
+     "station": "NJDEP_BFBM-NJW04459-294-3",
+     "conductance_us_cm": 336.1,
+     "tds_ppm": 218
+    },
+    {
+     "date": "2022-11-15",
+     "station": "NJDEP_BFBM-NJW04459-294-4",
+     "conductance_us_cm": 339.5,
+     "tds_ppm": 221
+    },
+    {
+     "date": "2023-05-17",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 233.0,
+     "tds_ppm": 151
+    },
+    {
+     "date": "2023-06-22",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 308.0,
+     "tds_ppm": 200
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 162.9,
+     "tds_ppm": 106
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-NJW04459-294-1",
+     "conductance_us_cm": 162.4,
+     "tds_ppm": 106
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-NJW04459-294-2",
+     "conductance_us_cm": 189.9,
+     "tds_ppm": 123
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-NJW04459-294-3",
+     "conductance_us_cm": 199.9,
+     "tds_ppm": 130
+    },
+    {
+     "date": "2023-07-19",
+     "station": "NJDEP_BFBM-NJW04459-294-4",
+     "conductance_us_cm": 150.4,
+     "tds_ppm": 98
+    },
+    {
+     "date": "2023-08-16",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 216.0,
+     "tds_ppm": 140
+    },
+    {
+     "date": "2023-09-26",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 120.8,
+     "tds_ppm": 79
+    },
+    {
+     "date": "2023-10-24",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 237.0,
+     "tds_ppm": 154
+    },
+    {
+     "date": "2023-11-29",
+     "station": "NJDEP_BFBM-BFBM000344",
+     "conductance_us_cm": 142.2,
+     "tds_ppm": 92
+    }
+   ]
+  }
+ ]
+}

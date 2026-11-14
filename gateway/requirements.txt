@@ -2,3 +2,6 @@ fastapi
 uvicorn[standard]
 pyserial
 anthropic
+python-dotenv
+deepagents
+langchain-anthropic

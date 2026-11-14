@@ -10,12 +10,14 @@ Run:
     SERIAL_PORT=/dev/ttyUSB0 python gateway.py  # real receiver
 Then open http://<pi-ip>:8000/docs  (REST)  and  ws://<pi-ip>:8000/ws  (live feed).
 
-Env vars:
+Env vars (also read from ../.env or ./.env; see .env.example):
     ANTHROPIC_API_KEY   optional. Without it the gateway uses the local rule only.
     SERIAL_PORT         default: first /dev/ttyUSB* or /dev/ttyACM*
     MOCK=1              use mock.py instead of a serial port
     SIM_NODES=12        number of simulated Princeton nodes (0 to turn off)
     AI_TIMEOUT=6        seconds to wait for Claude before the tank uses its own rule
+    LITERS_PER_TIP=0.1  water through a filter each time the cup tips
+    INVESTIGATOR=0      turn off the deepagents report after each "after" test
     DB_PATH=taptest.db
 """
 import asyncio
@@ -31,11 +33,18 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import mock
+
+try:  # secrets live in .env (git-ignored), never in the code
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+except ImportError:
+    pass
 
 MOCK = os.getenv("MOCK") == "1"
 SIM_NODES = int(os.getenv("SIM_NODES", "12"))
@@ -67,6 +76,15 @@ db.execute("""CREATE TABLE IF NOT EXISTS readings (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, phase TEXT,
     ph REAL, tds INTEGER, clarity REAL, verdict TEXT, filter TEXT, ai_filter TEXT,
     rssi INTEGER, lat REAL, lon REAL, sim INTEGER, anomaly REAL, explanation TEXT)""")
+# one row per cup tipped into a filter; after_* is filled when the retest comes in
+db.execute("""CREATE TABLE IF NOT EXISTS tips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, filter TEXT,
+    liters REAL, source TEXT, after_id INTEGER, after_tds INTEGER)""")
+db.execute("""CREATE TABLE IF NOT EXISTS filter_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, filter TEXT)""")
+db.execute("""CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, reading_id INTEGER,
+    filter TEXT, report TEXT, model TEXT)""")
 db.commit()
 db_lock = threading.Lock()
 
@@ -103,6 +121,88 @@ def anomaly_score(node, reading):
             med, mad = TYPICAL[k]
         zs.append(abs(reading[k] - med) / mad)
     return round(min(1.0, max(zs) / 6), 2)
+
+
+# ---------------------------------------------------------------- filter life
+LITERS_PER_TIP = float(os.getenv("LITERS_PER_TIP", "0.1"))   # one cup through the filter
+FILTERS = {
+    "ZEROWATER": {"name": "ZeroWater", "replace_tds": 6,
+                  "rule": "Replace when filtered water reads 6 ppm or more (ZeroWater's own rule)"},
+    "BRITA": {"name": "Brita Elite", "rated_liters": 450,
+              "rule": "Rated for about 450 L: LOW at 90%, REPLACE at 100%"},
+}
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()   # microseconds, so tips and changes order cleanly
+
+
+def record_tip(reading, filt, source):
+    with db_lock:
+        db.execute("INSERT INTO tips (ts, node, test, filter, liters, source) VALUES (?,?,?,?,?,?)",
+                   (now_iso(), reading["node"], reading["test"], filt, LITERS_PER_TIP, source))
+        db.commit()
+
+
+def attach_after(reading):
+    """Link an "after" retest to the tip it followed. Returns the filter used, or None."""
+    with db_lock:
+        tip = db.execute("SELECT id, filter FROM tips WHERE node=? AND test=? AND after_id IS NULL "
+                         "ORDER BY id DESC LIMIT 1", (reading["node"], reading["test"])).fetchone()
+        if tip:
+            db.execute("UPDATE tips SET after_id=?, after_tds=? WHERE id=?",
+                       (reading["id"], reading["tds"], tip["id"]))
+            db.commit()
+    return tip["filter"] if tip else None
+
+
+def filter_life(node="tank-01"):
+    out = []
+    for key, spec in FILTERS.items():
+        with db_lock:
+            ch = db.execute("SELECT ts FROM filter_changes WHERE node=? AND filter=? ORDER BY id DESC LIMIT 1",
+                            (node, key)).fetchone()
+            since = ch["ts"] if ch else ""
+            used = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(liters), 0) AS l FROM tips "
+                              "WHERE node=? AND filter=? AND ts>=?", (node, key, since)).fetchone()
+            last = db.execute("SELECT test, after_tds FROM tips WHERE node=? AND filter=? AND ts>=? "
+                              "AND after_tds IS NOT NULL ORDER BY id DESC LIMIT 1", (node, key, since)).fetchone()
+        liters = round(used["l"], 2)
+        item = {"node": node, "filter": key, "name": spec["name"], "installed_at": since or None,
+                "tips": used["n"], "liters": liters, "liters_per_tip": LITERS_PER_TIP,
+                "last_after_test": last["test"] if last else None,
+                "last_after_tds": last["after_tds"] if last else None, "rule": spec["rule"]}
+        if key == "ZEROWATER":
+            # ZeroWater's rule: once filtered water reads 006 the filter is spent (stays REPLACE until swapped)
+            with db_lock:
+                bad = db.execute("SELECT test, after_tds FROM tips WHERE node=? AND filter=? AND ts>=? "
+                                 "AND after_tds>=? ORDER BY id LIMIT 1",
+                                 (node, key, since, spec["replace_tds"])).fetchone()
+            item.update(replace_at_tds=spec["replace_tds"], status="REPLACE" if bad else "OK",
+                        reason=f"after test {bad['test']} read {bad['after_tds']} ppm" if bad else None)
+        else:
+            rated = spec["rated_liters"]
+            frac = liters / rated
+            item.update(rated_liters=rated, liters_left=round(max(0.0, rated - liters), 2),
+                        percent_used=round(100 * frac, 2),
+                        status="REPLACE" if frac >= 1 else "LOW" if frac >= 0.9 else "OK")
+        out.append(item)
+    return out
+
+
+def all_filters():
+    return [f for key, n in NODES.items() if not n["sim"] for f in filter_life(key)]
+
+
+# ---------------------------------------------------------------- published reference data
+REFERENCE_PATH = Path(__file__).with_name("reference.json")   # written by fetch_reference.py
+
+
+def load_reference():
+    try:
+        return json.loads(REFERENCE_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 # ---------------------------------------------------------------- Claude agent
@@ -220,7 +320,12 @@ async def handle_line(raw: str):
     if reading["phase"] == "before" and not reading["sim"]:
         asyncio.create_task(decide(reading, past))
     elif not reading["sim"]:
+        # Retest after filtering: update filter life, explain, and investigate.
+        used = attach_after(reading)
+        await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
         asyncio.create_task(explain_only(reading, past))
+        if investigator_agent is not None:
+            asyncio.create_task(run_investigation(reading, used))
 
 
 async def decide(reading, past):
@@ -232,9 +337,14 @@ async def decide(reading, past):
     if result:
         send_to_tank({"cmd": "filter", "test": reading["test"], "filter": result["filter"]})
         await save_explanation(reading, result["filter"], result["explanation"], source="claude")
+        used, source = result["filter"], "claude"
     else:
         # Uno falls back to its own rule; we record the same rule here
         await save_explanation(reading, reading["filter"], None, source="local_rule")
+        used, source = reading["filter"], "local_rule"
+    if used in FILTERS:   # the tank tips the cup into this filter
+        record_tip(reading, used, source)
+        await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
 
 
 async def explain_only(reading, past):
@@ -254,6 +364,103 @@ async def save_explanation(reading, ai_filter, explanation, source):
     await broadcast({"type": "decision", "id": reading["id"], "node": reading["node"],
                      "test": reading["test"], "phase": reading["phase"], "ai_filter": ai_filter,
                      "explanation": explanation, "source": source})
+
+
+# ---------------------------------------------------------------- deepagents investigator
+# Tools the investigator can call. Docstrings are what the agent reads.
+READING_KEYS = ("ts", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")
+
+
+def km_between(lat1, lon1, lat2, lon2):
+    p = math.pi / 180
+    h = (math.sin((lat2 - lat1) * p / 2) ** 2
+         + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin((lon2 - lon1) * p / 2) ** 2)
+    return 12742 * math.asin(math.sqrt(h))
+
+
+def get_site_history(node: str, limit: int = 20) -> list[dict]:
+    """Recent readings for one node, newest first. Fields: ts, test, phase ("before" = raw
+    water, "after" = retest after filtering), ph, tds (ppm), clarity (0-1, 1 = clear),
+    verdict, anomaly (0-1, how unusual vs this node's own history)."""
+    return [{k: r[k] for k in READING_KEYS} for r in history(node, max(1, min(int(limit), 100)))]
+
+
+def get_nearby_nodes(node: str, radius_km: float = 8.0) -> list[dict]:
+    """Other monitoring nodes within radius_km of this node, nearest first, each with its
+    latest reading. sim=true means a simulated node, not a real measurement."""
+    here = NODES.get(node)
+    if not here:
+        return []
+    out = []
+    for key, n in NODES.items():
+        if key == node:
+            continue
+        d = km_between(here["lat"], here["lon"], n["lat"], n["lon"])
+        if d <= radius_km:
+            latest = history(key, 1)
+            out.append({"node": key, "name": n["name"], "sim": n["sim"], "km": round(d, 1),
+                        "latest": {k: latest[0][k] for k in READING_KEYS} if latest else None})
+    return sorted(out, key=lambda x: x["km"])
+
+
+def get_filter_life() -> list[dict]:
+    """Filter usage and status for the tank: liters through each filter (about 0.1 L per tip).
+    ZeroWater is REPLACE once an after test reads 6 ppm or more (ZeroWater's own rule).
+    Brita Elite is rated for about 450 L."""
+    return all_filters()
+
+
+def get_reference_data() -> dict:
+    """Published water data near Princeton (USGS and NJ DEP samples via the Water Quality
+    Portal) for Stony Brook, Millstone River and Lake Carnegie: latest sample and typical
+    TDS, estimated as 0.65 x specific conductance. These are past samples, not live data."""
+    ref = load_reference()
+    if not ref:
+        return {"error": "no reference data cached (run fetch_reference.py)"}
+    return {"source": ref["source"], "note": ref["note"], "sites": [
+        {k: s[k] for k in ("name", "lat", "lon", "latest", "typical_tds_ppm", "typical_period",
+                           "n_samples", "first_date", "last_date")} for s in ref["sites"]]}
+
+
+investigator_agent = None
+if claude is not None and os.getenv("INVESTIGATOR", "1") != "0":
+    try:
+        import investigator
+        investigator_agent = investigator.build(
+            [get_site_history, get_nearby_nodes, get_filter_life, get_reference_data])
+    except Exception as e:
+        print("investigator off:", type(e).__name__, e)
+investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
+
+
+async def run_investigation(after, filter_used):
+    async with investigate_lock:
+        with db_lock:
+            before = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='before' "
+                                "AND id<? ORDER BY id DESC LIMIT 1",
+                                (after["node"], after["test"], after["id"])).fetchone()
+        case = {"node": after["node"], "site": NODES.get(after["node"], {}).get("name"),
+                "test": after["test"], "filter": filter_used,
+                "before": {k: before[k] for k in READING_KEYS} if before else None,
+                "after": {k: after[k] for k in READING_KEYS}}
+        t0 = time.time()
+        try:
+            report = await asyncio.wait_for(investigator.investigate(investigator_agent, case), timeout=240)
+        except Exception as e:
+            print("investigation failed:", type(e).__name__, e)
+            return
+        if not report:
+            return
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with db_lock:
+            cur = db.execute("INSERT INTO reports (ts, node, test, reading_id, filter, report, model) "
+                             "VALUES (?,?,?,?,?,?,?)", (ts, after["node"], after["test"], after["id"],
+                                                        filter_used, report, investigator.MODEL))
+            db.commit()
+        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s")
+        await broadcast({"type": "report", "id": cur.lastrowid, "ts": ts, "node": after["node"],
+                         "test": after["test"], "reading_id": after["id"], "filter": filter_used,
+                         "report": report, "source": "deepagents", "model": investigator.MODEL})
 
 
 # ---------------------------------------------------------------- input sources
@@ -360,9 +567,52 @@ def manual_cmd(test: int, filter: str):
     return {"ok": True}
 
 
+@app.get("/api/filters")
+def filters():
+    """Filter life per tank: liters through each filter, status OK / LOW / REPLACE."""
+    return all_filters()
+
+
+@app.post("/api/filters/{name}/replace")
+async def replace_filter(name: str, node: str = "tank-01"):
+    """Call after fitting a new filter: starts its liters and status over."""
+    key = name.upper()
+    if key not in FILTERS:
+        raise HTTPException(404, f"unknown filter {name}; use one of {list(FILTERS)}")
+    with db_lock:
+        db.execute("INSERT INTO filter_changes (ts, node, filter) VALUES (?,?,?)", (now_iso(), node, key))
+        db.commit()
+    life = filter_life(node)
+    await broadcast({"type": "filters", "filters": life})
+    return life
+
+
+@app.get("/api/reference")
+def reference():
+    """Published USGS / NJ DEP conductance data for Stony Brook, Millstone River, Lake Carnegie."""
+    ref = load_reference()
+    if ref is None:
+        raise HTTPException(404, "reference.json missing: run python fetch_reference.py")
+    return ref
+
+
+@app.get("/api/reports")
+def reports(node: str | None = None, limit: int = 20):
+    """Investigator reports, newest first."""
+    q, args = "SELECT * FROM reports", []
+    if node:
+        q += " WHERE node=?"
+        args.append(node)
+    q += " ORDER BY id DESC LIMIT ?"
+    args.append(min(limit, 500))
+    with db_lock:
+        return [dict(r) for r in db.execute(q, args).fetchall()]
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": claude is not None, "clients": len(clients)}
+    return {"ok": True, "mock": MOCK, "ai": claude is not None,
+            "investigator": investigator_agent is not None, "clients": len(clients)}
 
 
 @app.websocket("/ws")
