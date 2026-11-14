@@ -1,13 +1,30 @@
-/* Pitch deck: one full-screen section per slide. Each slide is drawn on a 1600 x 900 frame
-   scaled to the window; scrolling glides between them (slides.js) with parallax layers
-   and a ripple. Below 760px wide it becomes a plain scrolling page. */
+/* Pitch deck. Each slide is drawn on a 1600 x 900 frame scaled to the window. With JS the
+   slides sit on top of each other and slides.js plays slow transitions between them over a
+   WebGL water surface (water.js). Below 760px wide it becomes a plain scrolling page. */
 .js-deck, .js-deck body { overflow: hidden; }
 .deck-page .top { position: fixed; left: 0; right: 0; top: 0; }
 .deck-help { font-size: 13px; }
+.deck-page { --glass-blur: blur(28px) saturate(160%); }
 
-#ripples { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 5; pointer-events: none; mix-blend-mode: screen; }
+#water { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; display: block; }
+.has-water .scene { display: none; }
 
 .slide { position: relative; height: 100vh; height: 100dvh; overflow: hidden; }
+.js-deck .deck { position: fixed; inset: 0; }
+.js-deck .slide { position: absolute; inset: 0; height: auto; visibility: hidden; }
+.js-deck .slide.on, .js-deck .slide.leaving { visibility: visible; }
+.js-deck .slide.leaving { pointer-events: none; }
+
+/* headline words rise from behind a mask */
+.w { display: inline-block; overflow: hidden; vertical-align: top; padding: 0 0.04em 0.16em; margin: 0 -0.04em -0.16em; }
+.w > span { display: inline-block; }
+
+/* a soft sheen across the glass, like light on a pane */
+.slide .glass { position: relative; }
+.slide .glass::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(125deg, rgba(247, 240, 240, 0.11) 0%, rgba(247, 240, 240, 0) 42%);
+}
 .frame {
   position: absolute; left: 50%; top: 50%;
   width: 1600px; height: 900px;
@@ -15,10 +32,8 @@
   padding: 128px 112px 84px;
   display: flex; flex-direction: column; gap: 48px;
 }
-[data-depth] { will-change: transform, opacity; }
-
-.slide h1, .slide h2 { margin: 0; font-stretch: 125%; font-weight: 800; letter-spacing: -0.02em; }
-.slide h2 { font-size: 64px; line-height: 1.04; max-width: 1280px; }
+.slide h1, .slide h2 { margin: 0; font-stretch: 125%; font-weight: 600; letter-spacing: -0.025em; }
+.slide h2 { font-size: 62px; line-height: 1.08; max-width: 1280px; }
 .slide h3 { margin: 0; font-size: 32px; font-weight: 800; font-stretch: 115%; }
 .slide p { margin: 0; }
 .slide .glass { border-radius: 24px; }
@@ -63,7 +78,7 @@
 /* 3. loop: a real sequence, so it's numbered */
 .loop { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px; }
 .loop li { counter-increment: step; padding: 34px 32px 38px; }
-.loop li::before { content: counter(step); display: block; font-size: 84px; font-weight: 800; font-stretch: 125%; line-height: 1; color: var(--accent); margin-bottom: 22px; }
+.loop li::before { content: counter(step); display: block; font-size: 84px; font-weight: 500; font-stretch: 125%; line-height: 1; color: var(--accent); margin-bottom: 22px; }
 .loop p { margin-top: 14px !important; font-size: 25px; line-height: 1.42; }
 
 /* 4. hardware chain */
@@ -162,7 +177,8 @@
 @media (max-width: 760px) {
   .js-deck, .js-deck body { overflow: auto; }
   .deck-help, .dots { display: none; }
-  .slide { height: auto; overflow: visible; }
+  .slide, .js-deck .slide { position: relative; inset: auto; height: auto; overflow: visible; visibility: visible; }
+  .js-deck .deck { position: static; }
   .frame { position: static; width: auto; height: auto; transform: none; padding: 96px 16px 40px; gap: 24px; }
   .slide h2 { font-size: 32px; }
   .slide h3 { font-size: 22px; }
