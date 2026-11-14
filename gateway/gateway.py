@@ -18,10 +18,14 @@ Env vars (also read from ../.env or ./.env; see .env.example):
     AI_TIMEOUT=6        seconds to wait for Claude before the tank uses its own rule
     LITERS_PER_TIP=0.1  water through a filter each time the cup tips
     INVESTIGATOR=0      turn off the deepagents report after each "after" test
+    CONTROL_TOKEN       secret for the routes that move the cup or reset a filter. Without it,
+                        only this machine may call them.
+    ALLOW_UNKNOWN_NODES=1  accept readings from node ids that are not in NODES
     DB_PATH=taptest.db
 """
 import asyncio
 import glob
+import hmac
 import json
 import math
 import os
@@ -32,8 +36,9 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -208,13 +213,17 @@ def load_reference():
 # ---------------------------------------------------------------- Claude agent
 SYSTEM = (
     "You are the decision agent inside Clarity, a water tester with two filters: ZEROWATER "
-    "(removes dissolved solids, best for high TDS) and BRITA (activated carbon, best for colour, "
-    "cloudiness and taste). You get one water test plus that site's recent history. Choose the "
-    "filter the cup should be tipped into, or NONE if the water is fine or no filter helps "
-    "(pH problems and bacteria are not fixed by these filters). Then explain the result to a "
-    "non-expert in at most three short sentences, mentioning the numbers that mattered and one "
-    "practical next step. Guidance: TDS above 300 ppm is high (EPA secondary limit 500), pH "
-    "should be 6.5 to 8.5, clarity is 0 to 1 where 1 is as clear as clean water."
+    "(ion exchange: removes dissolved solids, the choice for high TDS) and BRITA (activated carbon: "
+    "certified for chlorine taste and fine particles; this device also sends cloudy or coloured "
+    "water to it, which is the team's rule rather than a certified claim). You get one water test "
+    "plus that site's recent history. Choose the filter the cup should be tipped into, or NONE if "
+    "all three readings are in range or no filter helps (neither filter corrects pH). Then explain "
+    "the result to a non-expert in at most three short sentences, mentioning the numbers that "
+    "mattered and one practical next step. Guidance: TDS above 300 ppm is high (EPA secondary "
+    "standard 500), pH should be 6.5 to 8.5, clarity is 0 to 1 where 1 is as clear as clean water. "
+    "The device measures only pH, dissolved solids and clarity. It cannot detect bacteria, lead or "
+    "any specific contaminant, so never say the water is safe or tell anyone to drink it: say the "
+    "readings are in range or out of range."
 )
 SCHEMA = {
     "type": "object",
@@ -243,17 +252,25 @@ async def ask_claude(reading, past):
               f"Recent history (newest first): {json.dumps(recent)}")
     resp = await claude.beta.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=4000,           # thinking is always on for this model and counts against this
         system=SYSTEM,
         messages=[{"role": "user", "content": prompt}],
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",
     )
-    if resp.stop_reason == "refusal":
+    if resp.stop_reason != "end_turn":          # refusal, max_tokens, ...: let the tank's rule decide
+        print("Claude gave no decision:", resp.stop_reason)
         return None
     text = next((b.text for b in resp.content if b.type == "text"), None)
-    return json.loads(text) if text else None
+    try:
+        result = json.loads(text) if text else None
+    except json.JSONDecodeError:
+        print("Claude's answer was not JSON:", (text or "")[:120])
+        return None
+    if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
+        return None
+    return result
 
 
 # ---------------------------------------------------------------- live push
@@ -294,14 +311,46 @@ def store(reading):
     return reading
 
 
+VERDICTS = ("SAFE", "HIGH_TDS", "CLOUDY", "PH_WARN")
+ALLOW_UNKNOWN_NODES = os.getenv("ALLOW_UNKNOWN_NODES") == "1"
+
+
+def clean_reading(msg):
+    """-> (reading, None) with typed, range-checked fields, or (None, why it was dropped).
+    The radio link is open, so anything can arrive on it."""
+    try:
+        node, phase = str(msg["node"]), msg["phase"]
+        test = int(msg["test"])
+        ph, tds, clarity = float(msg["ph"]), float(msg["tds"]), float(msg["clarity"])
+    except (KeyError, TypeError, ValueError):
+        return None, "missing or non-numeric field"
+    if node not in NODES and not ALLOW_UNKNOWN_NODES:
+        return None, f"unknown node {node!r} (add it to NODES or set ALLOW_UNKNOWN_NODES=1)"
+    if phase not in ("before", "after") or test < 0:
+        return None, "bad phase or test number"
+    if not (0 <= ph <= 14 and 0 <= tds <= 5000 and -0.05 <= clarity <= 1.5):
+        return None, "value outside what the sensors can read"
+    if msg.get("verdict") not in VERDICTS:
+        return None, "unknown verdict"
+    rssi = msg.get("rssi")
+    return {"node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
+            "clarity": round(min(1.0, max(0.0, clarity)), 2), "verdict": msg["verdict"],
+            "filter": msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE",
+            "rssi": int(rssi) if isinstance(rssi, (int, float)) else None}, None
+
+
 async def handle_line(raw: str):
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
         print("not JSON:", raw)
         return
-    if "ph" not in msg:          # receiver_ready, errors, echoes
+    if not isinstance(msg, dict) or "ph" not in msg:          # receiver_ready, errors, echoes
         print("info:", msg)
+        return
+    msg, problem = clean_reading(msg)
+    if msg is None:
+        print("dropped reading:", problem, "|", raw[:140])
         return
     node = NODES.get(msg["node"], {"lat": None, "lon": None, "sim": False})
     reading = {
@@ -477,11 +526,26 @@ def open_device():
         print("MOCK mode: fake tank-01")
         return mock.MockDevice()
     import serial
-    port = os.getenv("SERIAL_PORT") or next(iter(sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))), None)
+    port = os.getenv("SERIAL_PORT")
     if not port:
-        raise SystemExit("No receiver found. Plug in the ESP32, set SERIAL_PORT, or run with MOCK=1")
+        found = find_serial_ports()
+        if not found:
+            raise SystemExit("No receiver found. Plug in the ESP32, set SERIAL_PORT, or run with MOCK=1")
+        port = found[0]
+        if len(found) > 1:
+            print(f"several serial devices: {found}. Using {port}; set SERIAL_PORT if that is not the receiver.")
     print("reading receiver on", port)
     return serial.Serial(port, 115200, timeout=0.5)
+
+
+def find_serial_ports():
+    """Serial devices, the receiver first. The receiver ESP32 is a USB-serial bridge (ttyUSB on
+    Linux; cu.usbserial, cu.SLAB_USBtoUART or cu.wchusbserial on a Mac). An Arduino Uno shows up
+    as ttyACM / cu.usbmodem, so those come last: plugging the Uno into the same machine must not
+    make the gateway read the wrong board."""
+    patterns = ["/dev/ttyUSB*", "/dev/cu.usbserial*", "/dev/cu.SLAB_USBtoUART*", "/dev/cu.wchusbserial*",
+                "/dev/ttyACM*", "/dev/cu.usbmodem*"]
+    return [p for pattern in patterns for p in sorted(glob.glob(pattern))]
 
 
 def reader_thread(loop):
@@ -524,7 +588,28 @@ async def simulate_nodes():
 
 # ---------------------------------------------------------------- web app
 app = FastAPI(title="Clarity base station")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Reading is open to any page (a dashboard hosted elsewhere can point at this gateway).
+# The routes that move hardware are guarded by require_control below.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
+                   allow_headers=["X-Clarity-Token", "Content-Type"])
+
+CONTROL_TOKEN = os.getenv("CONTROL_TOKEN", "").strip()
+
+
+def require_control(request: Request):
+    """Guards the routes that tip the cup or reset a filter.
+    With CONTROL_TOKEN set, the caller must send it in the X-Clarity-Token header.
+    Without one, only this machine may call them, and only from a page this gateway served."""
+    if CONTROL_TOKEN:
+        if not hmac.compare_digest(request.headers.get("x-clarity-token", ""), CONTROL_TOKEN):
+            raise HTTPException(401, "control token required: send it in the X-Clarity-Token header")
+        return
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1"):
+        raise HTTPException(403, "controls are limited to this machine; set CONTROL_TOKEN in .env to allow other devices")
+    origin = request.headers.get("origin")
+    if origin and urlparse(origin).netloc != request.headers.get("host"):
+        raise HTTPException(403, "controls are not available to other sites")
 
 
 @app.on_event("startup")
@@ -574,25 +659,30 @@ def test_pair(node: str, test: int):
     return [row_to_dict(r) for r in (before, after) if r is not None]
 
 
-@app.post("/api/cmd")
+@app.post("/api/cmd", dependencies=[Depends(require_control)])
 def manual_cmd(test: int, filter: str):
     """Manual override from the dashboard: tip the cup for this test."""
-    send_to_tank({"cmd": "filter", "test": test, "filter": filter.upper()})
+    choice = filter.upper()
+    if choice not in ("ZEROWATER", "BRITA", "NONE") or test < 0:
+        raise HTTPException(422, "filter must be ZEROWATER, BRITA or NONE, and test a pour number")
+    send_to_tank({"cmd": "filter", "test": test, "filter": choice})
     return {"ok": True}
 
 
 @app.get("/api/filters")
 def filters():
-    """Filter life per tank: liters through each filter, status OK / LOW / REPLACE."""
+    """Filter life per tank: liters through each filter, status OK / REPLACE_SOON / REPLACE."""
     return all_filters()
 
 
-@app.post("/api/filters/{name}/replace")
+@app.post("/api/filters/{name}/replace", dependencies=[Depends(require_control)])
 async def replace_filter(name: str, node: str = "tank-01"):
     """Call after fitting a new filter: starts its liters and status over."""
     key = name.upper()
     if key not in FILTERS:
         raise HTTPException(404, f"unknown filter {name}; use one of {list(FILTERS)}")
+    if node not in NODES or NODES[node]["sim"]:
+        raise HTTPException(404, f"unknown tank {node}")
     with db_lock:
         db.execute("INSERT INTO filter_changes (ts, node, filter) VALUES (?,?,?)", (now_iso(), node, key))
         db.commit()
@@ -645,7 +735,7 @@ def reports(node: str | None = None, limit: int = 20):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": claude is not None,
+    return {"ok": True, "mock": MOCK, "ai": claude is not None, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None, "clients": len(clients)}
 
 

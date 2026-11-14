@@ -243,7 +243,7 @@ void runTest() {
   if (f == F_NONE) {
     bool ok = strcmp(verdict, "SAFE") == 0;
     led(!ok, ok, 0);
-    showLine(1, ok ? F("Safe to drink") : F("pH off: see app"));
+    showLine(1, ok ? F("All in range") : F("pH off: see app"));   // in range is not a safety test
     delay(6000);
     idleScreen();
     return;

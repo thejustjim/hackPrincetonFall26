@@ -3,7 +3,7 @@
  "characteristic": "Specific conductance (uS/cm at 25 C)",
  "tds_factor": 0.65,
  "note": "Published discrete samples, not live readings. TDS is estimated as 0.65 x specific conductance.",
- "fetched_at": "2026-11-14T06:57:10+00:00",
+ "fetched_at": "2026-11-14T09:59:56+00:00",
  "sites": [
   {
    "id": "stony-brook",
@@ -17,14 +17,14 @@
     "conductance_us_cm": 167.4,
     "tds_ppm": 109
    },
-   "typical_tds_ppm": 190,
-   "typical_conductance_us_cm": 291.6,
+   "typical_tds_ppm": 180,
+   "typical_conductance_us_cm": 277.6,
    "typical_period": [
-    "1998-04-09",
+    "1998-03-19",
     "2023-07-27"
    ],
    "typical_n": 20,
-   "n_samples": 269,
+   "n_samples": 268,
    "first_date": "1956-05-18",
    "last_date": "2023-07-27",
    "stations": [
@@ -64,8 +64,8 @@
      "org": "NJDEP Bureau of Freshwater and Biological Monitoring",
      "lat": 40.326691,
      "lon": -74.680447,
-     "n": 2,
-     "first_date": "2008-07-11",
+     "n": 1,
+     "first_date": "2023-07-27",
      "last_date": "2023-07-27"
     },
     {
@@ -80,6 +80,12 @@
     }
    ],
    "samples": [
+    {
+     "date": "1995-08-15",
+     "station": "USGS-01401000",
+     "conductance_us_cm": 363.5,
+     "tds_ppm": 236
+    },
     {
      "date": "1995-10-30",
      "station": "USGS-01401000",
@@ -343,12 +349,6 @@
      "station": "USGS-01401000",
      "conductance_us_cm": 206.0,
      "tds_ppm": 134
-    },
-    {
-     "date": "2008-07-11",
-     "station": "NJDEP_BFBM-FIBI070",
-     "conductance_us_cm": 393000.0,
-     "tds_ppm": 255450
     },
     {
      "date": "2009-08-19",

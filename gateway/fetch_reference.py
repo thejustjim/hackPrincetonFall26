@@ -22,6 +22,7 @@ from pathlib import Path
 
 WQP_URL = "https://www.waterqualitydata.us/wqx3/Result/search"
 TDS_FACTOR = 0.65
+MAX_PLAUSIBLE_US_CM = 10000   # streams and lakes here run in the hundreds; seawater is about 50,000
 RECENT_N = 20          # "typical" = median of this many most recent samples
 KEEP_SAMPLES = 60      # samples kept per site for history charts
 OUT = Path(__file__).with_name("reference.json")
@@ -100,6 +101,9 @@ def parse(text):
             continue
         sc = to_us_cm(value, r.get("Result_MeasureUnit"))
         if sc is None or sc <= 0:
+            continue
+        if sc > MAX_PLAUSIBLE_US_CM:      # e.g. 393,000 recorded for a creek: a keying error upstream
+            print(f"  skipped {sc:g} uS/cm at {r['Location_Identifier']} on {r['Activity_StartDate']}: not plausible for fresh water", file=sys.stderr)
             continue
         sid = r["Location_Identifier"]
         stations.setdefault(sid, {

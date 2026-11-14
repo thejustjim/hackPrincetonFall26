@@ -45,8 +45,8 @@ def after_filter(ph, tds, clarity, filt, wear=0):
     wear = ppm the ZeroWater resin lets through as it gets used up (it reads 006 when spent)."""
     if filt == "ZEROWATER":   # strips nearly all dissolved solids, pH drifts a bit acidic
         return round(ph - random.uniform(0.6, 1.0), 2), random.randint(0, 2) + wear, round(min(1.0, clarity + 0.03), 2)
-    if filt == "BRITA":       # carbon clears colour, small TDS drop
-        return round(ph - 0.1, 2), int(tds * 0.9), round(random.uniform(0.86, 0.95), 2)
+    if filt == "BRITA":       # carbon barely changes TDS (one lab test measured about -2%); the clarity gain is our guess
+        return round(ph - 0.1, 2), int(tds * random.uniform(0.96, 1.0)), round(random.uniform(0.86, 0.95), 2)
     return ph, tds, clarity
 
 

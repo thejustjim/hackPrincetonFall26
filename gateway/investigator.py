@@ -46,7 +46,8 @@ Then answer with the report: a summary (before -> after, did the filter work), f
 (this site's history, nearby nodes, published local data, filter life) and actions.
 
 Rules: the sensors measure only pH, TDS (dissolved solids) and clarity, so never claim to
-detect specific contaminants, bacteria or lead. Label every comparison by its source:
+detect specific contaminants, bacteria or lead, never call the water safe, and never tell
+anyone to drink it: say the readings are in range or out of range. Label every comparison by its source:
 measured (this device), published (USGS / NJ DEP samples, give the year), or simulated
 (sim nodes). TDS above 300 ppm is high (EPA secondary limit 500); pH should be 6.5-8.5;
 clarity is 0-1 where 1 is as clear as clean water. Keep each item to one plain sentence
