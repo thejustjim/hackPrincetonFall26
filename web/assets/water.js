@@ -51,26 +51,28 @@ void main() {
   }
   vec2 q = p + disp;
 
-  // pools drift slowly; pan moves each by its own depth (parallax), the pointer leans them
+  // #0B2027 is the background. The blue is an accent: two faint glows that breathe on a slow
+  // ~7 s pulse; the gray only lends depth. Pan moves each glow by its own depth (parallax).
   float t = uTime * 0.035;
+  float pulse = 0.5 + 0.5 * sin(uTime * 0.9);                  // slow breath, ~7 s
+  float breath = mix(0.55, 1.0, pulse * pulse * (3.0 - 2.0 * pulse));
   vec2 pan = vec2(sin(uPan * 0.9) * 0.22, cos(uPan * 0.7) * 0.10) + uMouse * 0.03;
   vec3 col = DEEP;
-  col = mix(col, BLUE, 0.58 * pool(q + pan * 0.5, vec2(0.18 * aspect + 0.07 * sin(t * 1.3), 0.92 + 0.05 * cos(t)), 0.56));
-  col = mix(col, GRAY, 0.50 * pool(q + pan * 1.0, vec2(0.92 * aspect + 0.05 * cos(t * 1.1), 0.45 + 0.07 * sin(t * 0.9)), 0.46));
-  col = mix(col, BLUE, 0.38 * pool(q + pan * 1.5, vec2(0.52 * aspect + 0.09 * sin(t * 0.7 + 2.0), 0.02 + 0.05 * cos(t * 1.7)), 0.44));
-  col = mix(col, SHELL, 0.07 * pool(q + pan * 0.3, vec2(0.72 * aspect, 1.0), 0.32));
+  col = mix(col, BLUE, 0.17 * breath * pool(q + pan * 0.5, vec2(0.18 * aspect + 0.07 * sin(t * 1.3), 0.95 + 0.05 * cos(t)), 0.55));
+  col = mix(col, BLUE, 0.10 * breath * pool(q + pan * 1.5, vec2(0.62 * aspect + 0.09 * sin(t * 0.7 + 2.0), 0.0 + 0.05 * cos(t * 1.7)), 0.42));
+  col = mix(col, GRAY, 0.06 * pool(q + pan * 1.0, vec2(0.95 * aspect + 0.05 * cos(t * 1.1), 0.5 + 0.07 * sin(t * 0.9)), 0.45));
 
-  // the surface breathes: very low, very slow undulation
+  // the surface itself barely moves
   float s = sin(q.x * 5.0 + uTime * 0.14) * sin(q.y * 4.0 - uTime * 0.11) + 0.5 * sin((q.x + q.y) * 8.0 + uTime * 0.09);
-  col += 0.014 * s * BLUE;
+  col += 0.006 * s * BLUE;
 
-  // crests catch the light, troughs shade
-  col += SHELL * max(h, 0.0) * 0.11;
-  col -= DEEP * max(-h, 0.0) * 0.5;
+  // ripple crests catch the accent light, troughs fall into the dark
+  col += mix(BLUE, SHELL, 0.35) * max(h, 0.0) * 0.16;
+  col -= DEEP * max(-h, 0.0) * 0.6;
 
-  // gentle vignette
-  float v = smoothstep(1.3, 0.3, length((vUv - 0.5) * vec2(aspect, 1.0)));
-  col *= mix(0.74, 1.0, v);
+  // vignette into deeper dark at the edges
+  float v = smoothstep(1.25, 0.25, length((vUv - 0.5) * vec2(aspect, 1.0)));
+  col *= mix(0.6, 1.0, v);
   gl_FragColor = vec4(col, 1.0);
 }`;
 

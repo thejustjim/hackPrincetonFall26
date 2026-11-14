@@ -126,6 +126,8 @@ tr.fresh { animation: fresh 2.4s ease-out; }
 
 /* ---- leaflet, glassed */
 .leaflet-container { background: var(--well); font-family: var(--font); }
+/* Esri's neutral gray tiles, pulled toward #0B2027 so the map sits in the palette */
+.leaflet-tile-pane { filter: brightness(0.7) sepia(0.45) hue-rotate(160deg) saturate(1.5); }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip, .leaflet-tooltip {
   background: rgba(11, 32, 39, 0.78); color: var(--text); box-shadow: none; border: 1px solid var(--glass-edge);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);

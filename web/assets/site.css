@@ -11,7 +11,7 @@
   --muted: #A3A6AE;      /* secondary text: --neutral lifted to 5.7:1 so small text stays legible */
   --well: #07161B;       /* insets: map, meters */
   --line: rgba(247, 240, 240, 0.12);
-  --glass: linear-gradient(150deg, rgba(247, 240, 240, 0.09), rgba(247, 240, 240, 0.025));
+  --glass: linear-gradient(150deg, rgba(247, 240, 240, 0.07), rgba(247, 240, 240, 0.018));
   --glass-edge: rgba(247, 240, 240, 0.14);
   --glass-blur: blur(22px) saturate(150%);
   /* status: only ever shown with a text label */
@@ -55,10 +55,12 @@ a { color: var(--accent); text-underline-offset: 3px; }
 /* ---- scene: slow pools of light behind the glass */
 .scene { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: var(--deep); }
 .scene .pool { position: absolute; border-radius: 50%; filter: blur(90px); will-change: transform; }
-.scene .p1 { width: 56vmax; height: 56vmax; left: -14vmax; top: -18vmax; background: rgba(90, 155, 189, 0.42); }
-.scene .p2 { width: 46vmax; height: 46vmax; right: -16vmax; top: 22vh; background: rgba(113, 117, 128, 0.40); }
-.scene .p3 { width: 40vmax; height: 40vmax; left: 22vw; bottom: -26vmax; background: rgba(90, 155, 189, 0.30); }
-.scene .p4 { width: 22vmax; height: 22vmax; right: 18vw; top: -8vmax; background: rgba(247, 240, 240, 0.07); }
+.scene .p1 { width: 56vmax; height: 56vmax; left: -14vmax; top: -18vmax; background: rgba(90, 155, 189, 0.16); animation: breathe 7s ease-in-out infinite; }
+.scene .p2 { width: 46vmax; height: 46vmax; right: -16vmax; top: 22vh; background: rgba(113, 117, 128, 0.07); }
+.scene .p3 { width: 40vmax; height: 40vmax; left: 22vw; bottom: -26vmax; background: rgba(90, 155, 189, 0.10); animation: breathe 7s ease-in-out -3.5s infinite; }
+.scene .p4 { width: 22vmax; height: 22vmax; right: 18vw; top: -8vmax; background: rgba(247, 240, 240, 0.02); }
+/* the accent glows breathe slowly; #0B2027 stays the background */
+@keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 /* ---- header */
 .top {
   position: sticky; top: 0; z-index: 20;
