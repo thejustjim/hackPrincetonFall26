@@ -82,9 +82,9 @@ db.execute("""CREATE TABLE IF NOT EXISTS tips (
     liters REAL, source TEXT, after_id INTEGER, after_tds INTEGER)""")
 db.execute("""CREATE TABLE IF NOT EXISTS filter_changes (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, filter TEXT)""")
-db.execute("""CREATE TABLE IF NOT EXISTS reports (
+db.execute("""CREATE TABLE IF NOT EXISTS investigations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, reading_id INTEGER,
-    filter TEXT, report TEXT, model TEXT)""")
+    filter TEXT, summary TEXT, findings TEXT, actions TEXT, model TEXT)""")
 db.commit()
 db_lock = threading.Lock()
 
@@ -129,7 +129,7 @@ FILTERS = {
     "ZEROWATER": {"name": "ZeroWater", "replace_tds": 6,
                   "rule": "Replace when filtered water reads 6 ppm or more (ZeroWater's own rule)"},
     "BRITA": {"name": "Brita Elite", "rated_liters": 450,
-              "rule": "Rated for about 450 L: LOW at 90%, REPLACE at 100%"},
+              "rule": "Rated for about 450 L: REPLACE_SOON at 90%, REPLACE at 100%"},
 }
 
 
@@ -185,7 +185,7 @@ def filter_life(node="tank-01"):
             frac = liters / rated
             item.update(rated_liters=rated, liters_left=round(max(0.0, rated - liters), 2),
                         percent_used=round(100 * frac, 2),
-                        status="REPLACE" if frac >= 1 else "LOW" if frac >= 0.9 else "OK")
+                        status="REPLACE" if frac >= 1 else "REPLACE_SOON" if frac >= 0.9 else "OK")
         out.append(item)
     return out
 
@@ -449,18 +449,26 @@ async def run_investigation(after, filter_used):
         except Exception as e:
             print("investigation failed:", type(e).__name__, e)
             return
-        if not report:
+        if not report.get("summary"):
             return
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with db_lock:
-            cur = db.execute("INSERT INTO reports (ts, node, test, reading_id, filter, report, model) "
-                             "VALUES (?,?,?,?,?,?,?)", (ts, after["node"], after["test"], after["id"],
-                                                        filter_used, report, investigator.MODEL))
+            cur = db.execute(
+                "INSERT INTO investigations (ts, node, test, reading_id, filter, summary, findings, actions, model) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (ts, after["node"], after["test"], after["id"], filter_used, report["summary"],
+                 json.dumps(report["findings"]), json.dumps(report["actions"]), investigator.MODEL))
             db.commit()
         print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s")
-        await broadcast({"type": "report", "id": cur.lastrowid, "ts": ts, "node": after["node"],
-                         "test": after["test"], "reading_id": after["id"], "filter": filter_used,
-                         "report": report, "source": "deepagents", "model": investigator.MODEL})
+        await broadcast(report_message(cur.lastrowid, ts, after["node"], after["test"], after["id"],
+                                       filter_used, report, investigator.MODEL))
+
+
+def report_message(rid, ts, node, test, reading_id, filter_used, report, model):
+    return {"type": "report", "id": rid, "ts": ts, "node": node, "test": test,
+            "reading_id": reading_id, "filter": filter_used, "summary": report["summary"],
+            "findings": report["findings"], "actions": report["actions"],
+            "source": "deepagents", "model": model}
 
 
 # ---------------------------------------------------------------- input sources
@@ -554,10 +562,16 @@ def readings(node: str | None = None, limit: int = 200):
 
 @app.get("/api/tests/{node}/{test}")
 def test_pair(node: str, test: int):
-    """Before and after readings for one pour."""
+    """[before, after] for one pour (just [before] until the retest arrives). If the tank's
+    test counter was reset, this is the most recent pour with that number."""
     with db_lock:
-        rows = db.execute("SELECT * FROM readings WHERE node=? AND test=? ORDER BY id", (node, test)).fetchall()
-    return [row_to_dict(r) for r in rows]
+        before = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='before' "
+                            "ORDER BY id DESC LIMIT 1", (node, test)).fetchone()
+        if before is None:
+            return []
+        after = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
+                           "ORDER BY id LIMIT 1", (node, test, before["id"])).fetchone()
+    return [row_to_dict(r) for r in (before, after) if r is not None]
 
 
 @app.post("/api/cmd")
@@ -587,26 +601,46 @@ async def replace_filter(name: str, node: str = "tank-01"):
     return life
 
 
+def sample_source(station_id):
+    return "USGS" if station_id.startswith("USGS-") else "NJ DEP"
+
+
 @app.get("/api/reference")
 def reference():
-    """Published USGS / NJ DEP conductance data for Stony Brook, Millstone River, Lake Carnegie."""
+    """Published data per site: the latest sample's estimated TDS (0.65 x specific conductance),
+    plus the typical value and history. USGS and NJ DEP samples via the Water Quality Portal."""
     ref = load_reference()
     if ref is None:
         raise HTTPException(404, "reference.json missing: run python fetch_reference.py")
-    return ref
+    out = []
+    for s in ref["sites"]:
+        latest = s["latest"]
+        out.append({
+            "site": s["name"], "lat": round(s["lat"], 4), "lon": round(s["lon"], 4),
+            "tds_est": latest["tds_ppm"], "date": latest["date"], "source": sample_source(latest["station"]),
+            "station": latest["station"], "conductance": latest["conductance_us_cm"],
+            "typical_tds_est": s["typical_tds_ppm"], "typical_period": s["typical_period"],
+            "n_samples": s["n_samples"], "first_date": s["first_date"],
+            "history": [{"date": x["date"], "tds_est": x["tds_ppm"], "source": sample_source(x["station"])}
+                        for x in s["samples"]],
+        })
+    return out
 
 
 @app.get("/api/reports")
 def reports(node: str | None = None, limit: int = 20):
-    """Investigator reports, newest first."""
-    q, args = "SELECT * FROM reports", []
+    """Investigator reports, newest first, in the same shape as the /ws "report" message."""
+    q, args = "SELECT * FROM investigations", []
     if node:
         q += " WHERE node=?"
         args.append(node)
     q += " ORDER BY id DESC LIMIT ?"
     args.append(min(limit, 500))
     with db_lock:
-        return [dict(r) for r in db.execute(q, args).fetchall()]
+        rows = db.execute(q, args).fetchall()
+    return [report_message(r["id"], r["ts"], r["node"], r["test"], r["reading_id"], r["filter"],
+                           {"summary": r["summary"], "findings": json.loads(r["findings"]),
+                            "actions": json.loads(r["actions"])}, r["model"]) for r in rows]
 
 
 @app.get("/health")
@@ -624,6 +658,15 @@ async def ws_endpoint(ws: WebSocket):
             await ws.receive_text()   # keep the socket open; nothing expected from clients
     except WebSocketDisconnect:
         clients.discard(ws)
+
+
+@app.middleware("http")
+async def revalidate_web_files(request, call_next):
+    """Browsers re-check the dashboard files on every load, so edits to web/ show up at once."""
+    response = await call_next(request)
+    if not request.url.path.startswith(("/api", "/ws", "/docs", "/openapi")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 web_dir = Path(__file__).parent.parent / "web"

@@ -1,0 +1,87 @@
+/* TapTest shared styles: tokens, base type, header. Dark only. */
+:root {
+  color-scheme: dark;
+  /* river at night */
+  --bed: #0F2229;        /* page */
+  --deep: #14303A;       /* panels */
+  --deeper: #0B1B21;     /* wells: map, cups */
+  --line: #24485A;
+  --text: #E6F1EE;
+  --silt: #8EAAA8;       /* secondary text */
+  /* what the water looks like */
+  --clear: #7FD8C4;      /* safe, clear water */
+  --mineral: #E9B949;    /* high dissolved solids: hard-water scale */
+  --tannin: #C98E5B;     /* cloudy: tea, tannins */
+  --indicator: #C49BF0;  /* pH out of range: the alkaline end of an indicator strip */
+  --coral: #F2785C;      /* replace now, errors */
+  --survey: #9DBCE0;     /* published survey data (USGS, NJ DEP) */
+  --water: rgba(127, 216, 196, 0.16);
+
+  --font: "Archivo", "Helvetica Neue", Arial, system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bed);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+}
+a { color: var(--clear); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--clear); outline-offset: 3px; border-radius: 3px; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---- header */
+.top {
+  display: flex; align-items: center; gap: 28px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.wordmark {
+  display: inline-flex; align-items: center; gap: 10px;
+  color: var(--text); text-decoration: none;
+  font-stretch: 125%; font-weight: 800; font-size: 21px; letter-spacing: -0.01em;
+}
+.wordmark svg { width: 20px; height: 24px; }
+.top nav { display: flex; gap: 4px; }
+.top nav a {
+  color: var(--silt); text-decoration: none; font-weight: 500;
+  padding: 6px 12px; border-radius: 6px;
+}
+.top nav a:hover { color: var(--text); }
+.top nav a[aria-current="page"] { color: var(--text); background: var(--deep); }
+.conn {
+  margin: 0 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--silt); font-size: 14px;
+}
+.conn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--silt); }
+.conn[data-state="live"] .dot { background: var(--clear); }
+.conn[data-state="demo"] .dot { background: var(--mineral); }
+.conn[data-state="down"] .dot { background: var(--coral); }
+
+/* ---- cups (drawn by cup.js) */
+.cup { display: block; overflow: visible; }
+.cup .glass {
+  fill: none; stroke: var(--text); stroke-opacity: 0.55;
+  stroke-width: 3; stroke-linejoin: round; stroke-linecap: round;
+}
+.cup .meniscus { stroke: var(--text); stroke-opacity: 0.35; stroke-width: 1.5; }
+.cup-empty .glass { stroke-dasharray: 6 7; stroke-opacity: 0.35; }
+.cup .rise { animation: rise 1.4s cubic-bezier(.2, .7, .2, 1); }
+@keyframes rise { from { transform: translateY(140px); } to { transform: none; } }
+
+@media (max-width: 640px) {
+  .top { flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; }
+  .conn { margin: 0; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
