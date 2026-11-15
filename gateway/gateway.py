@@ -689,6 +689,39 @@ def get_notice_templates() -> dict:
     return {"templates": analysis.NOTICE_TEMPLATES, "required_last_sentence": analysis.NOTICE_REQUIRED}
 
 
+# Tools for the incident team, which works on the simulated network (localize.py). The scenario's
+# true pipe is never in what they return: the agents see what a utility would see.
+def trace_scenario(scenario_id: str) -> dict:
+    """One simulated event on the simulated pipe network: which sensors alerted and when, which
+    stayed quiet, and the pipes the upstream trace ranks most likely (each with its share of
+    the weight, how well its timing fits in minutes, its synthetic attributes and the reasons),
+    plus the junctions downstream of the leading pipe. Everything here is simulated."""
+    import localize
+    sc = next((x for x in localize.scenarios() if x["id"] == scenario_id), None)
+    if sc is None:
+        return {"error": f"no scenario {scenario_id!r}", "scenarios": [x["id"] for x in localize.scenarios()]}
+    traced = localize.localize(sc["alerts"], sc["quiet"])
+    traced["affected"] = {k: v for k, v in traced["affected"].items() if k != "nodes"}
+    return {"scenario": sc["id"], "name": sc["name"], "alerts": sc["alerts"], "quiet": sc["quiet"], **traced}
+
+
+def get_pipe(pipe_id: str) -> dict:
+    """One pipe of the simulated network: its ends in the direction of flow, length, diameter,
+    travel time, and its synthetic material, install year, break count and hand-set risk score."""
+    import localize
+    return localize.pipe(str(pipe_id)) or {"error": f"no pipe {pipe_id!r}"}
+
+
+def get_incident_notice(scenario_id: str) -> dict:
+    """The fixed draft notice for a simulated event. Its last two sentences must be kept word for word."""
+    import incident
+    try:
+        return {"notice": incident.report(scenario_id)["notice"], "keep_exactly": incident.NOTICE_REQUIRED}
+    except Exception:
+        return {"error": f"no scenario {scenario_id!r}"}
+
+
+INCIDENT_TOOLS = [trace_scenario, get_pipe, search_guidance, get_incident_notice]
 INVESTIGATOR_TOOLS = [get_site_history, get_nearby_nodes, get_filter_life, get_reference_data, get_case,
                       get_sensor_checks, get_baseline, get_peer_comparison, query_readings, search_guidance,
                       get_notice_templates]
@@ -700,6 +733,13 @@ if ai_name() and os.getenv("INVESTIGATOR", "1") != "0":
                                                 provider=AI_PROVIDER, model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY)
     except Exception as e:
         print("investigator off:", type(e).__name__, e)
+incident_agent = None
+if investigator_agent is not None:
+    try:
+        incident_agent = investigator.build({f.__name__: f for f in INCIDENT_TOOLS}, provider=AI_PROVIDER,
+                                            model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY, incident=True)
+    except Exception as e:
+        print("incident team off:", type(e).__name__, e)
 investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
 
 
@@ -979,6 +1019,41 @@ def analysis_for(node: str = "tank-01", test: int | None = None):
     if reading is None:
         raise HTTPException(404, "no reading for that node and test")
     return analyse_reading(reading)
+
+
+@app.get("/api/network")
+def network():
+    """The simulated pipe network and an incident report for each simulated event (localize.py,
+    incident.py). Simulation only: Clarity's one real node is not on it."""
+    try:
+        import incident
+        return incident.payload()
+    except Exception as e:
+        raise HTTPException(503, f"the simulated network is not available: {type(e).__name__}")
+
+
+@app.post("/api/network/investigate", dependencies=[Depends(require_control)])
+async def network_investigate(scenario: str):
+    """Hand one simulated event to the incident team (a lead agent and three specialists). It is
+    a control, because it spends model credits. Returns their report and what each one said."""
+    if incident_agent is None:
+        raise HTTPException(503, "the investigator is off: no model key is set")
+    import incident
+    try:
+        rules = incident.report(scenario)
+    except Exception:
+        raise HTTPException(404, "no such scenario")
+    async with investigate_lock:
+        try:
+            report = await asyncio.wait_for(investigator.investigate(
+                incident_agent, {"scenario": scenario, "name": rules["name"], "simulated": True},
+                ask="Investigate this simulated event:"), timeout=240)
+        except Exception as e:
+            raise HTTPException(502, f"the agents did not finish: {type(e).__name__}")
+    notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else rules["notice"]
+    return {"simulated": True, "scenario": scenario, "source": "deepagents", "model": AI_MODEL, "ai_name": ai_name(),
+            "summary": report.get("summary"), "findings": report.get("findings", []), "actions": report.get("actions", []),
+            "notice": notice, "sections": report.get("sections", [])}
 
 
 @app.get("/health")

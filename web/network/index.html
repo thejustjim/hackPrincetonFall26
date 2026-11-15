@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clarity: tracing a change to its pipe (simulated)</title>
+  <meta name="description" content="A simulation: when several Clarity nodes alert, trace upstream to the pipe the change most likely entered from.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 200'%3E%3Cpath d='M17 60 L25 190 L135 190 L143 60Z' fill='%235A9BBD' fill-opacity='.5'/%3E%3Cpath d='M10 10 L25 190 L135 190 L150 10' fill='none' stroke='%23F7F0F0' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+  <link rel="stylesheet" href="../assets/base.css">
+  <link rel="stylesheet" href="../assets/demo.css">
+  <link rel="stylesheet" href="../assets/network.css">
+</head>
+<body class="network">
+  <header class="bar">
+    <a class="wordmark" href="../demo/">
+      <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="13" stroke-linejoin="round"/></svg>
+      Clarity
+    </a>
+    <p class="tagline">What you deserve.</p>
+    <span class="spacer"></span>
+    <p class="conn" data-state="demo" role="status"><span class="dot"></span><span>Simulated network</span></p>
+    <nav class="links" aria-label="Other pages">
+      <a href="../demo/">The live cup</a>
+    </nav>
+  </header>
+
+  <main class="sheet">
+    <div class="page">
+      <header class="intro">
+        <p class="kicker">A simulation, not a measurement</p>
+        <h1>Tracing a change to its pipe</h1>
+        <p class="lede">Clarity has one real node. This page shows what a water utility could do with many: when several alert, work back along the flow to the pipe the change most likely entered from.</p>
+        <p id="net-note" class="about"></p>
+      </header>
+
+      <nav class="scenarios" id="scenarios" aria-label="Simulated events"></nav>
+
+      <section class="trace">
+        <figure class="net" id="net-fig">
+          <div id="net"></div>
+          <figcaption id="net-key"></figcaption>
+        </figure>
+        <div class="side">
+          <h3>What the sensors saw</h3>
+          <ol class="timeline" id="timeline"></ol>
+          <h3>Where it most likely entered</h3>
+          <ol class="cands" id="cands"></ol>
+          <p class="by" id="considered"></p>
+        </div>
+      </section>
+
+      <article class="ruled report" id="report" aria-label="Incident report"></article>
+
+      <footer class="colophon ruled">
+        <p class="mark">Clarity</p>
+        <p class="tagline">What you deserve.</p>
+        <p class="fine">Everything on this page is simulated: the network is WNTR's Net3 example, the events were injected by the simulation, and pipe material, age and break history are synthetic. Clarity's one real node is on <a href="../demo/">the live page</a>.</p>
+      </footer>
+    </div>
+  </main>
+
+  <script src="../assets/network.js"></script>
+</body>
+</html>

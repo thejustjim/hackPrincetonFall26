@@ -60,17 +60,18 @@ class Scripted(BaseChatModel):
         if self.lead:
             OFFERED["lead"] = self.offered
             if not results:
+                team = investigator.INCIDENT_SPECIALISTS if system.startswith(investigator.INCIDENT_LEAD) else investigator.SPECIALISTS
                 return AIMessage(content="", tool_calls=[
                     {"name": "task", "id": f"t{i}", "args": {"subagent_type": s["name"],
-                     "description": f"Node tank-01, test 21. Report your findings on this filter run."}}
-                    for i, s in enumerate(investigator.SPECIALISTS)])
-            notice = next(text(m) for m in results if "Clarity measured" in text(m))
+                     "description": f"Node tank-01, test 21. Scenario five-sensors. Report your findings."}}
+                    for i, s in enumerate(team)])
+            notice = next(text(m) for m in results if "Clarity reads only" in text(m))
             report = {"summary": "ZeroWater took dissolved solids from 780 ppm to 4 ppm.",
                       "findings": [text(m)[:80] for m in results[:4]], "actions": ["Pour a second cup."], "notice": notice}
             if self.by_tool:
                 return AIMessage(content="", tool_calls=[{"name": "Report", "id": "final", "args": report}])
             return AIMessage(content=json.dumps(report))
-        me = next(s for s in investigator.SPECIALISTS if system.startswith(s["prompt"]))
+        me = next(s for s in investigator.SPECIALISTS + investigator.INCIDENT_SPECIALISTS if system.startswith(s["prompt"]))
         OFFERED[me["name"]] = self.offered
         if not results:
             node, test = re.search(r"Node (\S+), test (\d+)", text(next(m for m in messages if isinstance(m, HumanMessage)))).groups()
@@ -79,10 +80,14 @@ class Scripted(BaseChatModel):
                 args = ({"node": node.rstrip(","), "test": int(test)} if tool.startswith(("get_case", "get_sensor", "get_baseline", "get_peer"))
                         else {"node": node.rstrip(",")} if tool in ("get_site_history", "get_nearby_nodes")
                         else {"sql": "SELECT phase, count(*) AS n FROM readings WHERE node='tank-01' GROUP BY phase"} if tool == "query_readings"
-                        else {"query": "ZeroWater filter replacement"} if tool == "search_guidance" else {})
+                        else {"query": "ZeroWater filter replacement"} if tool == "search_guidance"
+                        else {"scenario_id": "five-sensors"} if tool in ("trace_scenario", "get_incident_notice")
+                        else {"pipe_id": "229"} if tool == "get_pipe" else {})
                 CALLED.append((tool, args))
                 calls.append({"name": tool, "id": f"{me['name']}-{i}", "args": args})
             return AIMessage(content="", tool_calls=calls)
+        if me["name"] == "comms" and any('"keep_exactly"' in text(m) for m in results):      # the incident team's notice
+            return AIMessage(content=json.loads(text(next(m for m in results if '"keep_exactly"' in text(m))))["notice"])
         if me["name"] == "comms":
             case = json.loads(text(next(m for m in results if '"notice_template"' in text(m))))
             return AIMessage(content=gateway.analysis.notice_for(case, {"kind": case["checks"]["kind"]}, case["site"]))
@@ -162,6 +167,20 @@ async def main():
     await gateway.report_on(after, used)
     investigator.investigate = real
     check("if the investigator fails, the rule-written report still stands", [m["source"] for m in sent] == ["rules"])
+
+    # the second team: an event on the simulated network
+    CALLED.clear()
+    OFFERED.clear()
+    gateway.incident_agent = investigator.build({f.__name__: f for f in gateway.INCIDENT_TOOLS}, lead_model=Scripted(lead=True),
+                                                specialist_model=Scripted(), incident=True)
+    out = await gateway.network_investigate("five-sensors")
+    check("the incident lead reaches its three specialists", [x["agent"] for x in out["sections"]] == ["topology", "maintenance", "comms"], out["sections"])
+    check("they call the trace, the pipe lookup, the guidance search and the notice", {t for t, _ in CALLED} == {f.__name__ for f in gateway.INCIDENT_TOOLS}, sorted({t for t, _ in CALLED}))
+    check("the incident report says it is simulated and keeps the notice's required sentence",
+          out["simulated"] is True and gateway.analysis.NOTICE_REQUIRED in out["notice"] and out["summary"])
+    traced = gateway.trace_scenario("five-sensors")
+    check("the agents are never shown where the simulation put it", "truth" not in traced and "229" in [c["pipe"] for c in traced["candidates"]])
+    check("an unknown scenario or pipe is an error the agent can read", "error" in gateway.trace_scenario("nope") and "error" in gateway.get_pipe("nope"))
 
     # the filter decision on Gemini, with a stand-in for Google's client
     class FakeGemini:

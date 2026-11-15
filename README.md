@@ -23,7 +23,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - `guidance.json` - the team's own short notes (the filter makers' rules), searched alongside
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
   - `cloud.py` - copies everything to Tiger Cloud (TimescaleDB on AWS) when there is internet
-- `web` - two pages, served by the gateway at http://<pi>:8000/:
+- `web` - three pages, served by the gateway at http://<pi>:8000/:
   - `/demo/` - the live view: the latest cup, the notes around it, then the full account below.
     The dropper over the glass holds the latest pour as it read before filtering. If that pour was
     sent through a filter, a funnel swings in, catches the drop and lets a clear one through; water
@@ -31,6 +31,9 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - `/pitch/` - the pitch. It opens on black with one brown drop caught by the filter, runs through the slides (scroll, swipe or
     arrow keys; `End` jumps to the last one), and scrolling past the last slide lands on `/demo/`.
     There is no way back up from the demo; reload `/pitch/` to start again.
+  - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up
+    events, the trace back to the pipe each most likely entered from, and an incident report that can
+    be printed or saved as a PDF. See "Simulated network" below.
   - Slides are in `web/pitch/slides.html`. The pitch is drawn over the demo page, so both are one document.
   - With no gateway reachable (static hosting, or `?demo`) the pages run on built-in sample data in the
     same shapes, labelled as sample data; `?api=http://<pi>:8000` points them at another gateway.
@@ -183,6 +186,40 @@ is told to say so. `python test_guidance.py` checks the search (13 checks).
 (no key needed): it shows the delegation, the tool wiring, the read-only SQL guard and the
 fallback to the rule-written report, on both the Gemini and the Claude path. It does not show what
 either model would write; that needs a key.
+
+## Simulated network: tracing a change to a pipe
+Clarity has one real node, so this part is simulation and says so everywhere it appears. It shows
+what a utility could do with many nodes: when several alert, work out which pipe the change most
+likely entered from.
+
+- `build_network.py` (run once, needs WNTR; not needed on the Pi) loads WNTR's Net3 example network
+  (EPANET example 3: 97 nodes, 117 pipes), solves its hydraulics, freezes one hour, picks 12 sensor
+  nodes, gives every pipe synthetic material, age and break history, and injects four events. It
+  writes `network.json`, which is committed.
+- `localize.py` (standard library only) traces upstream from every alerting sensor along the flow,
+  keeps the pipes upstream of all of them, scores each by how well its predicted gaps between
+  arrivals match the observed ones and by quiet sensors it should have reached, and weights it by a
+  hand-set risk score from the pipe's attributes. The result is a ranked list with each pipe's share
+  of the weight and the reasons in sentences.
+- `incident.py` writes the report around it by fixed rules: summary and severity, timeline, ranked
+  segments, what to do next (each step with a passage from the EPA and AWWA documents, cited by
+  document and page), the junctions downstream, a draft notice and the caveats.
+  `python incident.py` also writes `web/network/data.json`, so `/network/` works with no gateway.
+- `GET /api/network` returns the same thing from the gateway.
+- With a model key, the page offers "Ask the investigator's agents": a second deepagents team (a lead with
+  `topology`, `maintenance` and `comms` specialists) reads the trace through tools, searches the
+  guidance and writes its own account (`POST /api/network/investigate?scenario=..`, a control). The
+  agents are never shown where the simulation put the change.
+
+How well it does on its own four events: the true pipe is ranked 1st, 1st and 2nd in the three
+where three or more sensors alert, and 7th of 28 in the one where a single sensor alerts, which the
+report says is too little to single out a pipe. `python test_localize.py` (53 checks) also runs a
+change entering at every pipe in turn and prints how often the true pipe is found;
+`python test_incident.py` (15 checks) covers the reports.
+
+What it is not: there is no real pipe network, no real event and no trained model. Flow is frozen
+at one hour; the pipe attributes and the risk score are made up; "downstream" counts junctions and
+simulated demand, not customers.
 
 ## Published reference data
 `python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake

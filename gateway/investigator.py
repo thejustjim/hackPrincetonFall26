@@ -12,6 +12,9 @@ through deepagents' `task` tool, each with its own narrow tools, then writes the
     maintenance     filters and upkeep                   get_filter_life, search_guidance (EPA and AWWA documents)
     comms           a short notice from fixed templates  get_notice_templates
 
+A second team of three (topology, maintenance, comms) does the same for an event on the
+simulated pipe network (localize.py, incident.py): build(..., incident=True).
+
 The agents explain and decide what to do next. They do not compute: every number comes from
 a tool, and the verdict and severity come from analysis.py, not from a model.
 
@@ -127,7 +130,65 @@ SPECIALISTS = [
                "sentence the template marks as required exactly as written, and add no numbers of your own. "
                "Answer with the notice only, nothing before or after it."},
 ]
-TITLES = {s["name"]: s["title"] for s in SPECIALISTS}
+
+
+class IncidentReport(BaseModel):
+    summary: str = Field(description="Two or three plain sentences: what the simulated sensors saw and where the trace "
+                                     "points, with the leading pipe's share of the weight. Say it is a simulation.")
+    findings: list[str] = Field(description="Three to five short findings, each naming its source: the simulated trace, "
+                                            "or a guidance document with its page.")
+    actions: list[str] = Field(description="Two to five next steps, most urgent first, each one supported by a guidance passage.")
+    notice: str = Field(description="The comms specialist's draft notice, copied without changes.")
+
+
+INCIDENT_RULES = """Rules, which have no exceptions:
+- This is a simulation: a made-up event on WNTR's Net3 example network, with synthetic pipe
+  attributes. Say so. Never describe it as a real event, a real pipe or a real measurement.
+- Do not compute, estimate or round numbers yourself. Every number must come from a tool
+  result, unchanged. A pipe's share is its weight among the candidates, not a probability.
+- Never call the water safe and never tell anyone to drink it. The sensors read only pH,
+  dissolved solids and transparency, so no one can say what the change is until a lab has.
+- When you use a guidance passage, name its document and page.
+- Write for someone who is not an expert: one plain sentence per point."""
+
+INCIDENT_LEAD = """You lead the response to a simulated water-quality event on a simulated pipe
+network. Several simulated sensor nodes alerted, and the gateway's tracing code has already
+ranked the pipes the change most likely entered from. You get the scenario id.
+
+You have three specialists. Start by calling the task tool three times in one message, once
+for each of: topology, maintenance, comms. Each sees only the description you write, so give
+every one the scenario id and ask for its findings. Do not do their work yourself.
+
+When all three have answered, write the report: a summary (what the sensors saw, where the
+trace points and how sure it is), findings drawn from the specialists (keep their numbers and
+source labels exactly), actions (most urgent first; if no pipe stands out, sampling comes
+before isolating anything) and the notice, copied from the comms specialist without changes.
+
+""" + INCIDENT_RULES
+
+INCIDENT_SPECIALISTS = [
+    {"name": "topology", "title": "Where it entered",
+     "tools": ["trace_scenario", "get_pipe"],
+     "description": "Reads the upstream trace for a simulated event and the suspected pipes' attributes. Give it the scenario id.",
+     "prompt": "You read the trace of one simulated event on a simulated pipe network. Call trace_scenario for the "
+               "scenario id you are given, then get_pipe for the leading one or two pipes. Say which pipe leads and "
+               "its share of the weight, how well its predicted arrival times match the sensors, what the quiet "
+               "sensors add, and whether the list is narrow enough to act on or only good for choosing where to sample."},
+    {"name": "maintenance", "title": "What the guidance says",
+     "tools": ["trace_scenario", "search_guidance"],
+     "description": "Finds what published EPA and AWWA guidance says to do: sampling, isolation, flushing, repair. Give it the scenario id.",
+     "prompt": "You find what published guidance says a utility should do next. Call trace_scenario for the scenario "
+               "id you are given, then search_guidance two or three times (for example on confirming with laboratory "
+               "samples, isolating part of the network, flushing, and returning a repaired main to service). Give "
+               "the steps the passages support, in order, each with its document and page."},
+    {"name": "comms", "title": "Draft notice",
+     "tools": ["trace_scenario", "get_incident_notice"],
+     "description": "Drafts a short notice for the people downstream, from a fixed template. Give it the scenario id.",
+     "prompt": "You draft one short notice for the people downstream of a simulated event. Call get_incident_notice "
+               "for the scenario id you are given. You may make the wording plainer, but keep its last two sentences "
+               "exactly as written and add no numbers of your own. Answer with the notice only."},
+]
+TITLES = {s["name"]: s["title"] for s in SPECIALISTS + INCIDENT_SPECIALISTS}
 
 
 def chat(model, provider="anthropic", key=None):
@@ -143,23 +204,26 @@ def chat(model, provider="anthropic", key=None):
     return ChatAnthropic(model=model, max_tokens=16000, effort=EFFORT, **extra)
 
 
-def build(tools, provider="anthropic", model=None, key=None, lead_model=None, specialist_model=None):
+def build(tools, provider="anthropic", model=None, key=None, lead_model=None, specialist_model=None, incident=False):
     """tools: {name: function}. provider "google" runs every agent on Gemini (`model` is the Gemini
-    model to use), anything else on Claude. The two *_model arguments are for tests."""
+    model to use), anything else on Claude. The two *_model arguments are for tests.
+    incident=True builds the second team, for events on the simulated network."""
+    team, lead_prompt, rules, schema, name = ((INCIDENT_SPECIALISTS, INCIDENT_LEAD, INCIDENT_RULES, IncidentReport, "clarity-incident")
+                                              if incident else (SPECIALISTS, LEAD, RULES, Report, "clarity-investigator"))
     google = provider == "google"
     lead_name = (model or "gemini-3.5-flash") if google else MODEL
     worker_name = os.getenv("INVESTIGATOR_SUBAGENT_MODEL") or lead_name
     lead = lead_model or chat(lead_name, provider, key)
     worker = specialist_model or (lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
     subagents = [{"name": s["name"], "description": s["description"],
-                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + RULES,
-                  "tools": [tools[t] for t in s["tools"]], "model": worker} for s in SPECIALISTS]
+                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + rules,
+                  "tools": [tools[t] for t in s["tools"]], "model": worker} for s in team]
     # How the lead hands back the structured report. Claude: its native structured output
     # (the tool strategy would force tool_choice="any", which Opus 5.5 rejects). Gemini: a
     # final call to a "Report" tool, which works on any model that can call tools.
-    answer = ToolStrategy(Report) if google else ProviderStrategy(Report)
-    return create_deep_agent(model=lead, tools=[], system_prompt=LEAD, subagents=subagents,
-                             response_format=answer, name="clarity-investigator")
+    answer = ToolStrategy(schema) if google else ProviderStrategy(schema)
+    return create_deep_agent(model=lead, tools=[], system_prompt=lead_prompt, subagents=subagents,
+                             response_format=answer, name=name)
 
 
 def text_of(message):
@@ -182,12 +246,12 @@ def sections_from(messages):
     return out
 
 
-async def investigate(agent, case: dict) -> dict:
-    """case: {"node", "site", "test", "filter", "before", "after", "checks"} ->
-    {"summary", "findings", "actions", "notice", "sections"}."""
+async def investigate(agent, case: dict, ask="Investigate this filter run:") -> dict:
+    """case: {"node", "site", "test", "filter", "before", "after", "checks"}, or for the incident
+    team {"scenario", ...} -> {"summary", "findings", "actions", "notice", "sections"}."""
     result = await agent.ainvoke({"messages": [{
         "role": "user",
-        "content": "Investigate this filter run:\n" + json.dumps(case, indent=1),
+        "content": ask + "\n" + json.dumps(case, indent=1),
     }]})
     report = result.get("structured_response")
     if isinstance(report, BaseModel):

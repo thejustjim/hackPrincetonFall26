@@ -1,0 +1,112 @@
+/* /network: a simulated pipe network, the trace back to a pipe, and the incident report.
+   It borrows the demo page's type and rules (base.css, demo.css); only what is new is here. */
+body.network .sheet { border-top: 0; min-height: 0; }
+body.network .page { padding-top: 108px; }                 /* room for the fixed bar */
+body.network .ruled { scroll-margin-top: 70px; }
+.intro { max-width: 46em; }
+.kicker { font-family: var(--sans); font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warn); }
+.intro h1 { margin: 10px 0 18px; font-weight: 400; font-size: clamp(40px, 4.6vw, 72px); line-height: 1.04; letter-spacing: -0.02em; text-wrap: balance; }
+.intro .about { margin-top: 14px; font-size: 16px; max-width: 44em; }
+
+.scenarios { display: flex; flex-wrap: wrap; gap: 6px 30px; margin: 40px 0 0; padding: 14px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+.scenarios button { padding: 4px 0; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--label2); font: italic 19px var(--serif); cursor: pointer; }
+.scenarios button:hover { color: var(--text); }
+.scenarios button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+.trace { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 56px; margin-top: 34px; align-items: start; }
+.net { margin: 0; }
+.net svg { display: block; width: 100%; height: auto; overflow: visible; }
+.net figcaption { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 22px; font-style: italic; font-size: 15px; color: var(--label2); }
+.net figcaption span { display: inline-flex; align-items: center; gap: 8px; }
+.net figcaption i { display: inline-block; }
+.k-sensor { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--text); }
+.k-alert { width: 11px; height: 11px; border-radius: 50%; background: var(--warn); }
+.k-cand { width: 22px; height: 0; border-top: 4px solid var(--accent); }
+.k-truth { width: 22px; height: 0; border-top: 2px dashed var(--text); }
+
+/* the drawing */
+.pipe { stroke: var(--text); stroke-opacity: 0.26; stroke-width: 1.2; stroke-linecap: round; }
+.pipe.still { stroke-dasharray: 2 4; stroke-opacity: 0.14; }
+.pump { stroke: var(--text); stroke-opacity: 0.2; stroke-width: 1.2; stroke-dasharray: 5 4; }
+.junction { fill: var(--text); fill-opacity: 0.28; }
+.store { fill: var(--deep); stroke: var(--text); stroke-opacity: 0.5; stroke-width: 1.2; }
+.place { fill: var(--label2); font: italic 13px var(--serif); }
+.sensor { fill: var(--deep); stroke: var(--text); stroke-opacity: 0.75; stroke-width: 1.5; transition: fill 0.5s ease, stroke 0.5s ease, r 0.5s ease; }
+.sensor.alert { fill: var(--warn); stroke: var(--warn); stroke-opacity: 1; }
+.sensor-label { fill: var(--text); font: 12.5px var(--sans); opacity: 0; transition: opacity 0.5s ease; }
+.sensor-label.on { opacity: 1; }
+.cand { stroke: var(--accent); stroke-linecap: round; opacity: 0; transition: opacity 0.9s ease; }
+.cand.on { opacity: var(--o, 0.5); }
+.cand-label { fill: var(--accent); font: 13px var(--sans); opacity: 0; transition: opacity 0.9s ease; text-anchor: end; }
+/* labels keep a dark edge, so they read where they cross a pipe or each other */
+.cand-label, .sensor-label, .truth-label, .place { paint-order: stroke; stroke: var(--deep); stroke-width: 4px; stroke-linejoin: round; }
+.cand-label.on { opacity: 1; }
+.truth { stroke: var(--text); stroke-width: 2; stroke-dasharray: 5 5; stroke-linecap: round; fill: none; opacity: 0; transition: opacity 0.6s ease; }
+.truth-label { fill: var(--text); font: italic 14px var(--serif); opacity: 0; transition: opacity 0.6s ease; }
+.revealed .truth, .revealed .truth-label { opacity: 1; }
+.revealed .cand-label.same { opacity: 0; }                  /* the simulation's label says the same pipe */
+.truth-label { text-anchor: end; }
+
+/* beside the drawing */
+.side h3 { margin-top: 26px; }
+.side h3:first-child { margin-top: 0; }
+.timeline, .cands { margin: 0; padding: 0; list-style: none; }
+.timeline li { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--hair); font-size: 17px; }
+.timeline .at { font-family: var(--sans); font-size: 14px; color: var(--label2); padding-top: 3px; }
+.timeline .quiet-row { color: var(--label2); font-style: italic; border-bottom: 0; }
+.cands li { padding: 12px 0; border-bottom: 1px solid var(--hair); }
+.cands .head { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) 3.2em; gap: 10px; align-items: baseline; }
+.cands .rank { font-family: var(--sans); font-size: 13px; color: var(--label3); }
+.cands .name { font-size: 20px; }
+.cands .name small { margin-left: 8px; font-style: italic; font-size: 15px; color: var(--label2); }
+.cands .pct { text-align: right; font-size: 20px; font-variant-numeric: lining-nums tabular-nums; }
+.cands .bar-w { margin: 7px 0 0 calc(1.4em + 10px); height: 3px; background: var(--hair); }
+.cands .bar-w span { display: block; height: 100%; background: var(--accent); }
+.cands li:first-child .name, .cands li:first-child .pct { color: var(--accent); }
+.cands .why { margin: 8px 0 0 calc(1.4em + 10px); font-size: 15.5px; line-height: 1.45; color: var(--label2); }
+.cands .why p + p { margin-top: 4px; }
+.reveal { margin-top: 16px; padding: 0; border: 0; background: none; color: var(--accent); font: italic 17px var(--serif); cursor: pointer; }
+.reveal:hover { text-decoration: underline; text-underline-offset: 3px; }
+.checked { margin-top: 12px; font-size: 17px; color: var(--text); }
+
+/* the incident report */
+.report { max-width: 50em; }
+.report .section-head { margin-bottom: 8px; }
+.report .pull { margin-top: 12px; }
+.report h3 { margin-top: 34px; }
+.report .steps { margin: 0; padding-left: 22px; display: grid; gap: 20px; }
+.report .steps li::marker { color: var(--accent); }
+.report blockquote { margin: 10px 0 0; padding-left: 16px; border-left: 1px solid var(--hair); font-size: 16px; line-height: 1.5; color: var(--label2); }
+.report cite { display: block; margin-top: 6px; font: normal 13px/1.4 var(--sans); color: var(--label3); }
+.report cite a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.report .plain { margin: 0; padding-left: 22px; display: grid; gap: 8px; color: var(--label2); font-size: 17px; }
+.report .figures-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; margin-top: 6px; }
+.report .figures-row b { display: block; font-weight: 400; font-size: 46px; line-height: 1; letter-spacing: -0.02em; }
+.report .figures-row span { display: block; margin-top: 8px; font-style: italic; font-size: 16px; color: var(--label2); }
+.print-btn { padding: 0; border: 0; background: none; color: var(--accent); font: italic 17px var(--serif); cursor: pointer; }
+.print-btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.print-btn:disabled { color: var(--label3); cursor: default; text-decoration: none; }
+.report .ask { margin-top: 14px; }
+#agents:not(:empty) { margin: 6px 0 34px; padding-bottom: 30px; border-bottom: 1px solid var(--hair); }
+
+@media (max-width: 1000px) {
+  .trace { grid-template-columns: minmax(0, 1fr); gap: 34px; }
+  .report .figures-row { gap: 20px; }
+  .report .figures-row b { font-size: 34px; }
+}
+
+/* Print or save as PDF: the report on white paper, without the page's furniture. */
+@media print {
+  :root { --deep: #fff; --text: #111; --label2: #444; --label3: #666; --hair: #ccc; --accent: #1f5f85; --warn: #8a5a00; }
+  html, body, .sheet { background: #fff !important; color: #111; }
+  .bar, .scenarios, .reveal, .print-btn, .ask, .colophon, .glow { display: none !important; }
+  body.network .page { padding: 0 !important; }
+  .trace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; break-inside: avoid; }
+  .intro h1 { font-size: 34px; }
+  .lede { font-size: 17px; }
+  .report { max-width: none; }
+  .report h3, .report .steps li, .report blockquote { break-inside: avoid; break-after: avoid; }
+  .cand, .cand-label, .sensor-label { opacity: 1 !important; }
+  .sensor { fill: #fff; }
+  .store { fill: #fff; }
+}
