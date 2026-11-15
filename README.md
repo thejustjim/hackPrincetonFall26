@@ -82,13 +82,20 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   them. White is ours, a real reading. Grey is simulated, and says so. Blue is context: the water system
   (the illustrative route, the tower, the plants) and other people's published readings (USGS streams as
   open rings). TDS is blue under the EPA line and rose over it everywhere, tanks and US samples alike.
-  While it loads, the map shows a globe (`src/intro.js`) drawn from the same world outline the map uses
-  zoomed out. It spins, slows to a stop with Princeton in front, and dives in; on the way down it takes
-  on the map's colours and flattens into the map's projection at the map's scale, so the real map takes
-  over underneath with no cut and carries on down to the home view. It is not locked: a key skips to the
-  home view, a click or the wheel does too until the map shows and after that leaves the map where it
-  was grabbed, and `?nointro` leaves it out. Princeton is only where it starts, for the demo: the home
-  view is `HOME` in `src/main.js`. `node test_intro.mjs` checks the slow-down and the land it draws.
+  The map opens on a start screen: a globe (`src/intro.js`) drawn from the same world outline the map uses
+  zoomed out, one line about the country's water worked out from the public samples the map carries, and
+  two ways in. "Start the Princeton demo" slows the globe to a stop with Princeton in front and dives in;
+  on the way down the globe takes on the map's colours and flattens into the map's projection at the map's
+  scale, so the real map takes over underneath with no cut and carries on down to the tank. "Look across
+  the country" gives way to the US view. Any key takes the demo. The rest of the page still works while it
+  waits (a search or the USA button takes over), and `?nointro` leaves it out. The home view is `HOME` in
+  `src/main.js`. `node test_intro.mjs` checks the slow-down and the land it draws.
+  Away from Princeton there is no Clarity site, so the card at the bottom left says what is publicly known
+  about the water there instead: how many Water Quality Portal sites in view (or within 25 km, when zoomed
+  in) were sampled for dissolved solids since 2024, their median, the share over the EPA's 500 ppm
+  guideline, and how long half of them have gone without a new sample. It is worked out in the page from
+  data the map already ships, with no model. Those samples are rivers, lakes and wells, not tap water,
+  and the card says so.
 - **The Photon agent** (`photon-alerts/`, its own README) watches the gateway's `/ws` and texts
   subscribers. It needs Photon keys and a Google key; `DRY_RUN=1 npm run dev` prints the texts
   instead of sending them. It is not needed for the pages.

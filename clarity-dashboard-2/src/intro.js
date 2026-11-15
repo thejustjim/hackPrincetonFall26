@@ -8,14 +8,18 @@
    map underneath shows the same shapes in the same places, and from there the map's own camera
    carries on down to the home view: one move, with no cut.
 
-   Nothing is locked. Before the map shows, a click, a key or the wheel skips to it. Once it shows,
-   grabbing it stops the descent where it is. ?nointro leaves the whole thing out, and so does a
-   reduced-motion setting. */
+   It can also be the map's start screen: the globe turns until a choice is taken (the Princeton
+   demo, or the whole country), and that choice is where it stops and where the map lands.
+
+   Nothing is locked. On the start screen the rest of the page still works, and a search or a button
+   that moves the map takes over. Once it is moving, a key skips to where it was heading; a click or
+   the wheel does too until the map shows, and after that stops the descent where it is. ?nointro
+   leaves the whole thing out, and so does a reduced-motion setting. */
 const RAD = Math.PI / 180, TAU = Math.PI * 2, HALF = Math.PI / 2;
 export const SPIN = 80;                  // degrees a second while loading
 const TILT = 18;                         // latitude the globe is seen from while it spins
 const MIN_SPIN = 1.2, HOLD = 0.35, DIVE = 4.8;      // seconds
-const SIZE = 0.34;                       // the globe's radius, as a share of the shorter side
+const SIZE = 0.32;                       // the globe's radius, as a share of the shorter side
 const NEAR = Math.cos(45 * RAD);         // outlines with a point this close to home are kept whole
 const SMALL = 2 * RAD;                   // outlines smaller than this are not walked along the globe's edge
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
@@ -237,24 +241,28 @@ const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).
 const GLOBE = { ocean: rgb("#07161F"), other: rgb("#143541"), us: rgb("#1E5E73"), line: rgb("#8DBDD8") };
 const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn", "Dead"]);
 
-/* `paint` is the map's own colours for the zoomed-out view: { ocean, other, usLand, border }. */
-export function runIntro(map, home, dataUrl, paint) {
+/* `paint` is the map's own colours for the zoomed-out view: { ocean, other, usLand, border }.
+   `start`, if given, makes the globe a start screen: it keeps turning until one of the choices is
+   taken, and then goes to that choice's view. { line: () => text, choices: [{ label, name, view, pin }],
+   chose(choice) }. The first choice is the one any key takes. Without `start` it goes home by itself. */
+export function runIntro(map, home, dataUrl, paint, start) {
   const wrapEl = map.getContainer().parentElement;
   const off = new URLSearchParams(location.search).has("nointro") || matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (off || !wrapEl) return;
   const el = document.createElement("div");
   el.className = "intro";
-  el.innerHTML = '<canvas></canvas><p class="intro-note">Loading the map</p>';
+  el.innerHTML = '<canvas></canvas><p class="intro-note">Loading the map</p>' + (start ? `<div class="intro-start"><p class="intro-line"></p><div class="intro-choices">${
+    start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}">${c.label}</button>`).join("")}</div></div>` : "");
   const canvas = el.querySelector("canvas"), note = el.querySelector(".intro-note"), ctx = canvas.getContext("2d");
   if (!ctx) return;
   wrapEl.appendChild(el);
   const MAP = { ocean: rgb(paint.ocean), other: rgb(paint.other), us: rgb(paint.usLand), line: rgb(paint.border) };
-  const [homeLon, homeLat] = home.center;
-  const lonStart = homeLon - 120 - SPIN * MIN_SPIN;        // if the map is ready at once, home is a third of a turn away
+  let goal = home, [goalLon, goalLat] = home.center, chosen = !start, offered = false, geoRaw = null;
+  const lonStart = goalLon - 120 - SPIN * MIN_SPIN;        // if the map is ready at once, home is a third of a turn away
   let land = null, noLand = false, ready = false, phase = "spin", clock = 0, last = 0, mark = 0, raf = 0, done = false;
   let lon = lonStart, lat = TILT, plan = null, fly = null, driving = false;
 
-  fetch(dataUrl + "land.json").then((r) => r.json()).then((geo) => { land = prepare(geo, home.center); }).catch(() => { noLand = true; });
+  fetch(dataUrl + "land.json").then((r) => r.json()).then((geo) => { geoRaw = geo; land = prepare(geo, home.center); }).catch(() => { noLand = true; });
   const mapReady = () => { ready = true; };
   if (map.loaded()) mapReady(); else map.once("load", mapReady);
   setTimeout(mapReady, 7000);                              // a slow connection: carry on with whatever has loaded
@@ -268,11 +276,36 @@ export function runIntro(map, home, dataUrl, paint) {
     removeEventListener("keydown", onKey, true);
     removeEventListener("pointerdown", onPointer, true);
     removeEventListener("wheel", onPointer, true);
+    map.off("move", onMapMove);
   }
-  // Not locked. A key always goes straight to the home view. A click or the wheel does too while the
-  // globe is all there is to see; once the map is showing, it leaves the map where the hand found it.
-  function onKey(e) { if (MODIFIERS.has(e.key) || e.metaKey || e.ctrlKey) return; map.jumpTo(home); finish(); }
-  function onPointer() { if (!driving) map.jumpTo(home); finish(); }
+  // The start screen: a choice sets where the globe stops and where the map lands.
+  function choose(c) {
+    if (chosen || done) return;
+    goal = { ...c.view, name: c.name, pin: c.pin };
+    [goalLon, goalLat] = goal.center;
+    if ((goalLon !== home.center[0] || goalLat !== home.center[1]) && geoRaw) land = prepare(geoRaw, goal.center);
+    chosen = true;
+    el.classList.remove("ask");
+    start.chose?.(c);
+  }
+  el.querySelectorAll(".intro-go").forEach((b) => b.addEventListener("click", () => choose(start.choices[+b.dataset.i])));
+  // While the start screen waits, the rest of the page still works: a search or a button that moves the
+  // map takes over, and the globe gets out of the way.
+  function onMapMove() {
+    if (chosen || done) return;
+    const c = map.getCenter();
+    if (Math.abs(c.lng - home.center[0]) > 1e-3 || Math.abs(c.lat - home.center[1]) > 1e-3 || Math.abs(map.getZoom() - home.zoom) > 0.05) finish();
+  }
+  map.on("move", onMapMove);
+  // Not locked. On the start screen a key takes the first choice, and a click anywhere but a choice does
+  // nothing. Once it is moving, a key goes straight to where it was heading; a click or the wheel does
+  // too while the globe is all there is to see, and once the map is showing leaves it where the hand found it.
+  function onKey(e) {
+    if (MODIFIERS.has(e.key) || e.metaKey || e.ctrlKey || e.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (!chosen) { if (offered) choose(start.choices[0]); return; }
+    map.jumpTo(goal); finish();
+  }
+  function onPointer() { if (!chosen) return; if (!driving) map.jumpTo(goal); finish(); }
   addEventListener("keydown", onKey, true);
   addEventListener("pointerdown", onPointer, true);
   addEventListener("wheel", onPointer, { capture: true, passive: true });
@@ -285,7 +318,7 @@ export function runIntro(map, home, dataUrl, paint) {
   }
   // Where the map's centre sits in the overlay (the map keeps it off-middle, clear of its panels).
   function centre() {
-    const p = map.project(home.center), a = map.getContainer().getBoundingClientRect(), b = el.getBoundingClientRect();
+    const p = map.project(goal.center), a = map.getContainer().getBoundingClientRect(), b = el.getBoundingClientRect();
     return [p.x + a.left - b.left, p.y + a.top - b.top];
   }
 
@@ -295,20 +328,20 @@ export function runIntro(map, home, dataUrl, paint) {
      map's projection; from zA to zB the drawing fades over the map; then the map goes on alone. */
   function plot(w, h) {
     const [cx, cy] = centre();
-    map.jumpTo({ center: home.center, zoom: 5, pitch: 0, bearing: 0 });
-    const a = map.project([homeLon - 0.25, homeLat]), b = map.project([homeLon + 0.25, homeLat]);
-    const unit = (b.x - a.x) / (0.5 * RAD) / Math.cos(homeLat * RAD);      // the globe radius, in px, that matches zoom 5
+    map.jumpTo({ center: goal.center, zoom: 5, pitch: 0, bearing: 0 });
+    const a = map.project([goalLon - 0.25, goalLat]), b = map.project([goalLon + 0.25, goalLat]);
+    const unit = (b.x - a.x) / (0.5 * RAD) / Math.cos(goalLat * RAD);      // the globe radius, in px, that matches zoom 5
     if (!(unit > 0)) return null;
     const far = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
     const zOf = (r) => 5 + Math.log2(r / unit);
     let zA = zOf(2 * far) + 0.9;
     for (let i = 0; i < 8; i++) {                          // the map will not show past its bounds: start close enough to stay centred
-      map.jumpTo({ center: home.center, zoom: zA, pitch: 0, bearing: 0 });
+      map.jumpTo({ center: goal.center, zoom: zA, pitch: 0, bearing: 0 });
       const at = map.getCenter();
-      if (Math.abs(at.lng - homeLon) < 1e-3 && Math.abs(at.lat - homeLat) < 1e-3) break;
+      if (Math.abs(at.lng - goalLon) < 1e-3 && Math.abs(at.lat - goalLat) < 1e-3) break;
       zA += 0.4;
     }
-    if (zA + 1.6 > home.zoom) return null;
+    if (zA + 1.6 > goal.zoom) return null;                 // a view too far out to dive into: the globe just gives way to it
     return { zG: zOf(Math.min(w, h) * SIZE), zM: zA - 0.9, zA, zB: zA + 1.1, rOf: (z) => unit * 2 ** (z - 5) };
   }
 
@@ -389,10 +422,10 @@ export function runIntro(map, home, dataUrl, paint) {
       ctx.strokeStyle = `rgba(141, 189, 216, ${(0.5 * (1 - c)).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
     }
     if (pin > 0.01) {                                      // home: a dot and a ring that breathes
-      const d = homeLon * RAD - V.l0, sp = Math.sin(homeLat * RAD), cp = Math.cos(homeLat * RAD), cd = Math.cos(d);
+      const d = goalLon * RAD - V.l0, sp = Math.sin(goalLat * RAD), cp = Math.cos(goalLat * RAD), cd = Math.cos(d);
       if (V.s0 * sp + V.c0 * cp * cd > 0) {
         const ox = cp * Math.sin(d), oy = V.c0 * sp - V.s0 * cp * cd;
-        const x = cx + R * (ox + m * (wrap(d) * V.c0 - ox)), y = cy - R * (oy + m * ((mercY(homeLat) - V.m0) * V.c0 - oy));
+        const x = cx + R * (ox + m * (wrap(d) * V.c0 - ox)), y = cy - R * (oy + m * ((mercY(goalLat) - V.m0) * V.c0 - oy));
         const beat = ((now / 1000) % 1.6) / 1.6;
         ctx.beginPath(); ctx.arc(x, y, 3.5, 0, TAU); ctx.fillStyle = `rgba(247, 240, 240, ${pin.toFixed(3)})`; ctx.fill();
         ctx.beginPath(); ctx.arc(x, y, 6 + 18 * beat, 0, TAU);
@@ -413,25 +446,34 @@ export function runIntro(map, home, dataUrl, paint) {
 
     if (phase === "spin") {
       lon = lonStart + SPIN * clock;
-      if (ready && noLand) { map.jumpTo(home); finish(); return; }
-      if (ready && land && clock >= MIN_SPIN) {
-        fly = plot(w, h);
-        if (!fly) { map.jumpTo(home); finish(); return; }
-        plan = settlePlan(lon, homeLon);
+      if (ready && noLand && chosen) { map.jumpTo(goal); finish(); return; }
+      if (ready && (land || noLand) && clock >= MIN_SPIN && !chosen && !offered) {     // the start screen: ready, and waiting to be told where
+        offered = true;
+        note.textContent = "";
+        const line = el.querySelector(".intro-line");
+        if (line) line.textContent = start.line?.() || "";
+        el.classList.add("ask");
+      }
+      if (ready && land && clock >= MIN_SPIN && chosen) {
+        fly = plot(w, h);                                  // null when the view is too far out to dive into
+        plan = settlePlan(lon, goalLon);
         phase = "settle"; mark = clock;
-        note.textContent = "Princeton, New Jersey";
+        note.textContent = goal.name || "Princeton, New Jersey";
       }
     } else if (phase === "settle") {
       lon = settleLon(plan, since);
-      lat = TILT + (homeLat - TILT) * smooth(since / plan.t);
+      lat = TILT + (goalLat - TILT) * smooth(since / plan.t);
       detail = pin = smooth(since / (plan.t * 0.7));
       if (since >= plan.t) { phase = "hold"; mark = clock; }
     } else if (phase === "hold") {
-      lon = homeLon; lat = homeLat; detail = pin = 1;
-      if (since >= HOLD) { phase = "dive"; mark = clock; el.classList.add("diving"); }
+      lon = goalLon; lat = goalLat; detail = pin = 1;
+      if (since >= HOLD) {
+        if (!fly) { map.jumpTo(goal); finish(); return; }
+        phase = "dive"; mark = clock; el.classList.add("diving");
+      }
     } else {
-      lon = homeLon; lat = homeLat; detail = 1;
-      zoom = fly.zG + (home.zoom - fly.zG) * smooth(since / DIVE);
+      lon = goalLon; lat = goalLat; detail = 1;
+      zoom = fly.zG + (goal.zoom - fly.zG) * smooth(since / DIVE);
       R = fly.rOf(zoom);
       c = smooth((zoom - fly.zG) / (fly.zM - fly.zG));
       m = smooth((zoom - fly.zM) / (fly.zA - fly.zM));
@@ -439,16 +481,16 @@ export function runIntro(map, home, dataUrl, paint) {
       fade = 1 - smooth((zoom - fly.zA) / (fly.zB - fly.zA));
       if (zoom >= fly.zA) {                                // the map shows from here, and moves in step with the drawing
         if (!driving) { driving = true; el.classList.add("through"); }
-        const k = smoother((zoom - fly.zB) / (home.zoom - fly.zB));
-        map.jumpTo({ center: home.center, zoom, pitch: home.pitch * k, bearing: home.bearing * k });
+        const k = smoother((zoom - fly.zB) / (goal.zoom - fly.zB));
+        map.jumpTo({ center: goal.center, zoom, pitch: (goal.pitch || 0) * k, bearing: (goal.bearing || 0) * k });
       }
-      if (since >= DIVE) { map.jumpTo(home); finish(); return; }
+      if (since >= DIVE) { map.jumpTo(goal); finish(); return; }
     }
     el.dataset.phase = phase;
     if (fade <= 0) { el.style.display = "none"; return; }  // the map carries on alone
     el.style.opacity = fade < 1 ? fade.toFixed(3) : "";
     const [cx, cy] = centre();
-    paintGlobe(w, h, cx, cy, R, view(lon, lat), c, m, zoom, detail, pin, now);
+    paintGlobe(w, h, cx, cy, R, view(lon, lat), c, m, zoom, detail, goal.pin === false ? 0 : pin, now);
   }
   raf = requestAnimationFrame(frame);
 }

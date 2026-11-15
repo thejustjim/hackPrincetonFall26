@@ -17,7 +17,7 @@ import { buildStyle, applyTheme, THEMES, LAYER_GROUPS, MODE, ARTIFACT } from './
 import { Protocol } from 'pmtiles';
 import { installFacades } from './facades.js';
 import { renderOverview, ring, tdsBar } from './overview.js';
-import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us } from './national.js';
+import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us, TDS_BANDS, tdsColor } from './national.js';
 import { runIntro } from './intro.js';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
@@ -127,7 +127,20 @@ const map = new maplibregl.Map({
   antialias: true,
   attributionControl: { compact: true },
 });
-runIntro(map, HOME, import.meta.env.BASE_URL + 'data/', THEMES.dark);   // the loading screen: a globe that settles on Princeton and dives into the map
+// The start screen: a globe, one line about the country's water worked out from the public samples the map
+// carries, and two ways in. The demo goes to Princeton, where the one real tank is; the other shows the country.
+runIntro(map, HOME, import.meta.env.BASE_URL + 'data/', THEMES.dark, {
+  line: () => {
+    if (!us.sites.length) return 'Affordable water monitoring that leads to action.';
+    const days = us.sites.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((a, b) => a - b);
+    return `Half of the ${us.sites.length.toLocaleString()} public sites sampled for dissolved solids since 2024 have gone ${Math.round(days[Math.floor(days.length / 2)] / 30.4)} months or more without a new sample.`;
+  },
+  choices: [
+    { label: 'Start the Princeton demo', name: 'Princeton, New Jersey', view: HOME },
+    { label: 'Look across the country', name: 'United States', view: US_VIEW, pin: false },
+  ],
+  chose: c => { const usa = c.view === US_VIEW; document.getElementById('btn-usa')?.classList.toggle('on', usa); document.getElementById('btn-reset')?.classList.toggle('on', !usa); },
+});
 const desktop = () => window.innerWidth > 1100;
 // Start the before/after card folded on short screens and phones, so it doesn't cover the map.
 if (innerWidth <= 760 || innerHeight < 700) document.body.classList.add('hero-collapsed');
@@ -799,9 +812,59 @@ function heroTest() {
   return r ? { node: r.node, test: r.test } : null;
 }
 
+/* Away from Princeton there is no Clarity site, so the card says what is publicly known about the water in
+   view instead: the Water Quality Portal samples the map already carries. It is worked out here from that
+   data, with no model and nothing fetched. These are rivers, lakes and wells, not tap water, and it says so. */
+const atHome = c => c.lng > -74.95 && c.lng < -74.35 && c.lat > 40.2 && c.lat < 40.65;
+let areaShown = false;
+function renderArea(el) {
+  const b = map.getBounds(), c = map.getCenter();
+  const km = (lon, lat) => { const R = 6371, r = Math.PI / 180, dy = (lat - c.lat) * r, dx = (lon - c.lng) * r * Math.cos(c.lat * r); return R * Math.hypot(dx, dy); };
+  // Zoomed out, it is what is in view. Zoomed in to a town or a street, the view holds too little to
+  // say anything, so it is everything within 25 km, and the card says which.
+  const close = km(b.getEast(), b.getNorth()) < 25;
+  const seen = close ? us.sites.filter(d => km(d.pos[0], d.pos[1]) <= 25)
+    : us.sites.filter(d => d.pos[0] >= b.getWest() && d.pos[0] <= b.getEast() && d.pos[1] >= b.getSouth() && d.pos[1] <= b.getNorth());
+  const near = map.getZoom() >= 6.5 ? CITIES.map(x => ({ x, d: km(x.pos[0], x.pos[1]) })).sort((p, q) => p.d - q.d)[0] : null;
+  const place = near && near.d < 60 ? `Near ${near.x.name}` : map.getZoom() < 5 ? 'United States' : 'This view';
+  const away = Math.round(km(HOME.center[0], HOME.center[1]) / 10) * 10;
+  const home = `<div class="explain"><div class="who rule">No Clarity site here yet</div>
+      <p class="muted">The nearest is the Princeton demo, ${away.toLocaleString()} km away. <button class="area-home">Go to the demo</button></p></div>`;
+  const head = `<div class="hero-head">
+      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Public water samples ${close ? 'within 25 km' : 'in view'}</div>
+      <div class="area-place">${esc(place)}</div>
+    </div>`;
+  if (!seen.length) {
+    el.innerHTML = `${head}<p class="area-line">No public sample of dissolved solids ${close ? 'within 25 km' : 'in view'} since 2024.</p>${home}`;
+  } else {
+    const tds = seen.map(d => d.tds).sort((p, q) => p - q), median = tds[Math.floor(tds.length / 2)];
+    const over = seen.filter(d => d.tds >= 500).length, share = over / seen.length;
+    const days = seen.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((p, q) => p - q);
+    const latest = new Date(Math.max(...seen.map(d => Date.parse(d.date)))).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const months = Math.round(days[Math.floor(days.length / 2)] / 30.4);
+    const bands = TDS_BANDS.map(x => ({ ...x, n: seen.filter(d => tdsColor(d.tds) === x.rgb).length }));
+    el.innerHTML = `${head}
+      <div class="hero-big">
+        <div><span class="num" style="color:rgb(${tdsColor(median).join(',')})">${median.toLocaleString()}</span><span class="unit">${seen.length === 1 ? 'ppm at the one site' : 'ppm, the median'}</span></div>
+        <div class="pct">${ring(share, { size: 62, label: `${Math.round(share * 100)}%` })}<span>over EPA 500</span></div>
+      </div>
+      <div class="usbar">${bands.map(x => `<i style="flex:${x.n};background:rgb(${x.rgb.join(',')})" title="${x.label} ppm: ${x.n.toLocaleString()}"></i>`).join('')}</div>
+      <p class="area-line">${seen.length.toLocaleString()} ${seen.length === 1 ? 'site' : 'sites'} sampled since 2024, the latest on ${latest}.
+        ${seen.length > 2 ? `Half have gone ${months} months or more without a new sample.` : ''}</p>
+      <p class="muted small">Rivers, lakes and wells, from the Water Quality Portal (USGS, EPA and state agencies). Source water, not tap water.</p>
+      ${home}`;
+  }
+  el.querySelector('.area-home')?.addEventListener('click', () => document.getElementById('btn-reset')?.click());
+}
+
+// The card follows the map: redraw when the view settles somewhere other than home, or comes back.
+map.on('moveend', () => { if (areaShown || !atHome(map.getCenter())) renderHero(); });
+
 function renderHero() {
-  const h = heroTest();
   const el = $('#hero');
+  areaShown = us.sites.length > 0 && !atHome(map.getCenter());
+  if (areaShown) { renderArea(el); return; }
+  const h = heroTest();
   if (!h) { el.innerHTML = '<div class="hero-title">Waiting for the first test…</div>'; return; }
   const { before, after } = testPair(h.node, h.test);
   const n = state.nodes.get(h.node);

@@ -511,3 +511,23 @@ h3 { font: italic 400 18px var(--serif); color: var(--muted); margin: 28px 0 10p
 .intro.gone { opacity: 0 !important; pointer-events: none; transition: opacity 0.45s ease; }
 .intro-note { position: absolute; left: 0; right: 0; bottom: 9%; margin: 0; text-align: center; font: italic 19px var(--serif); color: var(--muted); transition: opacity 0.5s ease; }
 .intro.diving .intro-note { opacity: 0; }
+/* the start screen: one line and the choices, under the globe */
+.intro.ask { cursor: default; }
+.intro-start { position: absolute; left: 0; right: 0; bottom: 6%; display: grid; justify-items: center; gap: 20px; padding: 0 24px; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; }
+.intro.ask .intro-start { opacity: 1; pointer-events: auto; }
+.intro-line { margin: 0; max-width: 33em; text-align: center; font: italic 19px/1.45 var(--serif); color: var(--muted); text-wrap: balance; }
+.intro-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.intro-go { font: 500 15px/1 var(--sans); padding: 13px 22px; border: 1px solid var(--line-strong); border-radius: 2px; background: none; color: var(--paper); cursor: pointer; transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease; }
+.intro-go:hover { border-color: var(--paper); }
+.intro-go.first { background: var(--paper); border-color: var(--paper); color: var(--ink); }
+.intro-go.first:hover { background: var(--sky); border-color: var(--sky); }
+.intro-go:focus-visible { outline: 2px solid var(--sky); outline-offset: 3px; }
+@media (max-width: 600px) { .intro-line { font-size: 16px; } .intro-go { padding: 12px 16px; font-size: 14px; } }
+
+/* the card away from Princeton: public samples in view (main.js renderArea) */
+.area-place { font-size: 12px; color: var(--sky); }
+.area-line { margin: 10px 0 6px; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.hero .usbar { margin-top: 4px; }
+.hero .explain { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.area-home { background: none; border: 0; padding: 0; font: inherit; color: var(--sky); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.area-home:hover { color: var(--paper); }
