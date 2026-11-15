@@ -1,0 +1,28 @@
+{
+  "name": "clarity-dashboard",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@deck.gl/core": "^9.0.38",
+    "@deck.gl/extensions": "^9.0.38",
+    "@deck.gl/geo-layers": "^9.0.38",
+    "@deck.gl/layers": "^9.0.38",
+    "@deck.gl/mapbox": "^9.0.38",
+    "@deck.gl/mesh-layers": "^9.0.38",
+    "chart.js": "^4.4.4",
+    "maplibre-gl": "^4.7.1",
+    "pmtiles": "^3.2.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  },
+  "private": true,
+  "type": "module"
+}
