@@ -32,9 +32,9 @@ export function ring(frac, { size = 64, color = 'var(--steel)', label = '' } = {
 }
 
 // Horizontal TDS bar on a 0-1000 ppm scale with the EPA 500 line.
-export function tdsBar(v, color, { scale = SCALE } = {}) {
+export function tdsBar(v, color, { scale = SCALE, mark = EPA } = {}) {
   const pct = Math.min(100, (v / scale) * 100);
-  return `<div class="tbar"><i style="width:${pct.toFixed(1)}%;background:${color}"></i><b style="left:${(EPA / scale) * 100}%"></b></div>`;
+  return `<div class="tbar"><i style="width:${pct.toFixed(1)}%;background:${color}"></i><b style="left:${(mark / scale) * 100}%"></b></div>`;
 }
 
 export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
@@ -49,8 +49,9 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
   const withData = views.filter(v => v.lb).length || 1;
   const all = [...state.byId.values()];
   const afters = all.filter(r => r.phase === 'after');
-  const drops = afters.map(a => { const b = testPair(a.node, a.test).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
-  const avgDrop = drops.length ? drops.reduce((s, x) => s + x, 0) / drops.length : 0;
+  // What the filter did, said the way the rig can show it: how many retests came back in range. (A Brita is
+  // for water that is not clear; it leaves dissolved solids about where they were, so "TDS removed" said nothing.)
+  const backN = afters.filter(a => a.verdict === 'SAFE').length, back = afters.length ? backN / afters.length : 0;
   const alerts = state.filters.filter(f => f.status !== 'OK').length;
   const befores = all.filter(r => r.phase === 'before').sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
   const tdsTrend = befores.slice(-24).map(r => r.tds);
@@ -69,8 +70,8 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
         <div class="ts">${mixed ? `${nodes.filter(n => !simulated(n)).length} real, ${nodes.filter(simulated).length} simulated` : ''}</div></div>
       <div class="tile"><div class="tk">Median source TDS</div><div class="tv">${median(latestTds)}<small> ppm</small></div>
         ${sparkline(tdsTrend, { w: 120, h: 22, color: 'var(--steel)' })}</div>
-      <div class="tile ring-tile">${ring(avgDrop, { size: 58, label: `${Math.round(avgDrop * 100)}%` })}
-        <div><div class="tk">TDS removed</div><div class="ts">avg of ${drops.length} retests</div></div></div>
+      <div class="tile ring-tile">${ring(back, { size: 58, label: `${Math.round(back * 100)}%` })}
+        <div><div class="tk">Back in range</div><div class="ts">${backN} of ${afters.length} retests</div></div></div>
       <div class="tile ${alerts ? 'warn' : ''}"><div class="tk">Filter alerts</div><div class="tv">${alerts}</div>
         <div class="ts">${alerts ? 'cartridges to replace' : 'all filters OK'}</div></div>
     </div>
@@ -103,7 +104,7 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
   if (top) top.innerHTML = [
     [nodes.length, 'sites'],
     [counts.HIGH_TDS + counts.CLOUDY + counts.PH_WARN, 'flagged', counts.HIGH_TDS + counts.CLOUDY + counts.PH_WARN ? 'bad' : ''],
-    [`${Math.round(avgDrop * 100)}%`, 'TDS removed'],
+    [`${Math.round(back * 100)}%`, 'back in range'],
     [us.sites.length ? us.sites.length.toLocaleString() : '…', 'US samples'],
   ].map(([v, k, c]) => `<span class="${c || ''}"><b>${v}</b>${k}</span>`).join('');
   el.querySelectorAll('.nrow').forEach(b => b.addEventListener('click', () => openDrawer(b.dataset.node)));

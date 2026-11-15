@@ -971,6 +971,10 @@ function renderHero() {
   const pct = before && after && before.tds ? Math.round((1 - after.tds / before.tds) * 100) : null;
   const color = r => `rgb(${(VERDICT_RGB[r?.verdict] || [113, 117, 128]).join(',')})`;
   const noFilter = !!before && !after && before.ai_filter === 'NONE';
+  // Show the reading the cup was filtered for. A cup that was not clear is about transparency, not dissolved solids.
+  const forClarity = !!before && before.verdict === 'CLOUDY';
+  const big = r => (forClarity ? Number(r.clarity).toFixed(2) : r.tds), bigUnit = forClarity ? '' : 'ppm';
+  const bar = (r, c) => (forClarity ? tdsBar(r ? r.clarity : 0, c, { scale: 1, mark: 0.7 }) : tdsBar(r ? r.tds : 0, c));
   const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}${noFilter ? '' : `<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}`}</div></div>`;
   const expl = [before?.explanation, after?.explanation].filter(Boolean);
   el.innerHTML = `
@@ -979,17 +983,18 @@ function renderHero() {
       <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${simulatedNode(n) && [...state.nodes.values()].some(x => !simulatedNode(x)) ? '<span class="chip sim">simulated</span>' : ''}</div>
     </div>
     <div class="hero-big">
-      <div><span class="num" style="color:${color(before)}">${before ? before.tds : '–'}</span><span class="unit">ppm</span></div>
+      <div><span class="num" style="color:${color(before)}">${before ? big(before) : '–'}</span><span class="unit">${bigUnit}</span></div>
       ${noFilter ? '' : '<div class="arrow">→</div>'}
       ${after
-        ? `<div><span class="num" style="color:${color(after)}">${after.tds}</span><span class="unit">ppm</span></div>
-           <div class="pct">${ring(pct / 100, { size: 62, label: `${pct}%` })}<span>TDS removed</span></div>`
+        ? `<div><span class="num" style="color:${color(after)}">${big(after)}</span><span class="unit">${bigUnit}</span></div>
+           ${forClarity ? `<div class="pending" style="color:${color(after)}">${after.verdict === 'SAFE' ? 'Back in range' : 'Still out of range'}<br/><span class="muted small">transparency, after the filter</span></div>`
+                        : `<div class="pct">${ring(pct / 100, { size: 62, label: `${pct}%` })}<span>TDS removed</span></div>`}`
         : noFilter ? '<div class="pending">No filter needed<br/><span class="muted small">No retest required</span></div>' : '<div class="pending">Retest pending…<br/><span class="muted small">Pour the filtered water</span></div>'}
     </div>
     ${before ? `<div class="hero-bars">
-      <div class="hb"><span>Before</span>${tdsBar(before.tds, color(before))}<b>${before.tds}</b></div>
-      ${noFilter ? '' : `<div class="hb"><span>After</span>${after ? tdsBar(after.tds, color(after)) : tdsBar(0, 'transparent')}<b>${after ? after.tds : '…'}</b></div>`}
-      <div class="hb-scale"><span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span></div>
+      <div class="hb"><span>Before</span>${bar(before, color(before))}<b>${big(before)}</b></div>
+      ${noFilter ? '' : `<div class="hb"><span>After</span>${after ? bar(after, color(after)) : bar(null, 'transparent')}<b>${after ? big(after) : '…'}</b></div>`}
+      <div class="hb-scale">${forClarity ? '<span>0</span><span>0.70: cloudy below</span><span>1.00, clear</span>' : '<span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span>'}</div>
     </div>` : ''}
     ${filter ? `<div class="filter-tag">${noFilter ? 'Filter skipped' : filter === 'NONE' ? 'Choosing whether to filter' : `Filter chosen: ${FILTER_LABEL[filter] || filter}`}</div>` : ''}
     <div class="trio">${metric('TDS (ppm)', 'tds')}${metric([before, after].filter(Boolean).some(phEstimated) ? 'pH, estimated' : 'pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
@@ -1101,14 +1106,15 @@ function renderKpis() {
   const befores = all.filter(r => r.phase === 'before');
   const afters = all.filter(r => r.phase === 'after');
   const safeAfter = afters.length ? Math.round((afters.filter(r => r.verdict === 'SAFE').length / afters.length) * 100) : 0;
-  const drops = afters.map(a => { const b = testPair(a.node, a.test, a.session ?? null).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
-  const avgDrop = drops.length ? Math.round((drops.reduce((s, x) => s + x, 0) / drops.length) * 100) : 0;
+  // what filtering did to the reading the Brita is for
+  const gains = afters.map(a => { const b = testPair(a.node, a.test, a.session ?? null).before; return b ? a.clarity - b.clarity : null; }).filter(x => x != null);
+  const gain = gains.length ? gains.reduce((t, x) => t + x, 0) / gains.length : 0;
   const liters = state.filters.reduce((s, f) => s + (f.liters || 0), 0);
   const real = [...state.nodes.values()].filter(n => !simulatedNode(n)).length;
   $('#kpis').innerHTML = [
     [befores.length, 'water tests run'],
     [`${safeAfter}%`, 'in range after filtering'],
-    [`−${avgDrop}%`, 'avg TDS removed'],
+    [`${gain >= 0 ? '+' : '−'}${Math.abs(gain).toFixed(2)}`, 'transparency gained by filtering'],
     [`${liters.toFixed(1)} L`, 'water filtered'],
     [state.nodes.size, real && real < state.nodes.size ? `sites (${real} real, ${state.nodes.size - real} simulated)` : 'sites'],
     [befores.filter(r => r.verdict !== 'SAFE').length, 'first pours out of range'],

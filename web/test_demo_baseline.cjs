@@ -70,8 +70,8 @@ test('fifty demo cup cycles keep background peers and demonstration cartridges f
   healthyPeers(rows.filter(r => r.sim));
   const cups = rows.filter(r => !r.sim);
   assert.ok(cups.some(r => r.sample_case === 'cloudy' && r.phase === 'before' && r.filter === 'BRITA'));
-  assert.ok(cups.some(r => r.sample_case === 'salty' && r.phase === 'before' && r.filter === 'BRITA'));   // one filter on the rig
-  assert.ok(cups.every(r => r.filter !== 'ZEROWATER'));
+  // one filter on the rig, and the sample pours only what it is for: no cup over the dissolved-solids line
+  assert.ok(cups.every(r => r.filter !== 'ZEROWATER' && r.sample_case !== 'salty' && r.tds <= 300));
   assert.ok(cups.every(r => r.ph_est === true));
   for (const after of cups.filter(r => r.phase === 'after')) {
     const before = cups.find(r => r.test === after.test && r.session === after.session && r.phase === 'before');

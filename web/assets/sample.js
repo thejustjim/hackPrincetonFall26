@@ -34,8 +34,9 @@
   ].map(r => ({ ...r, source_kind: "published_stream", water_type: "untreated_surface_water", live: false }));
 
   // clean and tea are what the tank's sensors read on 15 Nov 2026 (clean water 202-204 ppm at 1.00;
-  // water that was not clear 219 ppm at 0.59-0.61). salty is made up.
-  const CUPS = { clean: [7.1, 203, 1.0], salty: [7.6, 780, 0.95], tea: [7.14, 219, 0.60] };
+  // water that was not clear 219 ppm at 0.59-0.61). The rig's one filter is a Brita, which is for water
+  // that is not clear, so those are the two cups the sample pours: no cup the filter could not help.
+  const CUPS = { clean: [7.1, 203, 1.0], tea: [7.14, 219, 0.60] };
   const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 
   function verdictFor(ph, tds, clarity) {
@@ -135,7 +136,8 @@
         ? [`Dissolved solids went from ${before.tds} to ${after.tds} ppm.`,
            `Published: the Millstone River typically runs about 248 ppm (NJ DEP, 2024 to 2025), so ${before.tds} ppm is far saltier than local surface water.`,
            `The nodes nearby read ${lo} to ${hi} ppm.`, life]
-        : [`Transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
+        : [back ? `Transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}, back above the 0.70 line. Dissolved solids were in range before and after (${after.tds} ppm).`
+                : `Transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
            `Published: Lake Carnegie typically reads about 177 ppm (NJ DEP, 2022 to 2023), similar to this sample.`,
            `The nodes nearby read ${lo} to ${hi} ppm.`, life];
       const actions = solids
@@ -231,14 +233,14 @@
     // seed: some history for every sim node, and one finished tank pour
     SITES.filter((s) => s.sim).forEach((s) => { for (let k = 6; k >= 1; k--) simReading(s, k * 120 + random() * 60); });
     // an hour of earlier pours, so the history has something to show
-    ["salty", "tea", "clean", "salty", "tea", "clean", "salty", "tea"].forEach((cupName, k) => pour(cupName, { quiet: true, ago: 3600 - k * 400 }));
+    ["clean", "tea", "clean", "clean", "tea", "clean", "tea", "clean"].forEach((cupName, k) => pour(cupName, { quiet: true, ago: 3600 - k * 400 }));
     pour("clean", { quiet: true, ago: 150 });
-    pour("salty", { quiet: true, ago: 70 });
+    pour("tea", { quiet: true, ago: 70 });               // the page opens on a cup that was not clear, and its retest
     readings.sort((a, b) => a.ts.localeCompare(b.ts));   // seeded out of order; the API is oldest -> newest
     seeding = false;
 
     function start() {
-      const order = ["tea", "clean", "salty"];
+      const order = ["clean", "tea"];
       let i = 0;
       const next = () => pour(order[i++ % order.length]);
       // let the opening settle first, then a pour every 24 s: long enough for each one's decision, retest and report

@@ -453,8 +453,12 @@ output on 15 Nov 2026 (pH is the estimate from dissolved solids):
 | not clear | 219 ppm | 0.59 to 0.61 | 7.14 | 6, over 18 s |
 
 So a clean cup is simulated at about 203 ppm and 1.00, and a cup that is not clear at about 219 ppm and
-0.60, which the tank's rule sends to the Brita. The salt-water cup (780 ppm) and every retest value are
-still made up: no retest has been recorded yet.
+0.60, which the tank's rule sends to the Brita. Those are the only two cups the samples pour: a Brita is
+for water that is not clear, so the samples show what it changes (transparency back over the 0.70 line) and
+no longer include a made-up salt-water cup it could not help. Every retest value is still an estimate: no
+retest has been recorded yet. The page follows the same reading: the history chart and the map's card show
+transparency before and after for a cup that was not clear, and the map counts retests back in range
+rather than "TDS removed".
 
 **A week to be read against.** A tank with no history has nothing to compare a pour with, so at startup the
 gateway gives it one: 168 estimated pours of tap water, one an hour for the past week (`gateway/baseline.py`).

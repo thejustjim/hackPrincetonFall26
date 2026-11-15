@@ -45,7 +45,9 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 function lookFor(r) {
   if (!r) return { color: C.blue.clone(), body: 0.24, surf: 0.42, speck: 0, sink: 1 };
   const mineral = clamp((r.tds - 60) / 740, 0, 1);
-  const murk = clamp(Math.pow(1 - clamp(r.clarity, 0, 1), 1.3) * 1.5, 0, 1);
+  // Clear from 0.92 up and fully murky by 0.45, easing between: a cup under the 0.70 line reads as plainly
+  // cloudy, and one the filter has brought back over 0.86 reads as plainly clear.
+  const haze = clamp((0.92 - clamp(r.clarity, 0, 1)) / 0.47, 0, 1), murk = haze * haze * (3 - 2 * haze);
   // In range (under 300 ppm) the water stays clear and blue. Past that it takes on an amber, tea-like tint,
   // fully by 700 ppm: water that read high should look it, not look like clean water with glitter in it.
   const stain = clamp((r.tds - 250) / 450, 0, 1);

@@ -53,16 +53,19 @@ a.write(json.dumps(dict(command, filter="ZEROWATER")).encode())
 assert a.ai_choice[second["test"]] == "BRITA", "consume once: a second matching command cannot change the decision"
 retest = take(a, ca, 43)
 assert retest["test"] == second["test"] and retest["phase"] == "after" and retest["seq"] > second["seq"]
-assert retest["tds"] > 600, "the accepted Brita command should be used for the simulated salty retest"
+assert retest["clarity"] >= 0.86 and retest["tds"] <= second["tds"], "the accepted Brita command should be used for the simulated retest: clearer, solids about the same"
 third = take(a, ca, 53)
 assert take(a, ca, 53.4) == third
-late = {"cmd": "filter", "node": a.node, "test": third["test"], "filter": "ZEROWATER", "session": a.session, "seq": third["seq"]}
-ca.now = 65
+assert third["filter"] == "NONE" and take(a, ca, 68) is None, "a clean cup is not filtered, so it has no retest"
+fourth = take(a, ca, 78)                        # the next cup that is not clear
+assert take(a, ca, 78.4) == fourth and fourth["filter"] == "BRITA"
+late = {"cmd": "filter", "node": a.node, "test": fourth["test"], "filter": "ZEROWATER", "session": a.session, "seq": fourth["seq"]}
+ca.now = 90
 # No earlier answer was consumed for this pour: lateness itself must reject the reply.
 a.write(json.dumps(late).encode())
-assert third["test"] not in a.ai_choice
-retest = take(a, ca, 68)
-assert retest["test"] == third["test"] and retest["tds"] > 100, "late AI reply must not override the Brita rule"
+assert fourth["test"] not in a.ai_choice
+retest = take(a, ca, 93)
+assert retest["test"] == fourth["test"] and retest["tds"] > 100, "late AI reply must not override the Brita rule"
 assert mock.MockDevice().session != mock.MockDevice().session, "new boots must not reuse simulation identity"
 
 fault, fc = device("sensor-fault")

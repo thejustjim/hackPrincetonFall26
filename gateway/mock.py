@@ -113,7 +113,7 @@ class MockDevice:
         self.ph_estimated = bool(ph_estimated)
         self.queue, self.ai_choice, self.before_identity = [], {}, {}
         self.next_test_at = self.started + 3
-        self.cup_cycle = ["clean", "salty", "tea"]
+        self.cup_cycle = ["clean", "tea"]               # the two cups the tank has read; the Brita is for the second
         self.zw_runs = 0
         self.recorded = []
         if self.scenario == "replay":

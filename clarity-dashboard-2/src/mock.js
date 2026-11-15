@@ -126,7 +126,7 @@ export function mockSocket(onMessage) {
       }, 6000);
     }, 2500);
   };
-  const tankCycle = () => pour(NODES[0], ['cloudy', 'normal', 'salty'][caseIndex++ % 3]);
+  const tankCycle = () => pour(NODES[0], ['cloudy', 'normal'][caseIndex++ % 2]);
   const background = () => pour(NODES[1 + siteIndex++ % (NODES.length-1)]);
   later(() => { background(); intervals.push(setInterval(background, 18000)); }, 3000);
   later(() => { tankCycle(); intervals.push(setInterval(tankCycle, 24000)); }, 16000);

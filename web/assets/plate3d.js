@@ -11,7 +11,7 @@
    demo-view.js keeps the latest state in window.TapPlateState, for when this loads after it. */
 import * as THREE from "three";
 import { RoomEnvironment } from "../vendor/three/RoomEnvironment.js";
-import { C, lookFor, glassMaterial, waterMaterial } from "./glass.js?v=20261115-clean-pitch";
+import { C, lookFor, glassMaterial, waterMaterial } from "./glass.js?v=20261115-clear-shift";
 
 const H = 1.7, RT = 0.66, RB = 0.52, WALL = 0.035, BASE = 0.14, LEVEL = 1.2, INSET = 0.006, SPECKS = 200;
 const rOut = (y) => RB + (RT - RB) * (y / H);

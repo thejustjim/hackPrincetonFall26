@@ -111,7 +111,8 @@ try {
  assert.ok(background.length>=6);
  for(const m of background) { assert.equal(m.verdict,'SAFE'); assert.equal(m.filter,'NONE'); assert.ok(m.anomaly<.2); }
  const cups=messages.filter(m=>m.type==='reading'&&!m.sim&&m.phase==='before');
- assert.ok(cups.some(m=>m.verdict==='CLOUDY')&&cups.some(m=>m.verdict==='HIGH_TDS')&&cups.some(m=>m.verdict==='SAFE'));
+ // the tank's cycle is the two cups the rig has read: clean, and not clear (which the Brita is for); none over the solids line
+ assert.ok(cups.some(m=>m.verdict==='CLOUDY')&&cups.some(m=>m.verdict==='SAFE')&&!cups.some(m=>m.verdict==='HIGH_TDS'));
  for(let i=1;i<cups.length;i++) assert.equal(cups[i].emittedAt-cups[i-1].emittedAt,24000,'cup examples must not overlap');
  for(const m of messages.filter(m=>m.type==='reading')) { assert.equal(m.mock,true); assert.ok(m.session); assert.ok(Number.isInteger(m.seq)); assert.equal(m.ph_est,!m.sim); }
  for(const m of messages.filter(m=>m.type==='decision'||m.type==='report')) assert.equal(m.source,'sample');

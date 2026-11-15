@@ -150,41 +150,54 @@
   }
 
   /* Each pour as a pair: a ring where it started, a dot where it ended, on one ppm scale. */
-  function historyChart(pours) {
-    const { esc, clock, FILTER_NAME } = TapUI;
+  /* Which reading the history chart follows: the one the filter is for. The rig's filter is a Brita, which
+     is for water that is not clear, so that is transparency, unless the latest filtered pour was sent for
+     dissolved solids. */
+  function chartMetric(pours) {
+    const sent = [...pours].reverse().find((p) => p.before.ai_filter && p.before.ai_filter !== "NONE");
+    return sent && sent.before.verdict === "HIGH_TDS" ? "tds" : "clarity";
+  }
+  const CHART = {
+    tds: { name: "Dissolved solids", unit: " ppm", show: (v) => String(Math.round(v)), lines: [[300, "300: counted as high"], [500, "500: EPA guideline"]],
+           top: (vals) => Math.max(600, Math.ceil(Math.max(...vals) / 100) * 100), topLabel: (top) => `${top} ppm` },
+    clarity: { name: "Transparency", unit: "", show: (v) => Number(v).toFixed(2), lines: [[0.7, "0.70: below this counts as cloudy"]],
+               top: () => 1, topLabel: () => "1.00, clear" },
+  };
+  function historyChart(pours, metric = chartMetric(pours)) {
+    const { esc, clock, FILTER_NAME } = TapUI, m = CHART[metric], of = (r) => r[metric];
     const W = 1100, H = 250, L = 70, R = 190, T = 22, B = 40;
-    const top = Math.max(600, Math.ceil(Math.max(...pours.map((p) => Math.max(p.before.tds, p.after?.tds ?? 0))) / 100) * 100);
-    const y = (v) => T + (H - T - B) * (1 - v / top);
+    const top = m.top(pours.flatMap((p) => [of(p.before), p.after ? of(p.after) : 0]));
+    const y = (v) => T + (H - T - B) * (1 - Math.min(v, top) / top);
     const step = (W - L - R) / Math.max(pours.length, 6);
     const x = (i) => L + step * (i + 0.5);
-    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="hist-desc"><desc id="hist-desc">Dissolved solids for each of the last ${pours.length} pours at this site, before and after filtering, against the 300 and 500 parts per million lines.</desc>`;
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="hist-desc"><desc id="hist-desc">${m.name} for each of the last ${pours.length} pours at this site, before and after filtering. The same numbers are in the table that follows.</desc>`;
     s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/><text x="${L - 10}" y="${y(0) + 4}" text-anchor="end">0</text>`;
-    [[300, "300: counted as high"], [500, "500: EPA guideline"]].forEach(([v, label]) => {
-      s += `<line class="limit" x1="${L}" x2="${W - R + 10}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 10}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+    m.lines.forEach(([v, label]) => {
+      s += `<line class="limit" x1="${L}" x2="${W - R + 10}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 10}" y="${y(v) + 4}" text-anchor="end">${m.show(v)}</text>`;
       s += `<text class="limit-label" x="${W - R + 20}" y="${y(v) + 5}">${label}</text>`;
     });
-    s += `<text x="${L - 10}" y="${y(top) + 4}" text-anchor="end">${top} ppm</text>`;
+    s += `<text x="${L - 10}" y="${y(top) + 4}" text-anchor="end">${m.topLabel(top)}</text>`;
     pours.forEach((p, i) => {
-      const last = i === pours.length - 1, cx = x(i), yb = y(p.before.tds);
+      const last = i === pours.length - 1, cx = x(i), vb = of(p.before), yb = y(vb);
       const f = p.before.ai_filter;
-      const tip = `Pour ${p.test}, ${clock(p.before.ts)}|${p.after ? `${p.before.tds} → ${p.after.tds} ppm through ${FILTER_NAME[f] || "a filter"}` : `${p.before.tds} ppm, ${f && f !== "NONE" ? "awaiting retest" : "no filter used"}`}`;
+      const tip = `Pour ${p.test}, ${clock(p.before.ts)}|${p.after ? `${m.name} ${m.show(vb)} → ${m.show(of(p.after))}${m.unit} through ${FILTER_NAME[f] || "a filter"}` : `${m.name} ${m.show(vb)}${m.unit}, ${f && f !== "NONE" ? "awaiting retest" : "no filter used"}`}`;
       s += `<g class="col${last ? " now" : ""}" data-tip="${esc(tip)}">`;
       // when a filter barely changes the reading, the two marks sit side by side instead of on top of each other
-      const near = p.after && Math.abs(y(p.after.tds) - yb) < 13, dx = near ? 7 : 0;
+      const near = p.after && Math.abs(y(of(p.after)) - yb) < 13, dx = near ? 7 : 0;
       if (p.after) {
-        const ya = y(p.after.tds);
+        const ya = y(of(p.after));
         s += near ? `<line class="stem" x1="${cx - dx}" x2="${cx + dx}" y1="${yb}" y2="${ya}"/>` : `<line class="stem" x1="${cx}" x2="${cx}" y1="${yb}" y2="${ya}"/>`;
         s += `<circle class="after" cx="${cx + dx}" cy="${ya}" r="5.5"/>`;
-        if (last) s += `<text class="value" x="${cx + dx + 12}" y="${ya + (near ? 14 : 5)}">${p.after.tds}</text>`;
+        if (last) s += `<text class="value" x="${cx + dx + 12}" y="${ya + (near ? 14 : 5)}">${m.show(of(p.after))}</text>`;
       }
       s += `<circle class="before" cx="${cx - dx}" cy="${yb}" r="5.5"/>`;
-      if (last) s += `<text class="value" x="${cx + dx + 12}" y="${yb + (near ? -6 : 5)}">${p.before.tds}</text>`;
+      if (last) s += `<text class="value" x="${cx + dx + 12}" y="${yb + (near ? -6 : 5)}">${m.show(vb)}</text>`;
       s += `<text x="${cx}" y="${H - 14}" text-anchor="middle">${last ? `Pour ${esc(p.test)}` : esc(p.test)}</text>`;
       s += `<rect class="hit" x="${cx - step / 2}" y="${T}" width="${step}" height="${H - T}"/></g>`;
     });
     s += `</svg>`;
-    s += `<table class="visually-hidden"><caption>Dissolved solids per pour, ppm</caption><tr><th>Pour</th><th>Before</th><th>After</th></tr>${
-      pours.map((p) => `<tr><td>${esc(p.test)}</td><td>${p.before.tds}</td><td>${p.after ? p.after.tds : "none"}</td></tr>`).join("")}</table>`;
+    s += `<table class="visually-hidden"><caption>${m.name} per pour${m.unit ? `,${m.unit}` : ""}</caption><tr><th>Pour</th><th>Before</th><th>After</th></tr>${
+      pours.map((p) => `<tr><td>${esc(p.test)}</td><td>${m.show(of(p.before))}</td><td>${p.after ? m.show(of(p.after)) : "none"}</td></tr>`).join("")}</table>`;
     return s;
   }
 
@@ -378,7 +391,7 @@
             <li${sum.skipped ? ' class="good"' : ""}><b>${sum.skipped}</b><span>needed no filter</span></li>
             <li${sum.fixed ? ' class="good"' : ""}><b>${sum.tried ? `${sum.fixed}<small> of ${sum.tried}</small>` : "0"}</b><span>${sum.tried ? "came back in range after filtering" : "filtered and retested so far"}</span></li>`;
           $("#history").innerHTML = historyChart(pours);
-          $("#history-cap").textContent = `Dissolved solids for the last ${pours.length} pours at ${store.nodeName(store.tank)}. Pours without a dot were not filtered.`;
+          $("#history-cap").textContent = `${CHART[chartMetric(pours)].name} for the last ${pours.length} pours at ${store.nodeName(store.tank)}. Pours without a dot were not filtered.`;
         }
       }
 

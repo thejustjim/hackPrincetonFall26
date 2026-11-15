@@ -46,8 +46,7 @@ Three ways to carry on, the most real first. The page labels each for what it is
 2. **Estimated pours.** No recording yet: `cd gateway && MOCK=1 python gateway.py`, same address. A cup
    every 25 seconds, the retest 15 seconds later: clean water in range (about
    203 ppm at transparency 1.00, as the sensors read it), water that is not clear (about 219 ppm at 0.60,
-   also as read; about 0.9 after the Brita, which is an estimate) and salt water (about 780 ppm, about 760
-   after; both made up).
+   also as read; about 0.9 after the Brita, which is an estimate).
 3. **No gateway at all.** On the hosted site, the setup screen's "Follow a cup" (or `/demo/?demo`) runs the
    built-in sample cycle, labelled "Demo data".
 
