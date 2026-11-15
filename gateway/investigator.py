@@ -126,8 +126,9 @@ SPECIALISTS = [
      "description": "Reports filter life and what upkeep the case calls for, from the makers' rules and published "
                     "EPA and AWWA guidance. Give it the node id and test number.",
      "prompt": "You look after the filters and the sensor's upkeep. Call get_case and get_filter_life for the node "
-               "and test you are given, then search_guidance once or twice for what the case calls for (for example "
-               "the filter that was used, confirming a reading with a lab sample, or sensor calibration). Say whether "
+               "and test you are given, then search_guidance at most twice for what the case calls for (for example "
+               "the filter that was used, confirming a reading with a lab sample, or sensor calibration). If the "
+               "passages do not fit, do not keep searching: say that the guidance has nothing for this case. Say whether "
                "the filter that was used needs replacing and why, and name one upkeep step that a passage supports, "
                "citing its document and page. The guidance was written for water utilities, so say plainly when a "
                "passage is about a utility's network and not a household cup."},
@@ -233,10 +234,25 @@ class Run:
 RUN = Run()
 
 
+# Said to every specialist. (Run live, one wandered into the file tools every deep agent is given and never came back.)
+FOCUS = ("Your tools are: {tools}. Call each one you need once, then answer. Do not list, search, read or write "
+         "files, do not make a to-do list, and do not call a tool again to re-check what it already told you.")
+LIMITS = {"search_guidance": 3, "query_readings": 3}     # calls per specialist in one run; any other tool: 2
+
+
 def watched(agent, fn):
-    """A specialist's own copy of a tool: the same function, but each call is noted against its name."""
+    """A specialist's own copy of a tool: the same function, but each call is noted against its name,
+    and it can only be called so many times. (Run live, one specialist searched the guidance ten
+    times over until a model call timed out. A refusal that says "answer now" stops that.)"""
+    limit = LIMITS.get(fn.__name__, 2)
+
     @functools.wraps(fn)
     def call(*args, **kwargs):
+        used = sum(1 for e in RUN.events if e["event"] == "tool" and e["agent"] == agent and e.get("tool") == fn.__name__)
+        if used >= limit:
+            RUN.event("refused", agent, tool=fn.__name__)
+            return {"error": f"{fn.__name__} has been called {used} times in this run, which is the limit. "
+                             "Do not call it again. Write your answer now from what you already have."}
         out = fn(*args, **kwargs)
         RUN.evidence.append(json.dumps(out, default=str))
         RUN.event("tool", agent, tool=fn.__name__)
@@ -244,11 +260,15 @@ def watched(agent, fn):
     return call
 
 
-def chat(model, provider="anthropic", key=None):
-    """A chat model for the lead or a specialist: Gemini (provider "google") or Claude."""
+def chat(model, provider="anthropic", key=None, thinking=None):
+    """A chat model for the lead or a specialist: Gemini (provider "google") or Claude.
+    `thinking` is Gemini's thinking budget in tokens. Run live, a specialist spent three to five
+    thousand thinking tokens (20 to 30 seconds) before a three-sentence answer, so specialists
+    get none and the lead gets a little."""
     if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.2, timeout=60, max_retries=2)
+        more = {} if thinking is None else {"thinking_budget": thinking}
+        return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.2, timeout=60, max_retries=1, **more)
     extra = {}
     if not model.startswith("claude-haiku"):
         # if a safety classifier declines, the API retries on a fallback model by itself
@@ -266,10 +286,11 @@ def build(tools, provider="anthropic", model=None, key=None, lead_model=None, sp
     google = provider == "google"
     lead_name = (model or "gemini-3.5-flash") if google else MODEL
     worker_name = os.getenv("INVESTIGATOR_SUBAGENT_MODEL") or lead_name
-    lead = lead_model or chat(lead_name, provider, key)
-    worker = specialist_model or (lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
+    lead = lead_model or chat(lead_name, provider, key, thinking=512 if google else None)
+    worker = specialist_model or (chat(worker_name, provider, key, thinking=0) if google
+                                  else lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
     subagents = [{"name": s["name"], "description": s["description"],
-                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + rules,
+                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + FOCUS.format(tools=", ".join(s["tools"])) + "\n\n" + rules,
                   "tools": [watched(s["name"], tools[t]) for t in s["tools"]], "model": worker} for s in team]
     # How the lead hands back the structured report. Claude: its native structured output
     # (the tool strategy would force tool_choice="any", which Opus 5.5 rejects). Gemini: a
@@ -299,7 +320,7 @@ def sections_from(messages):
     return out
 
 
-async def investigate(agent, case: dict, ask="Investigate this filter run:") -> dict:
+async def investigate(agent, case: dict, ask="Investigate this filter run:", config=None) -> dict:
     """case: {"node", "site", "test", "filter", "before", "after", "checks"}, or for the incident
     team {"scenario", ...} -> {"summary", "findings", "actions", "notice", "sections"}."""
     RUN.reset()
@@ -308,7 +329,7 @@ async def investigate(agent, case: dict, ask="Investigate this filter run:") -> 
     # The run is followed as it happens: each time the lead hands out work or gets answers back,
     # the state grows by some messages, and those are turned into events.
     async for state in agent.astream({"messages": [{"role": "user", "content": ask + "\n" + json.dumps(case, indent=1)}]},
-                                     stream_mode="values"):
+                                     stream_mode="values", config=config):
         messages = state.get("messages", [])
         for m in messages[seen:]:
             for call in getattr(m, "tool_calls", None) or []:

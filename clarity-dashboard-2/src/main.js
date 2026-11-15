@@ -70,7 +70,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // Who wrote a filter decision: the gateway sends source "gemini" (AI) or "local_rule" (no AI used).
 const AI_NAME = 'Gemini';
-const sourceLabel = src => (src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : AI_NAME);
+const sourceLabel = src => (src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
 const nodeName = id => state.nodes.get(id)?.name || id;
 
 // ---------- data ingest ----------

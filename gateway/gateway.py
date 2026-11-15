@@ -258,31 +258,44 @@ GEMINI_CHOICES = [m for m in (os.getenv("GEMINI_MODEL"), "gemini-3.8-flash", "ge
                               "gemini-3.5-flash-lite") if m]
 
 
-def pick_gemini_model(client):
-    """The first model on our list that this key can use. Asking is free and saves a refused first pour."""
+FLASH_CHOICES = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+
+
+def pick_gemini_models(client):
+    """-> (the model for the filter decision, the model for the investigator's agents).
+    The decision uses GEMINI_MODEL if the key can use it, else the first Flash model it can.
+    The agents use GEMINI_AGENT_MODEL if set; otherwise the same model, unless that is a Gemma
+    model: Gemma's limit on the Gemini API (16,000 input tokens a minute on this tier) is far
+    below what several agents need for one report, so the agents then run on a Flash model."""
     try:
         have = {m.name.split("/")[-1] for m in client.models.list(config={"http_options": {"timeout": 8000}})}
     except Exception as e:
-        print("could not list Gemini models, using", GEMINI_CHOICES[0], "-", type(e).__name__)
-        return GEMINI_CHOICES[0]
-    return next((m for m in GEMINI_CHOICES if m in have), GEMINI_CHOICES[0])
+        print("could not list Gemini models -", type(e).__name__)
+        have = set()
+    usable = lambda names: next((m for m in names if m in have), names[0])
+    decision = usable(GEMINI_CHOICES)
+    wanted = os.getenv("GEMINI_AGENT_MODEL")
+    agents = wanted or (usable(FLASH_CHOICES) if decision.startswith("gemma") else decision)
+    return decision, agents
 
 
-claude = gemini = AI_MODEL = None
+claude = gemini = AI_MODEL = AGENT_MODEL = None
 if AI_PROVIDER == "google" and GOOGLE_KEY:
     from google import genai
     gemini = genai.Client(api_key=GOOGLE_KEY)
-    AI_MODEL = pick_gemini_model(gemini)
+    AI_MODEL, AGENT_MODEL = pick_gemini_models(gemini)
 elif AI_PROVIDER == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
     from anthropic import AsyncAnthropic
     claude = AsyncAnthropic()
-    AI_MODEL = MODEL
+    AI_MODEL = AGENT_MODEL = MODEL
 elif AI_PROVIDER:
     print(f"AI_PROVIDER={AI_PROVIDER} but its key is not set: the tank's own rule will decide")
 
 
-def ai_name():
-    return "Gemini" if gemini is not None else "Claude" if claude is not None else None
+def ai_name(model=None):
+    """What to call the model in words: Gemma, Gemini or Claude (the one that picks filters, unless a model is named)."""
+    model = model or AI_MODEL or ""
+    return "Gemma" if model.startswith("gemma") else "Gemini" if gemini is not None else "Claude" if claude is not None else None
 
 
 def decision_prompt(reading, past):
@@ -702,7 +715,8 @@ def search_guidance(query: str) -> list[dict]:
     ageing pipes; and the team's notes on the filter makers' replacement rules. Returns up to
     three passages, each with its document, who prepared it, year, page and URL. When you use
     one, name the document and the page."""
-    return guidance.search(query, 3)
+    # short enough that a few searches do not swamp the agent that asked
+    return [{**hit, "text": hit["text"][:600]} for hit in guidance.search(query, 3)]
 
 
 def get_notice_templates() -> dict:
@@ -752,14 +766,14 @@ if ai_name() and os.getenv("INVESTIGATOR", "1") != "0":
     try:
         import investigator
         investigator_agent = investigator.build({f.__name__: f for f in INVESTIGATOR_TOOLS},
-                                                provider=AI_PROVIDER, model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY)
+                                                provider=AI_PROVIDER, model=AGENT_MODEL if gemini is not None else None, key=GOOGLE_KEY)
     except Exception as e:
         print("investigator off:", type(e).__name__, e)
 incident_agent = None
 if investigator_agent is not None:
     try:
         incident_agent = investigator.build({f.__name__: f for f in INCIDENT_TOOLS}, provider=AI_PROVIDER,
-                                            model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY, incident=True)
+                                            model=AGENT_MODEL if gemini is not None else None, key=GOOGLE_KEY, incident=True)
     except Exception as e:
         print("incident team off:", type(e).__name__, e)
 investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
@@ -833,7 +847,7 @@ async def report_on(after, filter_used):
                           {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"],
                            "plan": case["plan"], "trail": report.get("trail", []), "check": check,
                            "seconds": round(time.time() - t0, 1)},
-                          AI_MODEL or investigator.MODEL)
+                          AGENT_MODEL or investigator.MODEL)
         await broadcast({**who, "event": "done", "agent": None, "t": round(time.time() - t0, 1)})
 
 
@@ -1102,14 +1116,15 @@ async def network_investigate(scenario: str):
         except Exception as e:
             raise HTTPException(502, f"the agents did not finish: {type(e).__name__}")
     notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else rules["notice"]
-    return {"simulated": True, "scenario": scenario, "source": "deepagents", "model": AI_MODEL, "ai_name": ai_name(),
+    return {"simulated": True, "scenario": scenario, "source": "deepagents", "model": AGENT_MODEL, "ai_name": ai_name(AGENT_MODEL),
             "summary": report.get("summary"), "findings": report.get("findings", []), "actions": report.get("actions", []),
             "notice": notice, "sections": report.get("sections", [])}
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL, "control": "token" if CONTROL_TOKEN else "local",
+    return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
+            "agent_name": ai_name(AGENT_MODEL) if investigator_agent is not None else None, "agent_model": AGENT_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},

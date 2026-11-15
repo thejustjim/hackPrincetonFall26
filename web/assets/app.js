@@ -86,7 +86,7 @@
     if (!c.connected) return `The copy to ${where} is paused: ${n(c.pending)} readings are kept here until the link is back.`;
     return `Every reading is also copied to ${where}: ${n(c.cloud_rows)} there, ${n(c.pending)} waiting.`;
   }
-  const AI = { gemini: "Gemini", claude: "Claude" };   // a decision's source -> the model's name
+  const AI = { gemma: "Gemma", gemini: "Gemini", claude: "Claude" };   // a decision's source -> the model's name
   window.TapUI = { AI, $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
 
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };

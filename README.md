@@ -153,19 +153,26 @@ Every time the cup tips into a filter, the gateway counts about 0.1 L through it
 - **Brita Elite**: rated for about 450 L. `REPLACE_SOON` at 90%, `REPLACE` at 100%.
 
 ## Which model
-The filter decision and the investigator run on **Gemini** (Google's Gemini API, through
-`google-genai` and `langchain-google-genai`) when `.env` has `GOOGLE_API_KEY` or `GEMINI_API_KEY`,
-and on **Claude** (Opus 5.5) when it has only `ANTHROPIC_API_KEY`. `AI_PROVIDER=google|anthropic`
-chooses when both are set. `/health` reports `ai_name` and `ai_model`, and the pages name
-whichever is in use.
+The filter decision and the investigator's agents call Google's Gemini API (`google-genai` and
+`langchain-google-genai`) when `.env` has `GOOGLE_API_KEY` or `GEMINI_API_KEY`, and Claude (Opus
+5.5) when it has only `ANTHROPIC_API_KEY`. `AI_PROVIDER=google|anthropic` chooses when both are set.
 
-On Gemini the gateway asks the API which models the key can use and takes the first of
-`GEMINI_MODEL` (if set), `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`,
-`gemini-3.5-flash-lite`. Gemini's free tier allows only about 20 requests a day per model, and
-one investigator report takes a dozen or more, so turn on billing for the key. If a call fails
-or runs out of quota, the tank's own rule decides and the rule-written report stands.
+- **The filter decision** uses `GEMINI_MODEL` if the key can use it (a Gemma model works: one small
+  call per pour), else the first of `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`,
+  `gemini-3.5-flash-lite` that the key has.
+- **The agents** use `GEMINI_AGENT_MODEL` if set; otherwise the same model, unless that is a Gemma
+  model, in which case they use a Flash model. Gemma's limit on the Gemini API (16,000 input tokens
+  a minute on a tier 1 key) is far below what one report needs, and the first live run failed on it.
+- `/health` reports `ai_name`, `ai_model`, `agent_name` and `agent_model`, and the pages name them.
+- If a call fails or runs out of quota, the tank's own rule decides and the rule-written report stands.
 
-Neither model has been run from this code yet: there was no key on the machine it was written on.
+What a live run showed (Gemma 4 for decisions, Gemini 3.8 Flash for agents, 14 November 2026):
+a report took 21 seconds with four specialists, and all 40 of its figures traced to a tool result.
+Getting there needed three fixes, each kept in the code with its reason: a cap on how often one
+agent may call the same tool (one searched the guidance ten times until a call timed out), no
+thinking budget for the specialists (they spent thousands of thinking tokens on three sentences),
+and telling each specialist to keep to its own tools (one wandered into the file tools). The
+Claude path has not been run: there was no Anthropic key.
 
 ## Layered detection (`analysis.py`)
 A new sensor has almost no labelled data, so detection is statistics, in three layers, worked out

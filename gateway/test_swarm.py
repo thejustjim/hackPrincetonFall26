@@ -193,6 +193,15 @@ async def main():
     check("if the investigator fails, the rule-written report still stands, and the page is told it failed",
           [m["source"] for m in sent if m["type"] == "report"] == ["rules"] and any(m.get("event") == "failed" for m in sent))
 
+    # a specialist cannot call one tool over and over
+    investigator.RUN.reset()
+    looped = investigator.watched("maintenance", gateway.search_guidance)
+    answers = [looped("flushing a main") for _ in range(5)]
+    check("a tool can be called only so many times by one specialist in a run", all(isinstance(a, list) for a in answers[:3])
+          and all(isinstance(a, dict) and "Do not call it again" in a["error"] for a in answers[3:]))
+    check("the refusals are recorded", [e["event"] for e in investigator.RUN.events] == ["tool", "tool", "tool", "refused", "refused"])
+    check("guidance passages handed to an agent are kept short", all(len(h["text"]) <= 600 for h in answers[0]))
+
     # the second team: an event on the simulated network
     CALLED.clear()
     OFFERED.clear()
@@ -225,6 +234,22 @@ async def main():
     check("Gemini gets the same rules and is asked for JSON", "never say the water is safe" in seen["config"]["system_instruction"]
           and seen["config"]["response_mime_type"] == "application/json" and "filter" in seen["config"]["response_json_schema"]["properties"])
     check("the page is told which model it was", gateway.ai_name() == "Gemini" and gateway.health()["ai_name"] == "Gemini")
+    check("a Gemma model is named as Gemma, and its decisions are recorded as gemma's", gateway.ai_name("gemma-4-26b-a4b-it") == "Gemma")
+
+    class Listing:
+        def __init__(self, names):
+            self.models = self
+            self.names = names
+
+        def list(self, config=None):
+            return [type("M", (), {"name": f"models/{n}"})() for n in self.names]
+    os.environ["GEMINI_MODEL"] = "gemma-4-26b-a4b-it"
+    gateway.GEMINI_CHOICES.insert(0, "gemma-4-26b-a4b-it")
+    picked = gateway.pick_gemini_models(Listing(["gemma-4-26b-a4b-it", "gemini-3.6-flash", "gemini-3.5-flash"]))
+    check("with a Gemma model set, the decision uses it and the agents use a Flash model the key has",
+          picked == ("gemma-4-26b-a4b-it", "gemini-3.6-flash"), picked)
+    gateway.GEMINI_CHOICES.pop(0)
+    check("with a Flash model, the agents use the same one", gateway.pick_gemini_models(Listing(["gemini-3.8-flash"])) == ("gemini-3.8-flash", "gemini-3.8-flash"))
     for bad in ('{"filter": "BLEACH", "explanation": "x"}', "not json", None):
         gateway.gemini = FakeGemini(bad)
         check(f"a bad Gemini answer ({str(bad)[:12]}) leaves it to the tank's rule", await gateway.ask_model(reading, []) is None)

@@ -100,7 +100,7 @@
     const c = rep.check;
     const checked = c ? `Checked ${c.figures} figure${c.figures === 1 ? "" : "s"} against what the tools returned: ${c.traced === c.figures ? "all traced" : `${c.traced} traced`}${
       c.dropped ? `, and ${c.dropped} statement${c.dropped === 1 ? " was" : "s were"} dropped for giving a figure no tool returned` : ""}.${rep.seconds ? ` The agents took ${Math.round(rep.seconds)} seconds.` : ""}` : "";
-    const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and five specialists${health.ai_name ? ` on ${health.ai_name}` : ""}, working from the base station's checks.`
+    const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and the specialists the checks called for${health.agent_name ? `, on ${health.agent_name}` : ""}.`
       : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With a model key, the investigator's agents add to it."}`
       : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
     return {
