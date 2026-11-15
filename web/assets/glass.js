@@ -753,6 +753,8 @@ function mount(host) {
   return Object.assign(api, { setWater, setSource, setCompare, drip, setRunning });
 }
 
+export { C, lookFor, glassMaterial, waterMaterial };   // the before and after glasses (plate3d.js) are made the same way
+
 const host = document.querySelector("[data-hero3d]");
 if (host) {
   try {

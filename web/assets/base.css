@@ -1,15 +1,15 @@
 /* Clarity: base styles for /demo and the pitch that opens over it.
-   Flat #0B2027, barely moving: one faint glow behind the cup that breathes very slowly.
+   Flat ink black with a blue tint, barely moving: one faint glow behind the cup that breathes very slowly.
    No frosted glass: panels are solid, so nothing lightens the page.
-   Palette: https://coolors.co/5a9bbd-f7f0f0-0b2027-717580 */
+   Palette: #5A9BBD accent, #F7F0F0 text, #717580 neutral, on #050A11. */
 :root {
   color-scheme: dark;
-  --deep: #0B2027;       /* background */
+  --deep: #050A11;       /* background: ink black, tinted blue */
   --text: #F7F0F0;
   --accent: #5A9BBD;
   --neutral: #717580;
-  --panel: #10282F;      /* solid surfaces: one step up from the background */
-  --panel-2: #163039;
+  --panel: #0A131C;      /* solid surfaces: one step up from the background */
+  --panel-2: #0F1B27;
   --hair: rgba(247, 240, 240, 0.11);
   --label2: rgba(247, 240, 240, 0.64);
   --label3: rgba(247, 240, 240, 0.54);   /* small grey text still reads at 4.5:1 */

@@ -230,6 +230,9 @@
           <div class="pair">${TapCup.svg(b)}<svg class="arrow" viewBox="0 0 54 12" aria-hidden="true"><path d="M0 6 H52 M46 1 L52 6 L46 11"/></svg>${TapCup.svg(a)}</div>
           <div class="pair-labels"><div><b>Before</b><span>${esc(clock(b.ts))}</span></div><i></i><div><b>After</b><span>${esc(afterNote)}</span></div></div>
           <figcaption>Drawn from the readings. The amber tint and specks follow dissolved solids; the brown murk follows transparency.</figcaption>`;
+        // the same two cups in 3D, laid over the flat ones (plate3d.js); `after` undefined means no second glass
+        window.TapPlateState = !b ? null : { before: b, after: untouched ? undefined : a || null };
+        window.TapPlate?.set(window.TapPlateState);
 
         $("#why").innerHTML = !b
           ? `<p class="lede">No cup has been poured yet.</p>`
