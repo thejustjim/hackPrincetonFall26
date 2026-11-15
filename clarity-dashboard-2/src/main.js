@@ -128,20 +128,20 @@ function testPair(node, test, session) {
 // ---------- map ----------
 // Home is framed on the one real tank (tank-01, 40.3467 N 74.6553 W) with its network round it: the sites
 // that report to the base station, the arcs between them, and the route coming down from the ridge tower.
-const HOME = { center: [-74.6556, 40.3520], zoom: 11.9, pitch: 52, bearing: -18 };
+const HOME = { center: [-74.6556, 40.3492], zoom: 13.7, pitch: 56, bearing: -18 };
 let prototypeLocation = null, mapDemoMode = ARTIFACT;
 try { mapDemoMode ||= readMapMode(localStorage, params) === 'demo'; prototypeLocation = readPrototypeLocation(localStorage, mapDemoMode); } catch { mapDemoMode ||= readMapMode(null, params) === 'demo'; }
 const START = prototypeLocation ? { ...HOME, center: [prototypeLocation.lon, prototypeLocation.lat] } : HOME;
 if (prototypeLocation) document.getElementById('btn-reset')?.classList.remove('on');
 // The simulated network is looked at from straight above, fitted to the space beside the panel and under its heading.
 const simPadding = () => (innerWidth <= 760 ? { top: 104, bottom: 84, left: 22, right: 22 } : { top: 132, bottom: 104, left: 56, right: 56 });
-const SIM_CAMERA = { pitch: 0, bearing: 0, maxZoom: 14.1 };
+const SIM_CAMERA = { pitch: 38, bearing: -14, maxZoom: 14.1 };       // a slight tilt, so the buildings stand up
 const simStartBounds = params.has('simulation') ? projectNetwork(simulationNetwork).bounds : null;
 const map = new maplibregl.Map({
   container: 'map',
   style: BASE_STYLE ? BASE_STYLE : buildStyle(THEMES.dark),
   // ?simulation opens on the network itself: the camera starts where it will stay, so nothing flies in over half-loaded tiles.
-  ...(simStartBounds ? { bounds: simStartBounds, fitBoundsOptions: { padding: simPadding(), maxZoom: SIM_CAMERA.maxZoom }, pitch: 0, bearing: 0 } : START),
+  ...(simStartBounds ? { bounds: simStartBounds, fitBoundsOptions: { padding: simPadding(), maxZoom: SIM_CAMERA.maxZoom, bearing: SIM_CAMERA.bearing }, pitch: SIM_CAMERA.pitch, bearing: SIM_CAMERA.bearing } : START),
   maxPitch: 75,
   // Opens on Princeton; you can zoom out past the whole country.
   ...(prototypeLocation ? {} : { maxBounds: [[-180, 5], [-40, 75]] }),
