@@ -17,3 +17,7 @@ gateway/guidance_index.json
 
 # Vercel project link (per machine)
 .vercel
+
+# JavaScript dependencies and local builds
+node_modules/
+dist/

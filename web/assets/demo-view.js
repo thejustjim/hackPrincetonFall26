@@ -212,6 +212,8 @@
           demo: ["Demo data", "No gateway reachable, so this is demo data"],
         }[store.conn] || ["Connecting", ""];
         $("#conn").dataset.state = store.conn;
+        // the map dashboard shows only what a gateway sends; with none, open it on its own labelled demo data
+        document.querySelector("a[data-map]")?.setAttribute("href", store.kind === "demo" ? "../map/?mock=1" : "../map/");
         $("#conn").title = long;
         $("#conn-text").textContent = short;
       }

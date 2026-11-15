@@ -3,7 +3,7 @@
 import { us, TDS_BANDS } from './national.js';
 
 const VERDICT_VAR = { SAFE: 'var(--safe)', HIGH_TDS: 'var(--high)', CLOUDY: 'var(--cloudy)', PH_WARN: 'var(--phwarn)' };
-const VERDICT_LABEL = { SAFE: 'Safe', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };
+const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const SCALE = 1000; // TDS bar scale, ppm
 const EPA = 500;

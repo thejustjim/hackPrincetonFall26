@@ -36,7 +36,7 @@ const BASE = (params.get('base') || '40.3504,-74.652').split(',').map(Number); /
 const BASE_STYLE = params.get('style');
 // Palette: #5A9BBD steel, #F7F0F0 paper, #0B2027 ink, #717580 slate (+ warm warning tones that sit with it).
 const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [209, 73, 91], CLOUDY: [224, 164, 88], PH_WARN: [159, 134, 192] };
-const VERDICT_LABEL = { SAFE: 'Safe', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };
+const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };   // SAFE only means the three readings are in range
 const FILTER_LABEL = { ZEROWATER: 'ZeroWater', BRITA: 'Brita Elite', NONE: 'No filter' };
 const BRITA_RATED_L = 450;
 const BRITA_SOON_L = 360;
@@ -787,7 +787,7 @@ function renderHero() {
   const { before, after } = testPair(h.node, h.test);
   const n = state.nodes.get(h.node);
   const filter = (after || before)?.ai_filter || (after || before)?.filter;
-  const src = state.sources.get(after?.id) || state.sources.get(before?.id);
+  const src = state.sources.get(after?.id) || state.sources.get(before?.id) || after?.source || before?.source;   // the gateway also stores who chose
   const pct = before && after && before.tds ? Math.round((1 - after.tds / before.tds) * 100) : null;
   const color = r => `rgb(${(VERDICT_RGB[r?.verdict] || [113, 117, 128]).join(',')})`;
   const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}</div></div>`;
@@ -815,7 +815,9 @@ function renderHero() {
     ${expl.length ? `<div class="explain">
         <div class="who ${src === 'local_rule' ? 'rule' : ''}">${sourceLabel(src)}</div>
         ${expl.map(t => `<p>${esc(t)}</p>`).join('')}
-      </div>` : before ? `<div class="explain"><div class="who">${AI_NAME}</div><p class="muted">Thinking…</p></div>` : ''}
+      </div>` : before ? (before.ai_filter
+        ? `<div class="explain"><div class="who rule">Local rule</div><p class="muted">The tank's own rule chose this. There is no model explanation for this pour.</p></div>`
+        : `<div class="explain"><div class="who">${AI_NAME}</div><p class="muted">Thinking…</p></div>`) : ''}
   `;
   el.querySelector('.hero-node')?.addEventListener('click', () => openDrawer(h.node));
 }
@@ -924,11 +926,11 @@ function renderKpis() {
   const real = [...state.nodes.values()].filter(n => !n.sim).length;
   $('#kpis').innerHTML = [
     [befores.length, 'water tests run'],
-    [`${safeAfter}%`, 'safe after filtering'],
+    [`${safeAfter}%`, 'in range after filtering'],
     [`−${avgDrop}%`, 'avg TDS removed'],
     [`${liters.toFixed(1)} L`, 'water filtered'],
     [state.nodes.size, `sites (${real} real, ${state.nodes.size - real} sim)`],
-    [befores.filter(r => r.verdict !== 'SAFE').length, 'unsafe first pours'],
+    [befores.filter(r => r.verdict !== 'SAFE').length, 'first pours out of range'],
   ].map(([v, k]) => `<div class="kpi"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
 }
 
@@ -948,7 +950,7 @@ async function exportCSV() {
   const cols = ['id', 'ts', 'node', 'name', 'sim', 'test', 'phase', 'ph', 'tds', 'clarity', 'verdict', 'filter', 'ai_filter', 'ai_source', 'anomaly', 'rssi', 'lat', 'lon', 'explanation'];
   const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [cols.join(',')].concat(rows.map(r => cols.map(c =>
-    cell(c === 'name' ? nodeName(r.node) : c === 'ai_source' ? state.sources.get(r.id) : r[c])).join(','))).join('\n');
+    cell(c === 'name' ? nodeName(r.node) : c === 'ai_source' ? (state.sources.get(r.id) || r.source) : r[c])).join(','))).join('\n');
   const filename = `clarity-water-log-${new Date().toISOString().slice(0, 10)}.csv`;
   // Inside a claude.ai artifact, files are handed over through the viewer's downloads capability.
   if (ARTIFACT && window.claude?.use) {
@@ -1048,7 +1050,7 @@ function renderDrawer() {
         <div class="small muted" style="margin-top:8px">${anomaly > 0.66 ? 'Very unusual for this site' : anomaly > 0.33 ? 'Somewhat unusual for this site' : 'Normal for this site'}</div></div>
     </div>
     <h3>TDS (ppm) · first pour vs. after filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
-    <h3>pH · safe range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
+    <h3>pH · usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
     <h3>Clarity · 1 = clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
     <h3>Anomaly score over time</h3><div class="chart" style="height:90px"><canvas id="c-an"></canvas></div>
     ${reps.length ? `<h3>Investigator</h3>${reps.map(r => `<div class="report-card" style="margin-bottom:8px">${reportHTML(r)}</div>`).join('')}` : ''}

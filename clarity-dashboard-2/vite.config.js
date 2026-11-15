@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 // In dev, /api and /ws are proxied to the gateway on :8000 (cd gateway && MOCK=1 python gateway.py).
-// `npm run build` emits dist/ with relative paths, so the gateway can serve it as static files.
+// `npm run build` writes ../web/map with relative paths, so the gateway serves it as static files at /map/.
 const GATEWAY = process.env.GATEWAY || 'http://localhost:8000';
 
 export default defineConfig({
@@ -13,5 +13,6 @@ export default defineConfig({
       '/ws': { target: GATEWAY.replace(/^http/, 'ws'), ws: true },
     },
   },
-  build: { chunkSizeWarningLimit: 3000 },
+  // built into ../web/map, which is committed, so the base station needs no Node and serves it at /map/
+  build: { outDir: '../web/map', emptyOutDir: true, chunkSizeWarningLimit: 3000 },
 });

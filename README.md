@@ -23,7 +23,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - `guidance.json` - the team's own short notes (the filter makers' rules), searched alongside
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
   - `cloud.py` - copies everything to Tiger Cloud (TimescaleDB on AWS) when there is internet
-- `web` - three pages, served by the gateway at http://<pi>:8000/:
+- `web` - four pages, served by the gateway at http://<pi>:8000/:
   - `/demo/` - the live view: the latest cup, the notes around it, then the full account below.
     The full account's before and after glasses are the same 3D glass as the hero's (`plate3d.js`),
     drawn over flat ones that remain as the fallback.
@@ -40,9 +40,39 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up
     events, the trace back to the pipe each most likely entered from, and an incident report that can
     be printed or saved as a PDF. See "Simulated network" below.
+  - `/map/` - the 3D map dashboard: every node on a map of Princeton and the US, with its latest test.
+    Its source is `clarity-dashboard-2/`; `web/map/` is the committed build (see below).
   - Slides are in `web/pitch/slides.html`. The pitch is drawn over the demo page, so both are one document.
   - With no gateway reachable (static hosting, or `?demo`) the pages run on built-in sample data in the
     same shapes, labelled as sample data; `?api=http://<pi>:8000` points them at another gateway.
+
+## How the parts fit together
+One gateway, and everything else reads from it:
+
+```
+tank -> radio -> gateway (gateway/gateway.py, port 8000)
+                   |- /demo/ /pitch/ /network/      web/            plain files, no build
+                   |- /map/                         web/map/        built from clarity-dashboard-2/
+                   |- /api/..., /ws                 the same data for all of them
+                   '- /ws  ->  photon-alerts/       texts people when a pour fails (optional, separate process)
+```
+
+- **Start it:** `cd gateway && python gateway.py` (or `MOCK=1 python gateway.py` with no hardware). That
+  serves all four pages. Nothing else needs to run for the demo.
+- **The map dashboard** (`clarity-dashboard-2/`, Vite + MapLibre + deck.gl) is built into `web/map/`, which
+  is committed so the Pi needs no Node. After changing it: `cd clarity-dashboard-2 && npm ci && npm run build`.
+  For live editing, `npm run dev` proxies `/api` and `/ws` to the gateway. With no gateway it shows
+  "Gateway offline"; `?mock=1` shows its own demo data, labelled, and the main page's Map link uses
+  that when the main page is on sample data too.
+- **The Photon agent** (`photon-alerts/`, its own README) watches the gateway's `/ws` and texts
+  subscribers. It needs Photon keys and a Google key; `DRY_RUN=1 npm run dev` prints the texts
+  instead of sending them. It is not needed for the pages.
+- **One Google key** (`GOOGLE_API_KEY`) serves the gateway's filter decisions, the investigator's
+  agents and the Photon agent. All three default to a Gemini Flash model; `GEMINI_MODEL` sets it.
+- **Tests:** `gateway/test_*.py` (run each with `python`), `cd photon-alerts && npm test`.
+
+Wording is the same everywhere: a `SAFE` verdict is shown as "In range", simulated nodes and demo
+data are labelled, and nothing calls water safe.
 
 ## The pages on the web
 `web/` is plain static files, so it can be hosted anywhere. It is deployed from that folder to

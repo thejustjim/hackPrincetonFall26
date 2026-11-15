@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clarity Water Map</title>
+  <script type="module" crossorigin src="./assets/index-CS3tpIVL.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-Mm-OhuQU.css">
+</head>
+<body>
+  <header class="appbar">
+    <div class="brand">
+      <img src="brand/clarity-logo.png" alt="Clarity" class="brand-logo" />
+      <span id="status" class="pill">connecting…</span>
+      <a class="pill" href="../demo/" title="The live cup, the full account and the pitch" style="text-decoration:none;color:inherit">The live cup</a>
+    </div>
+    <div class="mapbar">
+    <input id="search" list="search-list" placeholder="Search any US city, address or Princeton site" autocomplete="off" />
+    <datalist id="search-list"></datalist>
+    <div id="theme" class="seg" title="Basemap">
+      <button data-theme="dark" class="on">Dark</button><button data-theme="game">Light</button><button data-theme="satellite">Satellite</button>
+    </div>
+    <button id="btn-3d" class="tool" title="Switch between 2D and 3D">2D</button>
+    <button id="btn-rotate" class="tool" title="Slowly orbit the camera">Orbit</button>
+    <button id="btn-tour" class="tool" title="Fly between every site (good for the demo video)">Tour sites</button>
+    <details id="layers" class="layers">
+      <summary class="tool">Layers</summary>
+      <div class="layers-menu glass">
+        <div class="lm-title">Water network</div>
+        <label><input type="checkbox" data-layer="ustds" checked /> US water samples (TDS)</label>
+        <label><input type="checkbox" data-layer="columns" checked /> TDS columns</label>
+        <label><input type="checkbox" data-layer="links" checked /> Radio links</label>
+        <label><input type="checkbox" data-layer="range" /> Radio range rings</label>
+        <label><input type="checkbox" data-layer="usgs" checked /> USGS reference sites</label>
+        <label><input type="checkbox" data-layer="businesses" /> Businesses (cafes, schools, clinics…)</label>
+        <div class="lm-title">Water supply</div>
+        <label><input type="checkbox" data-layer="route" checked /> Water route (illustrative)</label>
+        <label><input type="checkbox" data-layer="infra" checked /> Plants, towers, hydrants</label>
+        <div class="lm-title">Princeton</div>
+        <label><input type="checkbox" data-layer="trees" checked /> Trees</label>
+        <label><input type="checkbox" data-layer="labels" checked /> Building and street names</label>
+        <label><input type="checkbox" data-layer="buildings" checked /> 3D buildings</label>
+        <label><input type="checkbox" data-layer="roads" checked /> Roads and paths</label>
+        <label><input type="checkbox" data-layer="water" checked /> Lakes, rivers, canal</label>
+        <label><input type="checkbox" data-layer="parks" checked /> Parks, woods, golf</label>
+        <label><input type="checkbox" data-layer="terrain" checked /> Hillshade (online)</label>
+      </div>
+    </details>
+    </div>
+    <div id="topstats" class="topstats"></div>
+  </header>
+
+  <main class="layout">
+  <div class="mapwrap">
+  <div id="map"></div>
+
+  <div class="timebar glass">
+    <button id="btn-play" class="tool" title="Replay the readings">Play</button>
+    <input id="time" type="range" min="0" max="1" value="1" />
+    <span id="time-label" class="time-label">Live</span>
+    <button id="btn-live" class="tool on" title="Back to live">Live</button>
+  </div>
+
+  <div class="mapjump seg" role="group" aria-label="Jump to">
+    <button id="btn-reset" class="on" title="Back to the Princeton overview">Princeton</button><button id="btn-usa" title="Zoom out to the whole country">USA</button>
+  </div>
+
+  <details id="maplegend" class="maplegend glass" open>
+    <summary>Legend</summary>
+    <div class="lg-title">Clarity sites <span>tank fill = source TDS</span></div>
+    <div class="lg-row"><span><i style="--c:var(--safe)"></i>In range</span><span><i style="--c:var(--high)"></i>High TDS</span><span><i style="--c:var(--cloudy)"></i>Cloudy</span><span><i style="--c:var(--phwarn)"></i>pH warning</span></div>
+    <div class="lg-title">US water samples <span>TDS, ppm</span></div>
+    <div class="lg-scale"><i style="--c:#5A9BBD"></i><i style="--c:#8FB0A0"></i><i style="--c:#E0A458"></i><i style="--c:#D1495B"></i></div>
+    <div class="lg-ticks"><span>0</span><span>300</span><span>500 EPA</span><span>1,000+</span></div>
+    <div class="lg-row"><span><i class="line"></i>Water route (illustrative)</span></div>
+    <details class="lg-guide">
+      <summary>What am I looking at?</summary>
+      <dl>
+        <dt>Glass tanks</dt>
+        <dd>Each tank is one test site. The water level inside shows the TDS of the first pour: the higher the water, the more dissolved minerals and salts (full tank = 1,000 ppm). The water color is the verdict. Gray, faded tanks are simulated sites from the gateway, not real hardware. Hover a tank for its readings, click it for history.</dd>
+        <dt>Blue lines</dt>
+        <dd>How treated water gets to each site: from the two treatment plants, south to the water tower on Princeton Ridge, then out to the test sites. Real pipe locations aren't public, so the paths are approximate.</dd>
+        <dt>Treatment plants</dt>
+        <dd>Raritan-Millstone and Canal Road, run by New Jersey American Water. They take river and canal water, filter it and disinfect it.</dd>
+        <dt>Water towers</dt>
+        <dd>The light gray towers are real mapped water towers. They hold treated water up high so gravity keeps pressure steady in the pipes.</dd>
+        <dt>Base station and arcs</dt>
+        <dd>Each site radios its readings to the base station over LoRa. Arc color shows signal strength: blue is strong, gray is weak.</dd>
+        <dt>Stream labels</dt>
+        <dd>USGS readings from nearby streams, for comparison with the tap water.</dd>
+        <dt>Colored dots (zoomed out)</dt>
+        <dd>13,890 public water samples across the US since 2024, colored by TDS.</dd>
+        <dt>Buildings</dt>
+        <dd>Real Princeton buildings with mapped heights. Hover one for its name and height.</dd>
+      </dl>
+    </details>
+  </details>
+
+  <section id="hero" class="hero glass"></section>
+  <section id="cutaway" class="cutaway glass hidden"></section>
+  <button id="panel-toggle" class="panel-toggle" title="Hide the side panel" aria-label="Hide the side panel"></button>
+  </div>
+
+  <aside id="panel" class="panel glass">
+    <nav class="tabs">
+      <button class="tab active" data-tab="ov">Overview</button>
+      <button class="tab" data-tab="live">Live feed</button>
+      <button class="tab" data-tab="src">Water source</button>
+      <button class="tab" data-tab="biz">Business view <span id="alert-count" class="badge hidden"></span></button>
+    </nav>
+    <div id="tab-ov" class="tab-body"></div>
+    <div id="tab-live" class="tab-body hidden"><div id="feed" class="feed"></div></div>
+    <div id="tab-src" class="tab-body hidden"></div>
+    <div id="tab-biz" class="tab-body hidden">
+      <div id="alerts"></div>
+      <div id="kpis" class="kpis"></div>
+      <h3>Filter life</h3>
+      <div id="filters" class="filters"></div>
+      <h3>Water log</h3>
+      <p class="muted small">Every reading from every node, with Gemini's filter choice and explanation.</p>
+      <button id="export" class="btn">Download CSV</button>
+      <h3>Investigator reports</h3>
+      <div id="reports" class="reports"><p class="muted small">Reports appear here after each retest.</p></div>
+    </div>
+  </aside>
+  <aside id="drawer" class="drawer glass hidden">
+    <button id="drawer-close" class="close" aria-label="Close">Close</button>
+    <div id="drawer-body"></div>
+  </aside>
+  </main>
+
+
+
+</body>
+</html>
