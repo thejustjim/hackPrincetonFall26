@@ -20,7 +20,13 @@ In the cloud it keeps:
     readings_hourly, readings_daily   the same rollup by the hour and by the day (continuous aggregates too)
     nodes           where each node is, and whether it is real or simulated
     reports         the investigator's reports (findings and actions as JSON)
-    anomaly_scores  a view over the reports: one row per pour, reading and method (robust z, EWMA, CUSUM, Mahalanobis)
+    anomaly_scores  a view over the reports: one row per pour, reading and method (robust z, EWMA, CUSUM, Mahalanobis,
+                    and the experimental isolation forest)
+    network_nodes, pipe_segments, incidents   the simulated pipe network and the incidents traced on it, every row
+                    marked simulated; with PostGIS, as points and lines. downstream_of(network, pipe, minutes)
+                    walks the flow in SQL.
+    people.*        premises, contacts and notifications, in their own schema. Nothing writes to it yet.
+    clarity_reader  a role that can read everything above except people, and write nothing
 On plain Postgres (no TimescaleDB extension) the same tables work as ordinary ones.
 
     python cloud.py check       # test the connection string, create the tables, show what is there
@@ -32,7 +38,7 @@ import os
 import sqlite3
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger("clarity.cloud")
 if not log.handlers:                                 # the gateway prints rather than logs, so speak for ourselves
@@ -91,10 +97,10 @@ TIMESCALE_STEPS = [
     ("hypertable", ["SELECT create_hypertable('readings', 'ts', if_not_exists => TRUE, migrate_data => TRUE)"]),
     ("continuous_aggregate", [
         """CREATE MATERIALIZED VIEW IF NOT EXISTS readings_5min WITH (timescaledb.continuous) AS
-           SELECT time_bucket(INTERVAL '5 minutes', ts) AS bucket, station, node,
+           SELECT time_bucket(INTERVAL '5 minutes', ts) AS bucket, station, node, mock,
                   count(*) AS readings, avg(tds) AS tds_avg, max(tds) AS tds_max,
                   avg(ph) AS ph_avg, avg(clarity) AS clarity_avg
-           FROM readings GROUP BY 1, 2, 3 WITH NO DATA""",
+           FROM readings GROUP BY 1, 2, 3, 4 WITH NO DATA""",
         # answer from the stored buckets plus whatever has arrived since they were last refreshed
         "ALTER MATERIALIZED VIEW readings_5min SET (timescaledb.materialized_only = false)",
         """SELECT add_continuous_aggregate_policy('readings_5min', start_offset => INTERVAL '1 day',
@@ -103,18 +109,18 @@ TIMESCALE_STEPS = [
     # The same rollup by the hour and by the day, for looking back over weeks without touching the raw rows.
     ("hourly_daily", [
         """CREATE MATERIALIZED VIEW IF NOT EXISTS readings_hourly WITH (timescaledb.continuous) AS
-           SELECT time_bucket(INTERVAL '1 hour', ts) AS bucket, station, node,
+           SELECT time_bucket(INTERVAL '1 hour', ts) AS bucket, station, node, mock,
                   count(*) AS readings, avg(tds) AS tds_avg, max(tds) AS tds_max,
                   avg(ph) AS ph_avg, avg(clarity) AS clarity_avg
-           FROM readings GROUP BY 1, 2, 3 WITH NO DATA""",
+           FROM readings GROUP BY 1, 2, 3, 4 WITH NO DATA""",
         "ALTER MATERIALIZED VIEW readings_hourly SET (timescaledb.materialized_only = false)",
         """SELECT add_continuous_aggregate_policy('readings_hourly', start_offset => INTERVAL '7 days',
                end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '1 hour', if_not_exists => TRUE)""",
         """CREATE MATERIALIZED VIEW IF NOT EXISTS readings_daily WITH (timescaledb.continuous) AS
-           SELECT time_bucket(INTERVAL '1 day', ts) AS bucket, station, node,
+           SELECT time_bucket(INTERVAL '1 day', ts) AS bucket, station, node, mock,
                   count(*) AS readings, avg(tds) AS tds_avg, max(tds) AS tds_max,
                   avg(ph) AS ph_avg, avg(clarity) AS clarity_avg
-           FROM readings GROUP BY 1, 2, 3 WITH NO DATA""",
+           FROM readings GROUP BY 1, 2, 3, 4 WITH NO DATA""",
         "ALTER MATERIALIZED VIEW readings_daily SET (timescaledb.materialized_only = false)",
         """SELECT add_continuous_aggregate_policy('readings_daily', start_offset => INTERVAL '30 days',
                end_offset => INTERVAL '1 day', schedule_interval => INTERVAL '1 day', if_not_exists => TRUE)""",
@@ -123,6 +129,8 @@ TIMESCALE_STEPS = [
         "ALTER TABLE readings SET (timescaledb.compress, timescaledb.compress_segmentby = 'station, node', timescaledb.compress_orderby = 'ts DESC')",
         "SELECT add_compression_policy('readings', INTERVAL '7 days', if_not_exists => TRUE)",
     ]),
+    # Raw rows are dropped after a year. The hourly and daily rollups are kept, so the history stays.
+    ("retention", ["SELECT add_retention_policy('readings', INTERVAL '365 days', if_not_exists => TRUE)"]),
 ]
 
 UPSERT_READING = """INSERT INTO readings (ts, station, id, node, test, phase, ph, tds, clarity, verdict, filter,
@@ -143,10 +151,10 @@ BUCKETS = {"5min": ("readings_5min", "continuous_aggregate", "5 minutes"),
            "hour": ("readings_hourly", "hourly_daily", "1 hour"),
            "day": ("readings_daily", "hourly_daily", "1 day")}
 ROLLUP_FAST = """SELECT bucket, node, readings, tds_avg, tds_max, ph_avg, clarity_avg FROM {view}
-    WHERE station = %s AND node = %s AND bucket > now() - make_interval(hours => %s) ORDER BY bucket"""
+    WHERE station = %s AND node = %s AND mock = %s AND bucket > now() - make_interval(hours => %s) ORDER BY bucket"""
 ROLLUP_PLAIN = """SELECT date_bin(INTERVAL '{every}', ts, TIMESTAMPTZ '2000-01-01') AS bucket, node, count(*) AS readings,
         avg(tds) AS tds_avg, max(tds) AS tds_max, avg(ph) AS ph_avg, avg(clarity) AS clarity_avg FROM readings
-    WHERE station = %s AND node = %s AND ts > now() - make_interval(hours => %s) GROUP BY 1, 2 ORDER BY 1"""
+    WHERE station = %s AND node = %s AND mock = %s AND ts > now() - make_interval(hours => %s) GROUP BY 1, 2 ORDER BY 1"""
 
 # The layered detection's scores, one row per pour, reading and method, so they can be queried in SQL. It is a
 # view over what each report already stores (reports.extra), not a second copy. Tried on its own: if it cannot
@@ -165,7 +173,107 @@ ANOMALY_VIEW = """CREATE OR REPLACE VIEW anomaly_scores AS
     UNION ALL
     SELECT r.ts, r.station, r.node, r.test, 'all', 'mahalanobis',
            (r.extra->'checks'->'multivariate'->>'distance')::double precision, (r.extra->'checks'->'multivariate'->>'flag')::boolean
-    FROM reports r WHERE jsonb_typeof(r.extra->'checks'->'multivariate') = 'object'"""
+    FROM reports r WHERE jsonb_typeof(r.extra->'checks'->'multivariate') = 'object'
+    UNION ALL
+    SELECT r.ts, r.station, r.node, r.test, 'all', 'isolation_forest',
+           (r.extra->'checks'->'multivariate'->>'isolation')::double precision, NULL::boolean
+    FROM reports r WHERE jsonb_typeof(r.extra->'checks'->'multivariate'->'isolation') = 'number'"""
+
+
+# The simulated pipe network and the incidents traced on it, as tables that can be joined to. Everything in
+# them is simulated and every row says so. With PostGIS they also get geometry (the network's own coordinates,
+# not places on Earth).
+NETWORK_TABLES = [
+    """CREATE TABLE IF NOT EXISTS network_nodes (
+        network text NOT NULL, node_id text NOT NULL, kind text, x double precision, y double precision,
+        demand_lps double precision, sensor boolean NOT NULL DEFAULT false,
+        simulated boolean NOT NULL DEFAULT true, PRIMARY KEY (network, node_id))""",
+    """CREATE TABLE IF NOT EXISTS pipe_segments (
+        network text NOT NULL, segment_id text NOT NULL, kind text NOT NULL DEFAULT 'pipe', from_node text, to_node text,
+        length_m double precision, diameter_mm double precision, material text, install_year integer,
+        break_history integer, travel_min double precision, flow_lps double precision,
+        simulated boolean NOT NULL DEFAULT true, PRIMARY KEY (network, kind, segment_id))""",
+    """CREATE TABLE IF NOT EXISTS incidents (
+        incident_id text PRIMARY KEY, network text, opened_at timestamptz NOT NULL DEFAULT now(), status text,
+        severity integer, type text, suspected_segments jsonb, evidence jsonb, report jsonb,
+        simulated boolean NOT NULL DEFAULT true)""",
+    # Who a change entering at a pipe would reach within `horizon` minutes: the same walk as localize.affected(),
+    # along the flow, fastest path first, not through tanks or reservoirs. In SQL so it can be joined to the rest.
+    """CREATE OR REPLACE FUNCTION downstream_of(net text, seg text, horizon double precision DEFAULT 360)
+       RETURNS TABLE(node_id text, minutes double precision) LANGUAGE plpgsql AS $fn$
+       #variable_conflict use_column
+       DECLARE start_node text; half double precision; changed integer;
+       BEGIN
+         SELECT p.to_node, coalesce(p.travel_min, 0) / 2 INTO start_node, half
+           FROM pipe_segments p WHERE p.network = net AND p.segment_id = seg AND p.kind = 'pipe';
+         IF start_node IS NULL THEN RETURN; END IF;
+         CREATE TEMP TABLE IF NOT EXISTS reach_tmp (node_id text PRIMARY KEY, minutes double precision);
+         TRUNCATE reach_tmp;
+         INSERT INTO reach_tmp VALUES (start_node, 0);
+         LOOP
+           INSERT INTO reach_tmp
+             SELECT p.to_node, min(r.minutes + p.travel_min)
+               FROM reach_tmp r
+               JOIN network_nodes n ON n.network = net AND n.node_id = r.node_id
+               JOIN pipe_segments p ON p.network = net AND p.from_node = r.node_id
+              WHERE p.travel_min IS NOT NULL AND (r.node_id = start_node OR n.kind = 'junction')
+                AND r.minutes + p.travel_min <= horizon - half
+              GROUP BY p.to_node
+           ON CONFLICT (node_id) DO UPDATE SET minutes = EXCLUDED.minutes WHERE reach_tmp.minutes > EXCLUDED.minutes;
+           GET DIAGNOSTICS changed = ROW_COUNT;
+           EXIT WHEN changed = 0;
+         END LOOP;
+         RETURN QUERY SELECT r.node_id, r.minutes FROM reach_tmp r
+           JOIN network_nodes n ON n.network = net AND n.node_id = r.node_id WHERE n.kind = 'junction' ORDER BY 2, 1;
+       END $fn$""",
+]
+POSTGIS_STEPS = [
+    "CREATE EXTENSION IF NOT EXISTS postgis",
+    "ALTER TABLE network_nodes ADD COLUMN IF NOT EXISTS geom geometry(Point)",
+    "ALTER TABLE pipe_segments ADD COLUMN IF NOT EXISTS geom geometry(LineString)",
+]
+POSTGIS_FILL = [
+    "UPDATE network_nodes SET geom = ST_MakePoint(x, y) WHERE x IS NOT NULL AND y IS NOT NULL",
+    """UPDATE pipe_segments p SET geom = ST_MakeLine(a.geom, b.geom) FROM network_nodes a, network_nodes b
+       WHERE a.network = p.network AND b.network = p.network AND a.node_id = p.from_node AND b.node_id = p.to_node
+         AND a.geom IS NOT NULL AND b.geom IS NOT NULL""",
+]
+# People are kept apart from everything else, in their own schema. Nothing writes to it yet: the gateway stores
+# no personal data, and the Photon agent keeps its own list of who has joined. It is here so that when
+# residents are contacted, consent and opt-outs have a home that the reading role below cannot see.
+PEOPLE_TABLES = [
+    "CREATE SCHEMA IF NOT EXISTS people",
+    """CREATE TABLE IF NOT EXISTS people.premises (premise_id bigserial PRIMARY KEY, address text,
+        lat double precision, lon double precision, node text)""",
+    """CREATE TABLE IF NOT EXISTS people.contacts (contact_id bigserial PRIMARY KEY,
+        premise_id bigint REFERENCES people.premises, channel text, phone text, language text,
+        consent_at timestamptz, opted_out boolean NOT NULL DEFAULT false)""",
+    """CREATE TABLE IF NOT EXISTS people.notifications (notif_id bigserial PRIMARY KEY, incident_id text,
+        contact_id bigint REFERENCES people.contacts, template text, sent_at timestamptz, status text)""",
+]
+# A role for anything that only reads (an agent, a dashboard): readings, rollups, scores, the network and
+# incidents, and nothing in `people`. It cannot log in by itself; grant it to a user that should be limited.
+READER_ROLE = [
+    """DO $do$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'clarity_reader') THEN
+           CREATE ROLE clarity_reader NOLOGIN; END IF; END $do$""",
+    "GRANT USAGE ON SCHEMA public TO clarity_reader",
+    "GRANT SELECT ON readings, nodes, reports, anomaly_scores, network_nodes, pipe_segments, incidents TO clarity_reader",
+    "REVOKE ALL ON SCHEMA people FROM clarity_reader",
+]
+READER_ROLLUPS = "GRANT SELECT ON readings_5min, readings_hourly, readings_daily TO clarity_reader"
+UPSERT_NET_NODE = """INSERT INTO network_nodes (network, node_id, kind, x, y, demand_lps, sensor) VALUES (%s,%s,%s,%s,%s,%s,%s)
+    ON CONFLICT (network, node_id) DO UPDATE SET kind = EXCLUDED.kind, x = EXCLUDED.x, y = EXCLUDED.y,
+        demand_lps = EXCLUDED.demand_lps, sensor = EXCLUDED.sensor"""
+UPSERT_SEGMENT = """INSERT INTO pipe_segments (network, segment_id, kind, from_node, to_node, length_m, diameter_mm, material,
+        install_year, break_history, travel_min, flow_lps) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ON CONFLICT (network, kind, segment_id) DO UPDATE SET from_node = EXCLUDED.from_node, to_node = EXCLUDED.to_node,
+        length_m = EXCLUDED.length_m, diameter_mm = EXCLUDED.diameter_mm, material = EXCLUDED.material,
+        install_year = EXCLUDED.install_year, break_history = EXCLUDED.break_history,
+        travel_min = EXCLUDED.travel_min, flow_lps = EXCLUDED.flow_lps"""
+UPSERT_INCIDENT = """INSERT INTO incidents (incident_id, network, status, severity, type, suspected_segments, evidence, report)
+        VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
+    ON CONFLICT (incident_id) DO UPDATE SET status = EXCLUDED.status, severity = EXCLUDED.severity,
+        suspected_segments = EXCLUDED.suspected_segments, evidence = EXCLUDED.evidence, report = EXCLUDED.report"""
 
 
 def database_url():
@@ -205,6 +313,7 @@ class CloudSync:
         self.station = station or os.getenv("STATION_ID", "base-01")
         self.mock = bool(mock)
         self.nodes = nodes or {}
+        self.simulated = None      # {"network": the simulated pipe network, "incidents": its incident reports}, if any
         self.enabled = bool(self.url)
         self._pg = None
         self._schema_ready = False
@@ -263,12 +372,19 @@ class CloudSync:
                 cur.execute(sql)
         pg.commit()
         pg.autocommit = True                             # a continuous aggregate cannot be created inside a transaction
-        try:
-            pg.execute(ANOMALY_VIEW)
-            features["anomaly_view"] = True
-        except Exception as e:
-            features["anomaly_view"] = False
-            log.warning("the anomaly_scores view was not made: %s", _first_line(e))
+        def attempt(name, statements):                    # each on its own: one that fails stops nothing else
+            try:
+                for sql in statements:
+                    pg.execute(sql)
+                features[name] = True
+            except Exception as e:
+                features[name] = False
+                log.warning("cloud: %s not set up: %s", name, _first_line(e))
+            return features[name]
+        attempt("anomaly_view", [ANOMALY_VIEW])
+        attempt("network_tables", NETWORK_TABLES)
+        attempt("postgis", POSTGIS_STEPS)
+        attempt("people_schema", PEOPLE_TABLES)
         try:
             timescale = True
             try:
@@ -276,6 +392,16 @@ class CloudSync:
             except Exception as e:
                 timescale = False
                 log.info("no TimescaleDB extension here (%s): using plain Postgres tables", _first_line(e))
+            if timescale:                                 # a rollup made before mock rows were kept apart is made again
+                for view in ("readings_5min", "readings_hourly", "readings_daily"):
+                    try:
+                        old = pg.execute("""SELECT 1 FROM timescaledb_information.continuous_aggregates c
+                            WHERE c.view_name = %s AND NOT EXISTS (SELECT 1 FROM information_schema.columns k
+                                WHERE k.table_name = c.view_name AND k.column_name = 'mock')""", (view,)).fetchone()
+                        if old:
+                            pg.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view} CASCADE")
+                    except Exception as e:
+                        log.warning("cloud: could not check %s: %s", view, _first_line(e))
             for name, statements in TIMESCALE_STEPS:
                 if not timescale:
                     features[name] = False
@@ -287,8 +413,34 @@ class CloudSync:
                 except Exception as e:
                     features[name] = False
                     log.warning("TimescaleDB %s not set up: %s", name, _first_line(e))
+            if attempt("reader_role", READER_ROLE) and features.get("continuous_aggregate") and features.get("hourly_daily"):
+                attempt("reader_rollups", [READER_ROLLUPS])
         finally:
             pg.autocommit = False
+        sim = self.simulated
+        if sim and features.get("network_tables"):
+            try:
+                net, name = sim["network"], sim["network"].get("name", "simulated")
+                sensors = set(net.get("sensors", []))
+                with pg.cursor() as cur:
+                    cur.executemany(UPSERT_NET_NODE, [(name, n["id"], n.get("kind"), n.get("x"), n.get("y"), n.get("demand_lps"), n["id"] in sensors)
+                                                      for n in net["nodes"]])
+                    cur.executemany(UPSERT_SEGMENT, [(name, p["id"], kind, p.get("from"), p.get("to"), p.get("length_m"), p.get("diameter_mm"),
+                                                      p.get("material"), p.get("year"), p.get("breaks"), p.get("travel_min"), p.get("flow_lps"))
+                                                     for kind, links in (("pipe", net["pipes"]), ("pump", net.get("pumps", []))) for p in links])
+                    cur.executemany(UPSERT_INCIDENT, [(f"sim-{r['id']}", name, "simulated", r.get("severity"), "simulated change in water quality",
+                                                       json.dumps(r.get("candidates", [])),
+                                                       json.dumps({"alerts": r.get("alerts"), "quiet": r.get("quiet"), "timeline": r.get("timeline"), "affected": r.get("affected")}),
+                                                       json.dumps({k: r.get(k) for k in ("name", "summary", "actions", "notice", "caveats", "check")}))
+                                                      for r in sim.get("incidents", [])])
+                    if features.get("postgis"):
+                        for sql in POSTGIS_FILL:
+                            cur.execute(sql)
+                pg.commit()
+            except Exception as e:
+                pg.rollback()
+                features["network_tables"] = False
+                log.warning("cloud: the simulated network was not stored: %s", _first_line(e))
         with pg.cursor() as cur:
             cur.executemany(UPSERT_NODE, [(self.station, node, n.get("name"), n.get("lat"), n.get("lon"), bool(n.get("sim")))
                                           for node, n in self.nodes.items()])
@@ -327,6 +479,8 @@ class CloudSync:
                     (self.station, r[0], _when(r[1]), r[2], r[3], r[4], r[5], r[6], r[7] or "[]", r[8] or "[]", r[9], self.mock, r[10])
                     for r in reports])
         self._pg.commit()
+        if readings:
+            self._catch_up(min(_when(r[1]) for r in readings))
         # Only now forget them here. A row that changed again meanwhile has a newer seq and stays queued.
         for kind, row_ids in ids.items():
             if row_ids:
@@ -334,6 +488,32 @@ class CloudSync:
                               [top, kind, *row_ids])
         local.commit()
         return len(batch)
+
+    def _catch_up(self, oldest):
+        """Readings sent late (the first sync of what the Pi already held, or a backlog after an outage) land in
+        hours the rollups have already been worked out for, and would only show at the next scheduled refresh.
+        This brings the rollups up to date at once, from the oldest reading just sent to the start of the
+        bucket that is still filling (which is always read live)."""
+        with self._lock:
+            features = dict(self._state["features"])
+        now = datetime.now(timezone.utc)
+        todo = [(view, every) for view, feature, every, late in (
+                    ("readings_5min", "continuous_aggregate", "5 minutes", now - oldest > timedelta(minutes=10)),
+                    ("readings_hourly", "hourly_daily", "1 hour", oldest < now.replace(minute=0, second=0, microsecond=0)),
+                    ("readings_daily", "hourly_daily", "1 day", oldest < now.replace(hour=0, minute=0, second=0, microsecond=0)))
+                if features.get(feature) and late]
+        if not todo:
+            return
+        self._pg.autocommit = True                       # a refresh cannot run inside a transaction
+        try:
+            for view, every in todo:
+                try:
+                    self._pg.execute(f"CALL refresh_continuous_aggregate('{view}', %s::timestamptz - INTERVAL '{every}', "
+                                     f"time_bucket(INTERVAL '{every}', now()))", (oldest,))
+                except Exception as e:
+                    log.info("cloud: %s will catch up at its next refresh (%s)", view, _first_line(e))
+        finally:
+            self._pg.autocommit = False
 
     def _count_cloud(self):
         with self._pg.cursor() as cur:
@@ -399,13 +579,13 @@ class CloudSync:
             fast = bool(self._state["features"].get(feature))
         from psycopg.rows import dict_row
         with self._connect() as pg, pg.cursor(row_factory=dict_row) as cur:
-            cur.execute(ROLLUP_FAST.format(view=view) if fast else ROLLUP_PLAIN.format(every=every), (self.station, node, int(hours)))
+            cur.execute(ROLLUP_FAST.format(view=view) if fast else ROLLUP_PLAIN.format(every=every), (self.station, node, self.mock, int(hours)))
             rows = cur.fetchall()
         for r in rows:
             r["bucket"] = r["bucket"].astimezone(timezone.utc).isoformat()
             for k in ("tds_avg", "ph_avg", "clarity_avg"):
                 r[k] = None if r[k] is None else round(float(r[k]), 2)
-        return {"enabled": True, "station": self.station, "node": node, "hours": int(hours), "bucket": bucket if bucket in BUCKETS else "5min",
+        return {"enabled": True, "station": self.station, "node": node, "hours": int(hours), "bucket": bucket if bucket in BUCKETS else "5min", "mock": self.mock,
                 "source": "continuous_aggregate" if fast else "plain_query", "buckets": rows}
 
 
@@ -420,6 +600,12 @@ def _main(argv):
         pass
     cmd = argv[1] if len(argv) > 1 else "check"
     sync = CloudSync(os.getenv("DB_PATH", "taptest.db"))
+    try:                                                  # the simulated network and its incidents go up too
+        import incident
+        import localize
+        sync.simulated = {"network": localize.NET, "incidents": [incident.report(s["id"]) for s in localize.scenarios()]}
+    except Exception as e:
+        print(f"(the simulated network was not loaded: {_first_line(e)})")
     if not sync.enabled:
         print(sync.status()["error"] or "TIGER_DATABASE_URL is not set in .env")
         return 1
@@ -429,10 +615,20 @@ def _main(argv):
         with pg.cursor() as cur:
             cur.execute("SELECT count(*), count(*) FILTER (WHERE NOT sim AND NOT mock), min(ts), max(ts) FROM readings WHERE station = %s", (sync.station,))
             total, measured, first, last = cur.fetchone()
+            extra = []
+            for label, sql in (("network nodes", "SELECT count(*) FROM network_nodes"), ("pipe segments", "SELECT count(*) FROM pipe_segments"),
+                               ("incidents", "SELECT count(*) FROM incidents"), ("anomaly scores", "SELECT count(*) FROM anomaly_scores")):
+                try:
+                    cur.execute(sql)
+                    extra.append(f"{cur.fetchone()[0]} {label}")
+                except Exception:
+                    pg.rollback()
         pg.close()
         st = sync.status()
         print(f"connected. TimescaleDB: {st['timescale']}. " + ", ".join(f"{k}: {'yes' if v else 'no'}" for k, v in st["features"].items()))
         print(f"station {sync.station}: {total} readings in the cloud ({measured} measured), {first} to {last}")
+        if extra:
+            print("also there: " + ", ".join(extra))
         return 0
     if cmd == "rollup":
         node = argv[2] if len(argv) > 2 else "tank-01"

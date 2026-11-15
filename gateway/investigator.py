@@ -41,6 +41,8 @@ import json
 import os
 import time
 
+import analysis
+
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_anthropic import ChatAnthropic
@@ -72,6 +74,14 @@ RULES = """Rules, which have no exceptions:
   6.5 to 8.5. Transparency below 0.70 counts as cloudy.
 - Write for someone who is not an expert: one plain sentence per point, with the numbers that
   matter."""
+
+# While the tank only estimates pH (analysis.PH_ESTIMATED: the sketch works it out from dissolved solids), the
+# agents are told so, in place of being told that pH is one of the things the sensors measure.
+if analysis.PH_ESTIMATED:
+    RULES = RULES.replace("- The sensors measure only pH, TDS (dissolved solids) and clarity", "- The sensors measure only TDS (dissolved solids) and clarity", 1) + """
+- pH on this tank is not measured. It is estimated from dissolved solids, because the probe is not
+  calibrated. Do not report pH as a reading, do not count it among the readings that are in or out
+  of range, and if you mention it at all, call it an estimate."""
 
 LEAD = """You lead the investigation inside Clarity, a low-cost water tester near Princeton, NJ.
 A cup of water was measured (the "before" test), tipped through a filter (ZEROWATER removes
@@ -162,6 +172,9 @@ INCIDENT_RULES = """Rules, which have no exceptions:
   dissolved solids and transparency, so no one can say what the change is until a lab has.
 - When you use a guidance passage, name its document and page.
 - Write for someone who is not an expert: one plain sentence per point."""
+if analysis.PH_ESTIMATED:
+    INCIDENT_RULES = INCIDENT_RULES.replace("The sensors read only pH,\n  dissolved solids and transparency", "The sensors read only dissolved solids\n  and transparency", 1)
+
 
 INCIDENT_LEAD = """You lead the response to a simulated water-quality event on a simulated pipe
 network. Several simulated sensor nodes alerted, and the gateway's tracing code has already
