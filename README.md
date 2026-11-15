@@ -44,6 +44,12 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - With no gateway reachable (static hosting, or `?demo`) the pages run on built-in sample data in the
     same shapes, labelled as sample data; `?api=http://<pi>:8000` points them at another gateway.
 
+## The pages on the web
+`web/` is plain static files, so it can be hosted anywhere. It is deployed from that folder to
+Vercel's free tier at https://wateramongus.vercel.app (`cd web && vercel deploy --prod`;
+`web/vercel.json` only makes addresses end in a slash). With no gateway behind it, the pages there
+run on the built-in sample data and say "Demo data". The live readings stay on the base station.
+
 ## Data format
 The receiver prints one JSON object per line at 115200 baud:
 ```
