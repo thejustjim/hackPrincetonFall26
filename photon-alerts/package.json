@@ -1,0 +1,29 @@
+{
+  "name": "clarity-photon-alerts",
+  "version": "1.0.0",
+  "description": "Clarity's Photon messaging agent: iMessage bridge (spectrum-ts) + deepagents/Gemini agent",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "DRY_RUN=1 tsx src/index.ts",
+    "agent": "cd agent && $( [ -x ~/clarity-venv/bin/python ] && echo ~/clarity-venv/bin/python || ( [ -x .venv/bin/python ] && echo .venv/bin/python ) || echo python3 ) -m uvicorn clarity_agent.server:app --port 8001",
+    "agent:setup": "cd agent && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+    "mock-gateway": "tsx mock/mock-gateway.ts",
+    "test": "tsx --test test/*.test.ts && cd agent && python3 -m pytest -q",
+    "typecheck": "tsc",
+    "photo-test": "cd agent && $( [ -x ~/clarity-venv/bin/python ] && echo ~/clarity-venv/bin/python || ( [ -x .venv/bin/python ] && echo .venv/bin/python ) || echo python3 ) photo_test.py"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "spectrum-ts": "^12.16.0",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  },
+  "type": "module"
+}
