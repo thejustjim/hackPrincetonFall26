@@ -14,6 +14,8 @@ Env vars (also read from ../.env or ./.env; see .env.example):
     ANTHROPIC_API_KEY   optional. Without it the gateway uses the local rule only.
     SERIAL_PORT         default: first /dev/ttyUSB* or /dev/ttyACM*
     MOCK=1              use mock.py instead of a serial port
+    GATEWAY_MODE=remote  accept token-protected HTTP telemetry; no serial or mock tank
+    REMOTE_INGEST=1      alias for GATEWAY_MODE=remote
     SIM_NODES=12        number of simulated Princeton nodes (0 to turn off)
     SIM_FAULT_RATE=0    optional synthetic background spikes; explicit scenarios exercise failures
     AI_TIMEOUT=6        seconds to wait for Claude before the tank uses its own rule
@@ -59,14 +61,15 @@ import ingest
 import baseline
 import mock
 
-MOCK = os.getenv("MOCK") == "1"
+REMOTE_INGEST = os.getenv("GATEWAY_MODE", "").lower() == "remote" or os.getenv("REMOTE_INGEST") == "1"
+MOCK = os.getenv("MOCK") == "1" and not REMOTE_INGEST
 SIM_NODES = int(os.getenv("SIM_NODES", "12"))
 SIM_FAULT_RATE = float(os.getenv("SIM_FAULT_RATE", "0"))
 if not 0 <= SIM_FAULT_RATE <= 1:
     raise ValueError("SIM_FAULT_RATE must be between 0 and 1")
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "6"))
 # Mock rehearsals get their own default file; never mix fresh synthetic rows into physical history.
-DB_PATH = os.getenv("DB_PATH", "taptest-mock.db" if MOCK else "taptest.db")
+DB_PATH = os.getenv("DB_PATH", "taptest-remote.db" if REMOTE_INGEST else "taptest-mock.db" if MOCK else "taptest.db")
 MODEL = "claude-opus-5-5"
 
 # ---------------------------------------------------------------- nodes
@@ -492,7 +495,7 @@ def clean_reading(msg):
     return reading, None
 
 
-async def handle_line(raw: str):
+async def handle_line(raw: str, *, wait_decision=False):
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
@@ -517,19 +520,27 @@ async def handle_line(raw: str):
     past = history(msg["node"], 8)
     if store(reading) is None:
         print("duplicate ignored:", reading["node"], reading["test"], reading["phase"])
-        return
+        return {"ok": True, "duplicate": True, "reading_id": None,
+                "node": reading["node"], "test": reading["test"], "phase": reading["phase"]}
     await broadcast({"type": "reading", **reading})
     print("reading:", {k: reading[k] for k in ("node", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")})
 
     # Before-filter tests from the real tank: the agent decides, the tank acts.
     if reading["phase"] == "before" and not reading["sim"]:
-        asyncio.create_task(decide(reading, past) if reading.get("ask", True) else reflex(reading, past))
+        decision_task = asyncio.create_task(decide(reading, past) if reading.get("ask", True) else reflex(reading, past))
+        if wait_decision:
+            try:
+                await asyncio.wait_for(asyncio.shield(decision_task), timeout=max(0.1, min(AI_TIMEOUT + 1, 8)))
+            except asyncio.TimeoutError:
+                pass  # canonical task continues and publishes the decision over /ws
     elif not reading["sim"]:
         # Retest after filtering: update filter life, explain, and investigate.
         used = attach_after(reading)
         await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
         asyncio.create_task(explain_only(reading, past))
         asyncio.create_task(report_on(reading, used))
+    return {"ok": True, "duplicate": False, "reading_id": reading["id"],
+            "node": reading["node"], "test": reading["test"], "phase": reading["phase"]}
 
 
 async def decide(reading, past):
@@ -955,6 +966,8 @@ def report_message(rid, ts, node, test, reading_id, filter_used, report, model, 
 
 # ---------------------------------------------------------------- input sources
 def open_device():
+    if REMOTE_INGEST:
+        return None
     if MOCK:
         print("MOCK mode: fake tank-01")
         return mock.MockDevice()
@@ -981,7 +994,7 @@ def find_serial_ports():
     return [p for pattern in patterns for p in sorted(glob.glob(pattern))]
 
 
-RECORD = "" if MOCK or os.getenv("RECORD") == "0" else os.getenv("RECORD_PATH", mock.LOG_PATH)
+RECORD = "" if MOCK or REMOTE_INGEST or os.getenv("RECORD") == "0" else os.getenv("RECORD_PATH", mock.LOG_PATH)
 
 
 def record(text):
@@ -1085,9 +1098,17 @@ app = FastAPI(title="Clarity base station")
 # Text goes out compressed: the map's data is 18 MB as written and about 3 MB on the wire.
 app.add_middleware(GZipMiddleware, minimum_size=4096)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
-                   allow_headers=["X-Clarity-Token", "Content-Type"])
+                   allow_headers=["X-Clarity-Token", "Authorization", "Content-Type"])
 
 CONTROL_TOKEN = os.getenv("CONTROL_TOKEN", "").strip()
+REMOTE_BODY_LIMIT = 4096
+INGEST_RATE_PER_MINUTE = float(os.getenv("INGEST_RATE_PER_MINUTE", "120"))
+INGEST_BURST = int(os.getenv("INGEST_BURST", "20"))
+if not 0 < INGEST_RATE_PER_MINUTE <= 6000 or not 1 <= INGEST_BURST <= 1000:
+    raise ValueError("ingest rate and burst must be positive and bounded")
+remote_ingest_lock = asyncio.Lock()
+_ingest_tokens, _ingest_at = float(INGEST_BURST), time.monotonic()
+startup_ready = False
 # The Uno sketch ships with PH_FROM_TDS 1: its pH is worked out from dissolved solids, not read from the probe.
 # The pages label it as an estimate and the notices leave it out unless PH_ESTIMATED=0 is set in the environment
 # (do that once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0). See analysis.py.
@@ -1099,9 +1120,11 @@ def require_control(request: Request):
     With CONTROL_TOKEN set, the caller must send it in the X-Clarity-Token header.
     Without one, only this machine may call them, and only from a page this gateway served."""
     if CONTROL_TOKEN:
-        if not hmac.compare_digest(request.headers.get("x-clarity-token", ""), CONTROL_TOKEN):
+        if not hmac.compare_digest(request.headers.get("x-clarity-token", "").encode(), CONTROL_TOKEN.encode()):
             raise HTTPException(401, "control token required: send it in the X-Clarity-Token header")
         return
+    if REMOTE_INGEST:
+        raise HTTPException(503, "remote controls require CONTROL_TOKEN")
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1"):
         raise HTTPException(403, "controls are limited to this machine; set CONTROL_TOKEN in .env to allow other devices")
@@ -1112,15 +1135,23 @@ def require_control(request: Request):
 
 @app.on_event("startup")
 async def startup():
-    global device
+    global device, startup_ready, remote_ingest_lock, _ingest_tokens, _ingest_at
+    startup_ready = False
+    remote_ingest_lock = asyncio.Lock()
+    _ingest_tokens, _ingest_at = float(INGEST_BURST), time.monotonic()
+    if REMOTE_INGEST and not CONTROL_TOKEN:
+        raise RuntimeError("remote ingestion requires CONTROL_TOKEN")
     try:
-        seed_baseline()                                   # before anything is read, sent to the cloud or shown
+        if not REMOTE_INGEST:
+            seed_baseline()                                   # before anything is read, sent to the cloud or shown
     except Exception as e:
         print(f"baseline skipped ({type(e).__name__}: {e})")
     device = open_device()
-    loop = asyncio.get_running_loop()
-    threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
-    asyncio.create_task(simulate_nodes())
+    if not REMOTE_INGEST:
+        loop = asyncio.get_running_loop()
+        threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
+    if SIM_NODES > 0:
+        asyncio.create_task(simulate_nodes())
     if cloud_sync.enabled:                               # the simulated network and its incidents go to the cloud too, marked as simulated
         try:
             import incident
@@ -1129,6 +1160,94 @@ async def startup():
         except Exception as e:
             print(f"[cloud] the simulated network was not loaded ({type(e).__name__})")
     cloud_sync.start()
+    startup_ready = True
+
+
+async def require_ingest(request: Request):
+    """HTTP telemetry always requires a configured secret, including loopback callers."""
+    if not REMOTE_INGEST:
+        raise HTTPException(404, "remote ingestion is disabled")
+    if not CONTROL_TOKEN:
+        raise HTTPException(503, "remote ingestion requires CONTROL_TOKEN")
+    authorization = request.headers.get("authorization", "")
+    scheme, _, bearer = authorization.partition(" ")
+    token = bearer if scheme.lower() == "bearer" else request.headers.get("x-clarity-token", "")
+    if not hmac.compare_digest(token.encode(), CONTROL_TOKEN.encode()):
+        raise HTTPException(401, "ingest token required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@app.post("/api/ingest", dependencies=[Depends(require_ingest)])
+async def remote_reading(request: Request):
+    """One authenticated hardware packet through the serial ingestion pipeline.
+
+    A current ask:true before packet may receive the canonical addressed decision.
+    Hardware must enforce node/session/seq/test identity, consume it once, and keep
+    its local timeout fallback. Dashboard updates also publish over /ws.
+    """
+    global _ingest_tokens, _ingest_at
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(415, "send application/json")
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            size = int(length)
+        except ValueError:
+            raise HTTPException(400, "invalid content length")
+        if not 0 <= size <= REMOTE_BODY_LIMIT:
+            raise HTTPException(413, "one reading must fit in 4096 bytes")
+    async def bounded_body():
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > REMOTE_BODY_LIMIT:
+                raise HTTPException(413, "one reading must fit in 4096 bytes")
+        return bytes(body)
+    try:
+        body = await asyncio.wait_for(bounded_body(), timeout=5)
+    except asyncio.TimeoutError:
+        raise HTTPException(408, "reading upload timed out")
+    try:
+        packet = json.loads(body)
+    except (ValueError, UnicodeError):
+        raise HTTPException(422, "send one JSON reading object")
+    if not isinstance(packet, dict):
+        raise HTTPException(422, "send one JSON reading object")
+    if not isinstance(packet.get("node"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,23}", packet["node"]):
+        raise HTTPException(422, "invalid node")
+    if any(packet.get(k) is None for k in ("session", "seq", "ph_est")):
+        raise HTTPException(422, "session, seq and ph_est are required for HTTP telemetry")
+    if any(isinstance(packet.get(k), bool) for k in ("ph", "tds", "clarity")):
+        raise HTTPException(422, "sensor values must be numeric")
+    reading, problem = clean_reading(packet)
+    if reading is None:
+        raise HTTPException(422, problem)
+    if NODES.get(reading["node"], {}).get("sim"):
+        raise HTTPException(422, "HTTP telemetry is reserved for hardware nodes")
+    async with remote_ingest_lock:
+        now = time.monotonic()
+        _ingest_tokens = min(float(INGEST_BURST), _ingest_tokens + (now - _ingest_at) * INGEST_RATE_PER_MINUTE / 60)
+        _ingest_at = now
+        if _ingest_tokens < 1:
+            raise HTTPException(429, "ingest rate exceeded; retry later", headers={"Retry-After": "1"})
+        _ingest_tokens -= 1
+        result = await handle_line(json.dumps(packet, separators=(",", ":")), wait_decision=True)
+        if result is None:
+            raise HTTPException(422, "reading was rejected")
+        with db_lock:
+            row = db.execute("SELECT * FROM readings WHERE node=? AND session=? AND test=? AND phase=? ORDER BY id DESC LIMIT 1",
+                             (reading["node"], reading["session"], reading["test"], reading["phase"])).fetchone()
+            latest = db.execute("SELECT id FROM readings WHERE node=? ORDER BY id DESC LIMIT 1", (reading["node"],)).fetchone()
+        result["decision"] = None
+        result["command"] = None
+        if row is not None:
+            result["reading_id"] = row["id"]
+            if row["ai_filter"] is not None:
+                result["decision"] = {"filter": row["ai_filter"], "source": row["source"], "explanation": row["explanation"]}
+                if (reading["ask"] and row["phase"] == "before" and latest["id"] == row["id"]
+                        and row["seq"] == reading["seq"]):
+                    result["command"] = ingest.command(row_to_dict(row), row["ai_filter"])
+    return result
 
 
 @app.get("/api/nodes")
@@ -1324,7 +1443,8 @@ async def network_investigate(scenario: str):
 
 @app.get("/health")
 def health():
-    state = {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
+    state = {"ok": True, "mock": MOCK, "input_mode": "remote" if REMOTE_INGEST else "mock" if MOCK else "serial",
+            "remote_ingest": REMOTE_INGEST, "ingest_ready": bool(REMOTE_INGEST and CONTROL_TOKEN and startup_ready), "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
             "agent_name": ai_name(AGENT_MODEL) if investigator_agent is not None else None, "agent_model": AGENT_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
             "ph_estimated": PH_ESTIMATED,
