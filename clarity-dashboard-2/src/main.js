@@ -1090,8 +1090,8 @@ function onMessage(m) {
 function setStatus(s) {
   const el = $('#status');
   // Demo mode (?mock=1 and the artifact build) shows no header label; simulated sites are still labeled on the map.
-  el.className = `pill ${s === 'live' ? 'live' : s === 'offline' ? 'demo' : ''}`;
-  el.textContent = s === 'live' ? 'Live' : s === 'demo' ? '' : s === 'offline' ? 'Gateway offline' : s;
+  el.className = `pill ${s === 'live' ? 'live' : s === 'offline' || s === 'demo' ? 'demo' : ''}`;
+  el.textContent = s === 'live' ? 'Live' : s === 'demo' ? 'Demo data' : s === 'offline' ? 'Gateway offline' : s;   // made-up data always says so
   el.title = s === 'offline' ? 'Retrying the gateway. Add ?api=http://host:8000 if it runs on another machine.' : '';
 }
 
