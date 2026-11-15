@@ -41,6 +41,7 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import analysis
@@ -954,6 +955,8 @@ async def simulate_nodes():
 app = FastAPI(title="Clarity base station")
 # Reading is open to any page (a dashboard hosted elsewhere can point at this gateway).
 # The routes that move hardware are guarded by require_control below.
+# Text goes out compressed: the map's data is 18 MB as written and about 3 MB on the wire.
+app.add_middleware(GZipMiddleware, minimum_size=4096)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
                    allow_headers=["X-Clarity-Token", "Content-Type"])
 
@@ -1185,9 +1188,17 @@ async def ws_endpoint(ws: WebSocket):
 
 @app.middleware("http")
 async def revalidate_web_files(request, call_next):
-    """Browsers re-check the dashboard files on every load, so edits to web/ show up at once."""
+    """Browsers re-check the pages' own files on every load, so edits to web/ show up at once.
+    The map's large files are the exception: its built bundle has the build in its name, so it
+    can be kept for good, and its map data (18 MB of buildings, roads and water) and the logo
+    are kept for a day. They are fetched once and then come from the browser's own store."""
     response = await call_next(request)
-    if not request.url.path.startswith(("/api", "/ws", "/docs", "/openapi")):
+    path = request.url.path
+    if path.startswith("/map/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith(("/map/data/", "/map/brand/", "/assets/brand/", "/vendor/")):
+        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    elif not path.startswith(("/api", "/ws", "/docs", "/openapi")):
         response.headers["Cache-Control"] = "no-cache"
     return response
 

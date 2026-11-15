@@ -73,6 +73,9 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   For live editing, `npm run dev` proxies `/api` and `/ws` to the gateway. With no gateway it shows
   "Gateway offline"; `?mock=1` shows its own demo data, labelled, and the main page's Map link uses
   that when the main page is on sample data too.
+  The map's 18 MB of data is fetched once: it goes out compressed (about 3 MB), the browser keeps it
+  for a day and the built bundle for good, and on a wide screen the main page fetches it quietly
+  in the background, so the map opens at once. The same rules are in `web/vercel.json` for the hosted copy.
 - **The Photon agent** (`photon-alerts/`, its own README) watches the gateway's `/ws` and texts
   subscribers. It needs Photon keys and a Google key; `DRY_RUN=1 npm run dev` prints the texts
   instead of sending them. It is not needed for the pages.

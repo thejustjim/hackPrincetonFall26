@@ -79,6 +79,23 @@
         : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
     ];
   }
+  /* Opening the map means fetching 18 MB of map data. On a wide screen, and not on a metered
+     connection, the main page fetches it quietly once things have settled, so the map opens at
+     once. The files are kept by the browser afterwards (see the Cache-Control rules). */
+  let warmed = false;
+  function warmMap() {
+    if (warmed || !matchMedia("(min-width: 1181px)").matches || navigator.connection?.saveData) return;
+    warmed = true;
+    const files = ["", "data/buildings.json", "data/roads.json", "data/land.json", "data/landuse.json", "data/us_tds.json",
+                   "data/trees.json", "data/water.json", "data/places.json", "data/road_labels.json", "data/water_wide.json", "data/water_infra.json"];
+    setTimeout(() => files.forEach((f) => {
+      const link = document.createElement("link");
+      link.rel = "prefetch";
+      link.href = `../map/${f}`;
+      document.head.appendChild(link);
+    }), 6000);
+  }
+
   const AGENT = { "sensor-health": "Sensor health", analyst: "This site's history", network: "Nearby and published",
                   maintenance: "Filters and upkeep", comms: "Draft notice" };
   const toolName = (n) => String(n).replace(/^get_/, "").replace(/_/g, " ");
@@ -235,6 +252,7 @@
         $("#conn").dataset.state = store.conn;
         // the map dashboard shows only what a gateway sends; with none, open it on its own labelled demo data
         document.querySelector("a[data-map]")?.setAttribute("href", store.kind === "demo" ? "../map/?mock=1" : "../map/");
+        warmMap();
         $("#conn").title = long;
         $("#conn-text").textContent = short;
       }
