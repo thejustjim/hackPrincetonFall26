@@ -278,6 +278,8 @@
   function build(html) {
     const mark = document.querySelector(".bar .wordmark");
     host.innerHTML = html + `<p class="p-mark wordmark" aria-hidden="true">${mark ? mark.innerHTML : "Clarity"}</p><p class="p-count" aria-hidden="true"></p><div class="p-end" aria-hidden="true"></div>`;
+    // two minutes, demo included: the short deck leaves out the slides marked data-extra. ?full keeps them.
+    if (!new URLSearchParams(location.search).has("full")) host.querySelectorAll(".slide[data-extra]").forEach((el) => el.remove());
     slides = [...host.querySelectorAll(".slide")];
     if (!slides.length) throw new Error("no slides");
     nameModel();

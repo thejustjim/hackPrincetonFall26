@@ -32,6 +32,9 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     that read in range falls straight in.
   - `/pitch/` - the pitch. It opens on black with one dirty drop caught by the filter, runs through the slides (scroll, swipe or
     arrow keys; `End` jumps to the last one), and scrolling past the last slide lands on `/demo/`.
+    The judged presentation is two minutes including the demo, so the deck is five slides (title, the
+    problem, the loop, what measuring first saves, close); `/pitch/?full` adds five more for questions
+    (hardware, AI, filter life, sources, open questions).
     In a wide window the 3D glass stays on stage beside every slide, always holding clear water: a
     dirty drop comes down, meets the filter, and a clear drop falls in. The "One cup, one loop" slide
     has four steps, and each press walks one drop a step further (it hangs, the filter swings in,
