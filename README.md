@@ -383,11 +383,22 @@ radio -> gateway -> SQLite on the Pi (source of truth) -> outbox -> Tiger Cloud
 - When the cloud copy is on and connected, the cup page has a section "In the cloud database": the last
   day by the hour, read back from the hourly aggregate (`GET /api/cloud/rollup?bucket=hour`; `bucket` can
   also be `5min` or `day`).
-- Not built, against the plan's database design: a retention policy (nothing is ever dropped), the pipe
-  network as PostGIS tables (the simulated network is a file, `gateway/network.json`), an incidents table,
-  and a separate schema for premises and contacts (the gateway stores no personal data at all; the Photon
-  agent keeps its own list of who has joined).
-- On plain Postgres the same code works with ordinary tables.
+- Old raw rows are dropped after 365 days (a retention policy); the hourly and daily rollups are kept, so
+  the history stays.
+- Rows from the mock tank are kept apart from measurements in every rollup, so a base station that measures
+  is never shown the mock's readings, and the cup page says when what it shows is the mock's.
+- Readings sent late (the first sync of what the Pi already held, or a backlog after an outage) are brought
+  into the rollups at once, not at the next scheduled refresh.
+- The simulated pipe network and the incidents traced on it are there too, every row marked simulated:
+  `network_nodes`, `pipe_segments` and `incidents`, with PostGIS geometry where the extension is available
+  (the network's own coordinates, not places on Earth). `downstream_of(network, pipe, minutes)` walks the
+  flow in SQL and gives the same junctions as the tracer for every pipe. `python cloud.py check` loads them.
+- `people` is a separate schema (premises, contacts, notifications) that nothing writes to yet: the gateway
+  stores no personal data, and the Photon agent keeps its own list of who has joined. `clarity_reader` is a
+  role that can read everything except `people` and can write nothing; grant it to anything that should
+  only read.
+- `python test_cloud.py` checks all of this against the real database (it needs `TIGER_DATABASE_URL`, and
+  skips without it).
 
 Set it up on your own AWS account (one command):
 ```
