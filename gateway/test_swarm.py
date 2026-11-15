@@ -12,6 +12,7 @@ import tempfile
 
 os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "swarm.db")
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["FILTERS"] = "ZEROWATER,BRITA"       # these checks drive both filters; the rig's default is the Brita alone
 os.environ["TIGER_DATABASE_URL"] = ""
 os.environ.pop("DATABASE_URL", None)
 

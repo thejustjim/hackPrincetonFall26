@@ -12,7 +12,7 @@
   <div class="p-title">
     <h1>Clarity</h1>
     <p class="tagline" data-rise>What you deserve.</p>
-    <p class="p-lede" data-rise>A cup that tests your water, picks the filter, and shows what changed.</p>
+    <p class="p-lede" data-rise>A cup that tests your water, filters it if needed, and shows what changed.</p>
   </div>
 </section>
 
@@ -39,7 +39,7 @@
     <ol class="loop">
       <li data-rise data-step><span class="n">1</span><h3>Measure</h3><p>Three sensors, one pour.</p></li>
       <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p>Read against this site's history. <span data-ai>Gemini</span> settles the close calls.</p></li>
-      <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits, or skips it.</p></li>
+      <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter, or skips it.</p></li>
       <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows what changed, and a team of agents writes the report.</p></li>
     </ol>
   </div>
@@ -83,12 +83,12 @@
     <div class="split">
       <figure class="p-plate" data-rise>
         <span class="lab">Sent through</span>
-        <span class="val">ZeroWater</span>
-        <span class="txt">Dissolved solids read 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater removes dissolved solids, so the cup goes there.</span>
+        <span class="val">Brita Elite</span>
+        <span class="txt">Dissolved solids read 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline, so the cup goes to the Brita. The retest shows what it changed.</span>
         <figcaption>An example of the explanation <span data-ai>Gemini</span> is asked for.</figcaption>
       </figure>
       <ul class="says">
-        <li data-rise><span data-ai>Gemini</span> chooses the filter if it answers within six seconds. If not, the tank's own rule does, so the cup always moves.</li>
+        <li data-rise><span data-ai>Gemini</span> decides whether to filter if it answers within six seconds. If not, the tank's own rule does, so the cup always moves.</li>
         <li data-rise>After each retest, a team of LangChain deep agents, a lead and five specialists, writes what to do next from the base station's checks, this site's history and published EPA and AWWA guidance.</li>
         <li data-rise>Neither will call water safe. Three readings can't show that.</li>
       </ul>
@@ -98,14 +98,9 @@
 
 <section class="slide s-filters" aria-label="Filter life" data-scene="run" data-extra>
   <div class="frame">
-    <h2>Filters that say when they're done</h2>
+    <h2>A filter that says when it's done</h2>
     <div class="split">
       <div class="p-filters" data-rise>
-        <div class="f">
-          <p class="name">ZeroWater<span class="st now">Replace now</span></p>
-          <p class="line">The retest read 6 ppm. Its maker says replace at 6.</p>
-          <div class="life status-now"><span style="width:100%"></span></div>
-        </div>
         <div class="f">
           <p class="name">Brita Elite<span class="st ok">Fine</span></p>
           <p class="line">41 of about 450 L used.</p>
@@ -113,8 +108,8 @@
         </div>
       </div>
       <ul class="says">
-        <li data-rise>Every tip sends about a tenth of a litre through a filter, and the base station keeps count.</li>
-        <li data-rise>Next: estimate life from the solids each cup removes, and offer the right cartridge to reorder.</li>
+        <li data-rise>Every tip sends about a tenth of a litre through the filter, and the base station keeps count against its rated 450 litres.</li>
+        <li data-rise>Next: estimate life from what each cup carries, and offer the cartridge to reorder.</li>
       </ul>
     </div>
   </div>

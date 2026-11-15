@@ -20,7 +20,7 @@ LEGACY_PH_NOTE = ("estimated from TDS" if os.getenv("PH_ESTIMATED", "1").strip()
 
 CHAT_PROMPT = f"""You are Clarity, a water-quality assistant people talk to over iMessage and SMS.
 Clarity runs testers at sites around Princeton, NJ that measure TDS (total dissolved solids, ppm) and clarity (0 to 1); pH is measured or estimated as each reading flags,
-then retest after a ZeroWater or Brita filter. An AI investigator writes reports after each retest.
+then retest after its Brita filter (the rig has one filter). An AI investigator writes reports after each retest.
 
 Always look up the data with your tools before answering. Never answer from memory.
 

@@ -6,7 +6,7 @@ independent reviews of the site (a judge, a water engineer and a design lead) th
 
 ## Have ready before you start
 
-- **Two cups.** One that reads near 300 ppm, so the page says the model chose the filter: the tank only
+- **Two cups.** One that reads near 300 ppm, so the page says the model made the call: the tank only
   sends a pour to the model when it is unsure (within 45 ppm of 300, within 0.08 of 0.70 transparency, two
   problems at once, or a sensor that looks wrong). Every other pour is settled by the tank's own rule, and
   the page says so. And one cup already filtered, to pour back at once: the retest is the payoff, and the
@@ -26,6 +26,28 @@ independent reviews of the site (a judge, a water engineer and a design lead) th
   four-step cup loop and the hardware, AI, filter-life, sources and open-questions slides.
 - **Know the setup screen.** Advancing beyond the final slide asks where to begin. A saved choice is
   prefilled, but the screen is shown again after each pitch. `/demo/?setup=1` opens it directly for rehearsal.
+
+## If the tank's data does not work
+
+The rig has one filter, the Brita. On the retest expect salt water to read about what it did (a carbon
+filter leaves dissolved solids in: within a few percent, still high) and tea or cloudy water to come back
+clearer. Say that out loud: the retest is there to show what the filter changed, including "not much".
+
+Three ways to carry on, the most real first. The page labels each for what it is.
+
+1. **The tank's own pours, replayed.** Any run against the real receiver keeps what it sends in
+   `gateway/logs/tank.jsonl`. If the tank goes quiet: `cd gateway && MOCK=1 MOCK_SCENARIO=replay python
+   gateway.py`, then open `http://<gateway>:8000/demo/?mode=live`. The page says "Replayed pours". The
+   values are the tank's own; waits longer than 25 seconds are cut. A recording made on another machine:
+   `MOCK_LOG=/path/to/tank.jsonl`.
+2. **Estimated pours.** No recording yet: `cd gateway && MOCK=1 python gateway.py`, same address. The page
+   says "Simulated tank". A cup every 25 seconds, the retest 15 seconds later: tap water in range (about
+   140 ppm), salt water (about 780 ppm, about 760 after the Brita) and tea (transparency about 0.42, about
+   0.9 after). These are our estimates of the rig, not measurements.
+3. **No gateway at all.** On the hosted site, the setup screen's "Follow a cup" (or `/demo/?demo`) runs the
+   built-in sample cycle, labelled "Demo data".
+
+"Test the prototype" refuses a simulated gateway on purpose, which is why 1 and 2 use `?mode=live`.
 
 ## The two minutes
 

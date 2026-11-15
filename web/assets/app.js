@@ -128,8 +128,8 @@
         : { title: `Still ${VERDICT[a.verdict].toLowerCase()}`, sub: `after ${name}`, tone: null, site, when };
     }
     const title = b.verdict === "SAFE" ? "All in range" : VERDICT[b.verdict];
-    if (!p.decision) return { title, sub: b.verdict === "SAFE" ? "Deciding whether to filter" : "Choosing a filter", tone: null, site, when };
-    if (f === "NONE") return { title, sub: b.verdict === "SAFE" ? "No filter needed" : "Neither filter helps", tone: b.verdict === "SAFE" ? "good" : null, site, when };
+    if (!p.decision) return { title, sub: "Deciding whether to filter", tone: null, site, when };
+    if (f === "NONE") return { title, sub: b.verdict === "SAFE" ? "No filter needed" : "Not filtered", tone: b.verdict === "SAFE" ? "good" : null, site, when };
     return { title, sub: `Filtering through ${name}`, tone: null, site, when };
   }
 
@@ -147,16 +147,16 @@
       // The current tank sketch works pH out from dissolved solids (its probe is not calibrated), so the note says so.
       const est = phEstimated(r, store.health);
       out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${est ? ", estimated" : ""}${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
-        detail: est ? `Estimated from dissolved solids: the pH probe is not calibrated yet. Usual range 6.5 to 8.5.` : `Usual range 6.5 to 8.5. Neither filter corrects pH.` });
+        detail: est ? `Estimated from dissolved solids: the pH probe is not calibrated yet. Usual range 6.5 to 8.5.` : `Usual range 6.5 to 8.5. The filter does not correct pH.` });
       out.push({ id: "clarity", group: "cup", icon: "eye", label: `Transparency${phase}`, value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
-        detail: `0 is opaque, 1 is clear. Below 0.70 counts as cloudy and goes to Brita. A pitcher filter does not disinfect.` });
+        detail: `0 is opaque, 1 is clear. Below 0.70 counts as cloudy and goes to Brita.` });
       out.push({ id: "tds", group: "cup", icon: "drop", label: `Dissolved solids${phase}`, value: `${r.tds} ppm`, ...state(r.tds > 300, b.tds > 300, r.tds > 500 ? "over the EPA guideline of 500" : "high: above 300"),
-        detail: `Minerals and salts. Above 300 is high; the EPA guideline is 500.` });
+        detail: `Minerals and salts. Above 300 is high and goes to Brita; the EPA guideline is 500.` });
     }
     if (d) {
-      const who = AI[d.source] ? `${AI[d.source]} chose it.` : d.source === "sample" ? "Sample explanation, written for the demo data." : "The tank's own rule chose it.";
+      const who = AI[d.source] ? `${AI[d.source]} chose it.` : d.source === "sample" ? "" : "The tank's own rule chose it.";
       out.push({ id: "filter", group: "cup", minor: true, icon: "funnel", label: f === "NONE" ? "Filter" : "Sent through", value: FILTER_NAME[f] || f,
-        detail: d.explanation ? `${who} ${d.explanation}` : `${who} It uses fixed thresholds: ZeroWater above 300 ppm, Brita below 0.70 transparency.` });
+        detail: (d.explanation ? `${who} ${d.explanation}` : `${who} It uses fixed thresholds: Brita above 300 ppm or below 0.70 transparency.`).trim() });
     }
     if (a) {
       // report the reading the filter was chosen for, not always dissolved solids
@@ -172,7 +172,7 @@
     if (store.filters.length) {
       const bad = store.filters.find((x) => x.status === "REPLACE") || store.filters.find((x) => x.status === "REPLACE_SOON");
       out.push({ id: "filters", group: "context", icon: "ring", label: "Filter life", tone: bad ? (bad.status === "REPLACE" ? "alert" : "warn") : null,
-        value: !bad ? "Both filters fine" : bad.status === "REPLACE" ? `Replace ${bad.name || FILTER_NAME[bad.filter]}` : `${bad.name || FILTER_NAME[bad.filter]} running low`,
+        value: !bad ? (store.filters.length === 1 ? `${store.filters[0].name || FILTER_NAME[store.filters[0].filter]} fine` : "Both filters fine") : bad.status === "REPLACE" ? `Replace ${bad.name || FILTER_NAME[bad.filter]}` : `${bad.name || FILTER_NAME[bad.filter]} running low`,
         detail: store.filters.map((x) => `${x.name || FILTER_NAME[x.filter]}: ${filterLife(x).line}`).join(" ") });
     }
     const tank = store.nodes.get(store.tank);
@@ -186,7 +186,7 @@
     if (all.length) {
       const sims = all.filter((n) => n.sim).length, odd = all.filter((n) => !n.sim && n.latest?.anomaly >= 0.6).length;
       out.push({ id: "network", group: "context", icon: "nodes", label: "Network", value: `${all.length - sims} measured, ${sims} simulated`,
-        detail: `Simulated nodes are always labelled. ${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}${cloudLine(store) ? ` ${cloudLine(store)}` : ""}` });
+        detail: `${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}${cloudLine(store) ? ` ${cloudLine(store)}` : ""}` });
     }
     out.push(store.report
       ? { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: store.pour?.before && store.report.test !== store.pour.before.test ? `Report on pour ${store.report.test}, the one before` : `Report on pour ${store.report.test}`,

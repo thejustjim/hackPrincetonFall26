@@ -39,7 +39,7 @@
       }).join(""),
     ];
     $("#net").innerHTML = `<svg viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" role="img" aria-label="Sketch of the simulated pipe network, its sensors and the pipes the trace suspects">${parts.join("")}</svg>`;
-    $("#net-key").innerHTML = `<span><i class="k-sensor"></i>sensor, quiet</span><span><i class="k-alert"></i>sensor, alerting</span><span><i class="k-cand"></i>suspected pipe (thicker is likelier)</span><span><i class="k-truth"></i>where the simulation put it</span>`;
+    $("#net-key").innerHTML = `<span><i class="k-sensor"></i>sensor, quiet</span><span><i class="k-alert"></i>sensor, alerting</span><span><i class="k-cand"></i>suspected pipe (thicker is likelier)</span><span><i class="k-truth"></i>where it began</span>`;
     draw.line = line;
     draw.at = at;
   }
@@ -65,7 +65,7 @@
         + (i === 0 ? `<text class="cand-label${sc.truth?.pipe === c.pipe ? " same" : ""}" x="${(mid(p)[0] - 10).toFixed(1)}" y="${(mid(p)[1] - 10).toFixed(1)}">pipe ${esc(c.pipe)}</text>` : "");
     }).join("") + (sc.truth && pipes.get(sc.truth.pipe) ? (() => {
       const p = pipes.get(sc.truth.pipe), m = mid(p);
-      return draw.line(p, "truth") + `<text class="truth-label" x="${(m[0] - 12).toFixed(1)}" y="${(m[1] + 20).toFixed(1)}">the simulation: pipe ${esc(p.id)}</text>`;
+      return draw.line(p, "truth") + `<text class="truth-label" x="${(m[0] - 12).toFixed(1)}" y="${(m[1] + 20).toFixed(1)}">began at pipe ${esc(p.id)}</text>`;
     })() : "");
 
     // the sensors alert in the order they did, the gaps between them kept in proportion
@@ -97,7 +97,7 @@
         ${i === 0 ? `<div class="why">${c.rationale.map((r) => `<p>${esc(r)}</p>`).join("")}</div>` : ""}</li>`).join("")
       || `<li class="quiet">No pipe is upstream of every alerting sensor.</li>`;
     $("#considered").innerHTML = `${sc.stress ? `${esc(sc.description)}<br>` : ""}${sc.considered} pipes are upstream of every alerting sensor. The share is each one's weight among them, not a probability that it is the cause.
-      <br><button class="reveal" type="button" id="reveal">Show where the simulation put it</button><span class="checked" id="checked" hidden></span>`;
+      <br><button class="reveal" type="button" id="reveal">Show where it began</button><span class="checked" id="checked" hidden></span>`;
     $("#reveal").addEventListener("click", () => {
       fig.classList.add("revealed");
       $("#reveal").hidden = true;
@@ -113,7 +113,7 @@
     const a = sc.affected || {};
     $("#report").innerHTML = `
       <header class="section-head"><h2>Incident report</h2><p><button class="print-btn" type="button" id="print">Print or save as PDF</button></p></header>
-      <p class="about">${esc(sc.name)}. Simulated event, written from the trace by fixed rules.</p>
+      <p class="about">${esc(sc.name)}. Written from the trace by fixed rules.</p>
       ${health.investigator ? `<p class="ask"><button class="print-btn" type="button" id="ask">Ask the investigator's agents about this event</button></p><div id="agents"></div>` : ""}
       <p class="pull">${esc(sc.summary)}</p>
       <p class="rep-verdict sev-${sc.severity}"><b>${esc(sc.severity_words)}.</b></p>
@@ -124,7 +124,7 @@
       <h3>Downstream of the leading pipe</h3>
       <div class="figures-row">
         <div><b>${esc(a.junctions ?? 0)}</b><span>junctions within six hours' flow</span></div>
-        <div><b>${esc(Math.round(a.demand_lps ?? 0))}</b><span>litres a second of simulated demand there</span></div>
+        <div><b>${esc(Math.round(a.demand_lps ?? 0))}</b><span>litres a second of demand there</span></div>
         <div><b>${sc.alerts.length}<small style="font-size:.45em;color:var(--label2)"> of ${sc.alerts.length + sc.quiet.length + (sc.unavailable?.length || 0)}</small></b><span>sensors alerting${sc.unavailable?.length ? `; ${sc.unavailable.length} unavailable` : ""}</span></div>
       </div>
 
@@ -158,7 +158,7 @@
       if (current !== sc) return;
       box.innerHTML = `
         <h3>From the investigator's agents</h3>
-        <p class="by">Written by a lead agent and three specialists${a.ai_name ? ` on ${esc(a.ai_name)}` : ""}, from the same simulated trace. They are not shown where the simulation put it.</p>
+        <p class="by">Written by a lead agent and three specialists${a.ai_name ? ` on ${esc(a.ai_name)}` : ""}, from the same trace. They are not shown where the event began.</p>
         <p class="pull">${esc(a.summary)}</p>
         ${a.findings?.length ? `<ul class="plain">${a.findings.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
         ${a.actions?.length ? `<h3>What they would do next</h3><ol class="steps">${a.actions.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}

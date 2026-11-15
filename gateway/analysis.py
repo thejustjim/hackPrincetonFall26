@@ -377,7 +377,7 @@ def rule_report(case, result, filters):
     b, a, used = case["before"], case["after"], case.get("filter")
     name = {"ZEROWATER": "ZeroWater", "BRITA": "Brita Elite"}.get(used)
     # A filter comparison concerns its targeted measured signal, never derived pH or another lead metric.
-    lead = "clarity" if used == "BRITA" else "tds"
+    lead = "tds" if used == "ZEROWATER" or measured_verdict(b) == "HIGH_TDS" else "clarity"
     unverified = ph_retest_unverified(case)
     back = measured_verdict(a) == "SAFE" and not unverified
     if name:

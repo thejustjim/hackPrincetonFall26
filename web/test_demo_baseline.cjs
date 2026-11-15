@@ -70,21 +70,27 @@ test('fifty demo cup cycles keep background peers and demonstration cartridges f
   healthyPeers(rows.filter(r => r.sim));
   const cups = rows.filter(r => !r.sim);
   assert.ok(cups.some(r => r.sample_case === 'cloudy' && r.phase === 'before' && r.filter === 'BRITA'));
-  assert.ok(cups.some(r => r.sample_case === 'salty' && r.phase === 'before' && r.filter === 'ZEROWATER'));
+  assert.ok(cups.some(r => r.sample_case === 'salty' && r.phase === 'before' && r.filter === 'BRITA'));   // one filter on the rig
+  assert.ok(cups.every(r => r.filter !== 'ZEROWATER'));
   assert.ok(cups.every(r => r.ph_est === true));
   for (const after of cups.filter(r => r.phase === 'after')) {
     const before = cups.find(r => r.test === after.test && r.session === after.session && r.phase === 'before');
     assert.ok(before);
     assert.equal(after.sample_case, before.sample_case);
-    assert.equal(after.verdict, 'SAFE');
-    if (before.filter === 'ZEROWATER') assert.ok(after.tds < 6);
+    // a carbon filter clears a cloudy cup and leaves dissolved solids about where they were
+    if (before.verdict === 'CLOUDY') assert.equal(after.verdict, 'SAFE');
+    if (before.verdict === 'HIGH_TDS') {
+      assert.equal(after.verdict, 'HIGH_TDS');
+      assert.ok(after.tds <= before.tds && after.tds >= 0.94 * before.tds && after.clarity >= before.clarity);
+    }
   }
   assert.equal(new Set(rows.map(r => `${r.node}/${r.session}/${r.seq}`)).size, rows.length);
   const filters = await run.api.get('/api/filters');
   assert.ok(filters.every(f => f.status === 'OK'));
   for (const report of events.filter(e => e.type === 'report')) {
     assert.equal(report.source, 'sample');
-    assert.match(report.notice, /^Demo example:/);
+    // the page's one "Demo data" label says what this is; the notice reads like a real one and keeps its required sentence
+    assert.match(report.notice, /It cannot detect lead, bacteria or any specific contaminant\.$/);
     assert.doesNotMatch(report.findings.join(' '), /Measured:/);
     assert.equal(report.checks.baseline.find(r => r.metric === 'ph').included, false);
   }

@@ -5,8 +5,8 @@
 Presenting it? `DEMO.md` is the run-sheet: what to have ready, the two minutes, and what a judge will ask.
 
 Pour water into one cup. Clarity measures dissolved solids (TDS) and clarity (shown as transparency on the dashboard), and for now
-estimates pH from them. The tank's own rule picks a filter, or for close calls an AI model on the base station does, and the cup
-tips itself into ZeroWater or Brita. Pour the
+estimates pH from them. The tank's own rule decides whether the cup needs the filter, or for close calls an AI model on the base
+station does, and the cup tips itself into the Brita (the rig has one filter). Pour the
 clean water back in to retest. Results travel over a direct radio link (no WiFi or cell) to a
 Raspberry Pi base station that stores every node's readings and serves the dashboard.
 
@@ -124,7 +124,7 @@ run on the built-in sample data and say "Demo data". The live readings stay on t
 ## Data format
 The receiver prints one JSON object per line at 115200 baud:
 ```
-{"node":"tank-01","test":17,"phase":"before","ph":7.21,"tds":482,"clarity":0.83,"verdict":"HIGH_TDS","filter":"ZEROWATER","ask":0,"rssi":-61}
+{"node":"tank-01","test":17,"phase":"before","ph":7.21,"tds":482,"clarity":0.83,"verdict":"HIGH_TDS","filter":"BRITA","ask":0,"rssi":-61}
 ```
 | field | meaning |
 |---|---|
@@ -135,7 +135,7 @@ The receiver prints one JSON object per line at 115200 baud:
 | tds | ppm, 0-1000 (sensor tops out near 1000) |
 | clarity | 0-1, 1 = as clear as clean water |
 | verdict | `SAFE`, `HIGH_TDS` (>300 ppm), `CLOUDY` (clarity < 0.70), `PH_WARN` (outside 6.5-8.5). `SAFE` only means these three readings are in range; the pages show it as "In range". Nothing here tests for lead, bacteria or any specific contaminant. |
-| filter | the tank's own rule: `NONE`, `ZEROWATER`, `BRITA` |
+| filter | the tank's own rule: `NONE` or `BRITA`. The protocol still carries `ZEROWATER`; with one filter on the rig the gateway records it as `BRITA` (`FILTERS=ZEROWATER,BRITA` brings the second filter back) |
 | ask | `1`: the tank is unsure (a reading near a limit, two problems at once, or a sensor that looks wrong) and waits up to 8 s for the gateway's answer. `0`: a clear call, already acted on by the tank's rule. Left out by older firmware, which always waits. |
 | rssi | radio signal strength, dBm |
 
@@ -169,8 +169,8 @@ true once the probe is calibrated and the sketch is flashed with `PH_FROM_TDS 0`
 - `GET /api/nodes` - every node, location, latest reading
 - `GET /api/readings?node=tank-01&limit=200` - history, newest first
 - `GET /api/tests/{node}/{test}` - the before/after pair for the before/after card
-- `GET /api/filters` - `[{"filter":"ZEROWATER","liters":3.2,"last_after_tds":8,"status":"OK"|"REPLACE_SOON"|"REPLACE", ...}]` (see below)
-- `POST /api/filters/{zerowater|brita}/replace` - a new filter went in: start its count over (a control, see below)
+- `GET /api/filters` - `[{"filter":"BRITA","liters":3.2,"last_after_tds":212,"status":"OK"|"REPLACE_SOON"|"REPLACE", ...}]`, one entry per fitted filter (see below)
+- `POST /api/filters/brita/replace` - a new filter went in: start its count over (a control, see below)
 - `GET /api/reference` - `[{"site":"Stony Brook","lat":..,"lon":..,"tds_est":109,"date":"2023-07-27","source":"NJ DEP"|"USGS", ...}]`,
   the latest published sample per site plus `typical_tds_est` and `history` (cached, works offline)
 - `GET /api/reports?node=tank-01&limit=20` - reports, newest first, same shape as the `/ws` message
@@ -186,10 +186,13 @@ By default only the machine running the gateway can call them. To use them from 
 remembers it in that browser. `GET /health` reports which mode is on (`"control":"local"` or `"token"`).
 
 ## Filter life
-Every time the cup tips into a filter, the gateway counts about 0.1 L through it (`LITERS_PER_TIP`).
-- **ZeroWater**: `REPLACE` once an `after` test of ZeroWater-filtered water reads 6 ppm or more
-  (ZeroWater's own "006" rule). It stays `REPLACE` until you call the replace endpoint.
+The rig has one filter, a Brita Elite, and the servo always tips the cup there: dissolved solids over
+300 ppm or transparency under 0.70 send the cup to it, and a pour in range skips it. A carbon filter
+is not built to take dissolved solids out, and nothing here says it does; the retest shows what it changed.
+Every time the cup tips, the gateway counts about 0.1 L through the filter (`LITERS_PER_TIP`).
 - **Brita Elite**: rated for about 450 L. `REPLACE_SOON` at 90%, `REPLACE` at 100%.
+- **ZeroWater** (not fitted; `FILTERS=ZEROWATER,BRITA` brings it back): `REPLACE` once an `after` test of
+  ZeroWater-filtered water reads 6 ppm or more (ZeroWater's own "006" rule), until the replace endpoint is called.
 
 ## Which model
 The filter decision and the investigator's agents call Google's Gemini API (`google-genai` and
@@ -426,7 +429,12 @@ python3 -m venv .venv && . .venv/bin/activate   # Python 3.11+
 pip install -r requirements.txt
 MOCK=1 python gateway.py              # no hardware: fake tank + 12 simulated nodes
 python gateway.py                     # real receiver, found automatically
+MOCK=1 MOCK_SCENARIO=replay python gateway.py   # a quiet tank: play back the pours it sent earlier
 ```
+A run against the real receiver keeps every line it sends in `gateway/logs/tank.jsonl` (not in git;
+`RECORD=0` turns that off). `MOCK_SCENARIO=replay` plays that file back as new pours, with the tank's own
+values and waits cut to the period (`MOCK_LOG=<file>` for a recording made elsewhere). With no recording,
+`MOCK=1` runs estimated pours instead. The page says "Replayed pours" or "Simulated tank", never "Live".
 `requirements.lock.txt` has the exact versions this was tested with (`pip install -r requirements.lock.txt`).
 
 The gateway looks for the receiver's USB serial port itself, trying USB-serial adapters (the ESP32

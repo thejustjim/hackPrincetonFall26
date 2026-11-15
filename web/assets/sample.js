@@ -37,16 +37,16 @@
   const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 
   function verdictFor(ph, tds, clarity) {
-    if (tds > 300) return ["HIGH_TDS", "ZEROWATER"];
+    if (tds > 300) return ["HIGH_TDS", "BRITA"];        // the rig has one filter: every filtered cup goes to the Brita
     if (clarity < 0.7) return ["CLOUDY", "BRITA"];
     if (ph < 6.5 || ph > 8.5) return ["PH_WARN", "NONE"];
     return ["SAFE", "NONE"];
   }
 
   function explain(r, filt) {
-    if (filt === "ZEROWATER") return `This scripted high-solids cup reads ${r.tds} ppm, above the demo's 300 ppm filter threshold. ZeroWater removes dissolved solids, so the cup goes there. Pour it back afterwards to see whether it helped.`;
+    if (filt === "BRITA" && r.tds > 300) return `Dissolved solids read ${r.tds} ppm. Over 300 counts as high, so the cup goes to the Brita. Pour it back to see what it changed.`;
     if (filt === "BRITA") return `Transparency is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita is this device's filter for cloudy or coloured water. Pour it back afterwards to see whether it helped.`;
-    if (r.verdict === "PH_WARN") return `pH is ${r.ph}, outside 6.5 to 8.5. Neither filter fixes pH, so no filter this time. Check the source.`;
+    if (r.verdict === "PH_WARN") return `pH is ${r.ph}, outside 6.5 to 8.5. The filter does not fix pH, so no filter this time. Check the source.`;
     return `${r.tds} ppm and transparency ${r.clarity.toFixed(2)} are in range. ${r.ph_est ? "pH is estimated and not used to choose a filter." : `pH ${r.ph} is also in range.`} No filter needed.`;
   }
 
@@ -60,10 +60,7 @@
     let nextId = 1, test = 0, reportId = 0;
     const reports = [];
     // Lightly used demonstration cartridges. Maintenance faults belong to explicit stress cases.
-    const filt = {
-      ZEROWATER: { liters: 2.9, tips: 29, runs: 1, last: 2, bad: null },
-      BRITA: { liters: 35, tips: 350, last: null },
-    };
+    const filt = { BRITA: { liters: 35, tips: 350, last: null } };
     const emit = (m) => listeners.forEach((fn) => fn(m));
     const seedEpoch = Date.now();
     const session = `sample-${seedEpoch.toString(16)}-${seed.toString(16)}`;
@@ -97,11 +94,8 @@
     }
 
     function filterList() {
-      const z = filt.ZEROWATER, b = filt.BRITA;
+      const b = filt.BRITA;
       return [
-        { node: "tank-01", filter: "ZEROWATER", name: "ZeroWater", liters: round(z.liters, 2), tips: z.tips,
-          last_after_tds: z.last, replace_at_tds: 6, status: z.bad ? "REPLACE" : "OK",
-          rule: "Replace when filtered water reads 6 ppm or more (ZeroWater's own rule)" },
         { node: "tank-01", filter: "BRITA", name: "Brita Elite", liters: round(b.liters, 2), tips: b.tips,
           last_after_tds: b.last, rated_liters: 450, liters_left: round(450 - b.liters, 2),
           percent_used: round((100 * b.liters) / 450, 2),
@@ -133,38 +127,35 @@
       const sims = SITES.filter((s) => s.sim).map((s) => latest(s.node)).filter(Boolean);
       const lo = Math.min(...sims.map((r) => r.tds)), hi = Math.max(...sims.map((r) => r.tds));
       const f = filterList().find((x) => x.filter === used);
-      const zw = used === "ZEROWATER";
-      const findings = zw
-        ? [`Demo reading: dissolved solids fell from ${before.tds} to ${after.tds} ppm; estimated pH ${before.ph.toFixed(1)} to ${after.ph.toFixed(1)} was not used as independent evidence.`,
+      const solids = before.verdict === "HIGH_TDS", back = after.verdict === "SAFE";      // what the cup was filtered for
+      const life = `Filter: Brita Elite has filtered ${f.liters} L of its ~450 L rating (${f.percent_used}%).`;
+      const findings = solids
+        ? [`Dissolved solids went from ${before.tds} to ${after.tds} ppm.`,
            `Published: the Millstone River typically runs about 248 ppm (NJ DEP, 2024 to 2025), so ${before.tds} ppm is far saltier than local surface water.`,
-           `Simulated: the simulated nodes nearby read ${lo} to ${hi} ppm.`,
-           `Filter: ZeroWater has filtered ${f.liters} L; this retest read ${after.tds} ppm against its 6 ppm replace point.`]
-        : [`Demo reading: transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
+           `The nodes nearby read ${lo} to ${hi} ppm.`, life]
+        : [`Transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
            `Published: Lake Carnegie typically reads about 177 ppm (NJ DEP, 2022 to 2023), similar to this sample.`,
-           `Simulated: the simulated nodes nearby read ${lo} to ${hi} ppm.`,
-           `Filter: Brita Elite has filtered ${f.liters} L of its ~450 L rating (${f.percent_used}%).`];
-      const actions = zw
-        ? (after.tds >= 6
-            ? ["Replace the ZeroWater cartridge: the retest read 6 ppm or more.", "Keep high-TDS water out of the tank until the new cartridge is in."]
-            : ["Find out where the salty sample came from.", "Have that source tested by a lab before relying on it: this device reads only dissolved solids and transparency."])
+           `The nodes nearby read ${lo} to ${hi} ppm.`, life];
+      const actions = solids
+        ? ["Find out where the salty sample came from.", "Have that source tested by a lab before relying on it."]
         : (f.status === "OK"
             ? ["Retest the source tomorrow to see if the cloudiness persists.", "If it does, have it tested by a lab: cloudiness has many causes this device cannot tell apart."]
             : ["Order a replacement Brita Elite cartridge; this one is past 90% of its rating.", "Retest the source tomorrow to see if the cloudiness persists."]);
-      const summary = zw
-        ? `ZeroWater took this cup from ${before.tds} ppm to ${after.tds} ppm of dissolved solids${after.tds >= 6 ? ", but that is at its replace point" : ", so the filter did its job"}.`
-        : `Brita took the cup's transparency from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}, so the filter did its job.`;
+      const summary = solids
+        ? `Brita took this cup's dissolved solids from ${before.tds} ppm to ${after.tds} ppm${back ? ", and the retest is back in range" : ", so the retest is still out of range: a carbon filter leaves most dissolved minerals in"}.`
+        : `Brita took the cup's transparency from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}${back ? ", so the filter did its job" : ", but the retest is still out of range"}.`;
       // the same extra fields the gateway sends (gateway/analysis.py and investigator.py), worked out simply here
       const checks = sampleChecks(before), lead = checks.baseline.find((x) => x.metric === checks.lead.metric);
       const val = (k, v) => (k === "tds" ? `${Math.round(v)} ppm` : v.toFixed(k === "clarity" ? 2 : 1));
-      const far = Math.abs(lead.z) >= 3, name = zw ? "ZeroWater" : "Brita Elite", back = after.verdict === "SAFE";
+      const far = Math.abs(lead.z) >= 3, name = "Brita Elite";
       const problem = { HIGH_TDS: `high in dissolved solids (${before.tds} ppm)`, CLOUDY: `cloudy (transparency ${before.clarity.toFixed(2)})`, PH_WARN: `outside the usual pH range (pH ${before.ph.toFixed(1)})` }[before.verdict];
-      const notice = `Demo example: a scripted cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, dissolved solids and transparency both read in range.`
+      const notice = `A cup of water at ${tank.name} read ${problem}${back ? ` and was sent through ${name}. On the retest, dissolved solids and transparency both read in range.`
         : `, and after ${name} the retest was still out of range. Have this source tested by a certified lab before relying on it.`}${before.verdict === "CLOUDY" ? " A pitcher filter does not disinfect." : ""} Clarity reads only dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant.`;
       const sections = [
-        { agent: "sensor-health", title: "Sensor health", text: "Demo reading: dissolved solids and transparency both read plausibly, and the pH estimated from TDS is not independent evidence. Nothing is stuck, out of range or trending. These are simplified sample checks, not a live sensor diagnosis." },
-        { agent: "analyst", title: "This site's history", text: `Demo reading: ${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
-        { agent: "network", title: "Nearby and published", text: `Simulated: none of the ${checks.peers.n} simulated nodes nearby moved the same way, so this looks local to this site. ${findings[1]}` },
-        { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Demo filter: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },
+        { agent: "sensor-health", title: "Sensor health", text: "Dissolved solids and transparency both read plausibly. Nothing is stuck, out of range or trending." },
+        { agent: "analyst", title: "This site's history", text: `${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
+        { agent: "network", title: "Nearby and published", text: `None of the ${checks.peers.n} nodes nearby moved the same way, so this looks local to this site. ${findings[1]}` },
+        { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "")} Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications).` },
         { agent: "comms", title: "Draft notice", text: notice },
       ];
       // the same triage, tool trail and figure check the gateway reports (analysis.plan, investigator.py, analysis.ground)
@@ -217,14 +208,10 @@
         f.liters += 0.1; f.tips += 1;
         if (!quiet) emit({ type: "filters", filters: filterList() });
         const retest = () => {
-          let a;
-          if (used === "ZEROWATER") {
-            const out = 1 + Math.floor(random() * 4); f.runs += 1;
-            a = add(tank, before.test, "after", before.ph - 0.6 - random() * 0.4, out, Math.min(1, before.clarity + 0.03), opts.ago ? opts.ago - 20 : 0);
-            if (out >= 6 && !f.bad) f.bad = a.test;
-          } else {
-            a = add(tank, before.test, "after", before.ph - 0.1, before.tds * 0.9, 0.86 + random() * 0.09, opts.ago ? opts.ago - 20 : 0);
-          }
+          // An estimate of a carbon filter, not a measured one: dissolved solids barely move,
+          // and cloudy or coloured water comes back clearer.
+          const a = add(tank, before.test, "after", before.ph - 0.1, before.tds * (0.95 + random() * 0.05),
+            Math.max(before.clarity, 0.86 + random() * 0.09), opts.ago ? opts.ago - 20 : 0);
           a.sample_case = before.sample_case;
           f.last = a.tds;
           const report = makeReport(before, a, used);
@@ -284,7 +271,6 @@
       const m = path.match(/^\/api\/filters\/(\w+)\/replace/);
       if (!m) return Promise.reject(new Error("404 " + path));
       const key = m[1].toUpperCase();
-      if (key === "ZEROWATER") Object.assign(filt.ZEROWATER, { liters: 0, tips: 0, runs: 0, last: null, bad: null });
       if (key === "BRITA") Object.assign(filt.BRITA, { liters: 0, tips: 0, last: null });
       const list = filterList();
       emit({ type: "filters", filters: list });

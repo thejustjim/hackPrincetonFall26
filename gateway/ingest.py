@@ -7,9 +7,24 @@ Legacy firmware has no boot nonce, so its best available identity is (node, test
 Existing history is never deleted or rewritten by the additive migration.
 """
 import json
+import os
 import math
 import re
 from datetime import datetime, timezone
+
+# The filters fitted to the rig. The tank has one, a Brita, and its servo always tips the cup
+# there: whatever filter a rule, an older sketch or a model names, that is where the cup goes.
+# FILTERS=ZEROWATER,BRITA brings the second one back.
+FITTED = tuple(f for f in os.getenv("FILTERS", "BRITA").upper().replace(" ", "").split(",")
+               if f in ("ZEROWATER", "BRITA"))
+
+
+def fitted(choice):
+    """The filter the cup really goes to for this choice: itself if fitted, else the fitted one."""
+    if choice == "NONE" or choice in FITTED:
+        return choice
+    return FITTED[0] if FITTED else "NONE"
+
 
 EXTRA_COLUMNS = {
     "ph_est": "INTEGER", "session": "TEXT", "seq": "INTEGER", "sender_ms": "INTEGER",

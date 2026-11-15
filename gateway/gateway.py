@@ -194,6 +194,8 @@ def attach_after(reading):
 def filter_life(node="tank-01"):
     out = []
     for key, spec in FILTERS.items():
+        if key not in ingest.FITTED:                      # not on the rig
+            continue
         with db_lock:
             ch = db.execute("SELECT ts FROM filter_changes WHERE node=? AND filter=? ORDER BY id DESC LIMIT 1",
                             (node, key)).fetchone()
@@ -241,13 +243,26 @@ def load_reference():
 
 
 # ---------------------------------------------------------------- the decision agent (Gemini or Claude)
-SYSTEM = (
+TWO_FILTERS = (
     "You are the decision agent inside Clarity, a water tester with two filters: ZEROWATER "
     "(ion exchange: removes dissolved solids, the choice for high TDS) and BRITA (activated carbon: "
     "certified for chlorine taste and fine particles; this device also sends cloudy or coloured "
     "water to it, which is the team's rule rather than a certified claim). You get one water test "
     "plus that site's recent history. Choose the filter the cup should be tipped into, or NONE if "
-    "the measured readings are in range or no filter helps (neither filter corrects pH). The per-reading "
+    "the measured readings are in range or no filter helps (neither filter corrects pH). "
+)
+ONE_FILTER = (
+    "You are the decision agent inside Clarity, a water tester with one filter: BRITA (activated "
+    "carbon: certified for chlorine taste and fine particles; it is not built to remove dissolved "
+    "solids). The device tips a cup into it when dissolved solids are high or the water is cloudy or "
+    "coloured, which is the team's rule rather than a certified claim, and then measures the water "
+    "again to show what the filter changed. You get one water test plus that site's recent history. "
+    "Choose BRITA when dissolved solids are high or the water is cloudy or coloured, or NONE when the "
+    "measured readings are in range (the filter does not correct pH). Never say the filter removes "
+    "dissolved solids: say the retest will show what it changed. "
+)
+SYSTEM = (
+    (TWO_FILTERS if len(ingest.FITTED) > 1 else ONE_FILTER) + "The per-reading "
     "ph_est flag/provenance says whether pH is measured or derived from TDS: never count a derived pH as "
     "an independent signal. Then explain "
     "the result to a non-expert in at most three short sentences, mentioning the numbers that "
@@ -260,7 +275,7 @@ SYSTEM = (
 SCHEMA = {
     "type": "object",
     "properties": {
-        "filter": {"type": "string", "enum": ["ZEROWATER", "BRITA", "NONE"]},
+        "filter": {"type": "string", "enum": [*ingest.FITTED, "NONE"]},
         "explanation": {"type": "string"},
     },
     "required": ["filter", "explanation"],
@@ -335,6 +350,7 @@ def checked(text, who):
         return None
     if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
         return None
+    result["filter"] = ingest.fitted(result["filter"])          # the cup can only go to a filter that is on the rig
     result["explanation"] = no_promises(result.get("explanation"))
     return result
 
@@ -468,7 +484,7 @@ def clean_reading(msg):
     ask = msg.get("ask", 1) not in (0, False, "0")
     reading = {**extra, "ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
             "clarity": round(min(1.0, max(0.0, clarity)), 2), "verdict": msg["verdict"],
-            "filter": msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE",
+            "filter": ingest.fitted(msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE"),
             "rssi": int(rssi) if isinstance(rssi, (int, float)) and math.isfinite(rssi) else None}
     reading["device_verdict"] = msg["verdict"]
     reading["verdict"] = analysis.measured_verdict(reading)
@@ -964,6 +980,22 @@ def find_serial_ports():
     return [p for pattern in patterns for p in sorted(glob.glob(pattern))]
 
 
+RECORD = "" if MOCK or os.getenv("RECORD") == "0" else os.getenv("RECORD_PATH", mock.LOG_PATH)
+
+
+def record(text):
+    """Keep every line the real receiver sends (logs/tank.jsonl, not in git), so that if the
+    tank goes quiet its own pours can be played back: MOCK=1 MOCK_SCENARIO=replay."""
+    if not RECORD:
+        return
+    try:
+        os.makedirs(os.path.dirname(RECORD), exist_ok=True)
+        with open(RECORD, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": round(time.time(), 3), "line": text}) + "\n")
+    except OSError as e:
+        print("recording skipped:", e)
+
+
 def reader_thread(loop):
     buf = b""
     while True:
@@ -980,6 +1012,7 @@ def reader_thread(loop):
             text = buf.decode(errors="ignore").strip()
             buf = b""
             if text:
+                record(text)
                 asyncio.run_coroutine_threadsafe(handle_line(text), loop)
 
 
@@ -1097,6 +1130,7 @@ def manual_cmd(test: int, filter: str, node: str = "tank-01"):
     choice = filter.upper()
     if choice not in ("ZEROWATER", "BRITA", "NONE") or not 0 <= test <= 65535:
         raise HTTPException(422, "filter must be ZEROWATER, BRITA or NONE, and test a pour number")
+    choice = ingest.fitted(choice)
     if node not in NODES or NODES[node]["sim"]:
         raise HTTPException(404, "unknown real node")
     with db_lock:

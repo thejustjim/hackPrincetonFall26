@@ -21,3 +21,6 @@ gateway/guidance_index.json
 # JavaScript dependencies and local builds
 node_modules/
 dist/
+
+# what the real receiver sent, kept so a quiet tank can be replayed (gateway/logs/tank.jsonl)
+gateway/logs/

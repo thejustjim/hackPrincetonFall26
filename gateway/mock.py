@@ -1,7 +1,9 @@
 """Seeded fake Clarity hardware, with the same addressed JSON contract as the receiver.
 
 MOCK=1 uses it in gateway.py. MOCK_SCENARIO chooses cycle (default), duplicate,
-sensor-fault, drift, regional or close-call. MOCK_SEED=26 repeats the values; each boot
+sensor-fault, drift, regional, close-call or replay. replay plays back pours the real tank
+sent earlier (MOCK_LOG, by default the gateway's own recording in logs/tank.jsonl), so a
+silent tank can be stood in for by its own readings; the others are estimates. MOCK_SEED=26 repeats the values; each boot
 still gets a fresh session so restarting a simulation does not reuse measurement identities.
 MOCK_PERIOD controls seconds between pours (default 25). Nothing here moves hardware.
 """
@@ -12,15 +14,18 @@ import sys
 import time
 import uuid
 
+from ingest import fitted
+
 CUPS = {"clean": (7.4, 140, 0.97), "salty": (7.6, 780, 0.95), "tea": (6.9, 210, 0.42),
         "close-call": (7.3, 300, 0.95)}
-SCENARIOS = ("cycle", "duplicate", "sensor-fault", "drift", "regional", "close-call")
+SCENARIOS = ("cycle", "duplicate", "sensor-fault", "drift", "regional", "close-call", "replay")
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "tank.jsonl")
 TDS_LIMIT, CLARITY_LIMIT, PH_LOW, PH_HIGH = 300, 0.70, 6.5, 8.5
 
 
 def verdict_for(ph, tds, clarity):
     if tds > TDS_LIMIT:
-        return "HIGH_TDS", "ZEROWATER"
+        return "HIGH_TDS", fitted("ZEROWATER")
     if clarity < CLARITY_LIMIT:
         return "CLOUDY", "BRITA"
     if ph < PH_LOW or ph > PH_HIGH:
@@ -53,15 +58,46 @@ def after_filter(ph, tds, clarity, filt, wear=0, rng=None):
     if filt == "ZEROWATER":
         return round(ph - rng.uniform(0.6, 1.0), 2), rng.randint(0, 2) + wear, round(min(1.0, clarity + 0.03), 2)
     if filt == "BRITA":
-        return round(ph - 0.1, 2), int(tds * rng.uniform(0.96, 1.0)), round(rng.uniform(0.86, 0.95), 2)
+        # carbon: dissolved solids barely move; cloudy or coloured water comes back clearer
+        return round(ph - 0.1, 2), int(tds * rng.uniform(0.95, 1.0)), round(max(clarity, rng.uniform(0.86, 0.95)), 2)
     return ph, tds, clarity
+
+
+def load_log(path, node="tank-01"):
+    """Recorded receiver lines -> [(epoch seconds or None, reading)] for one node, in order.
+    Reads the gateway's recording ({"t": epoch, "line": "<what the receiver sent>"} per line)
+    and plain captures of the serial port (one JSON reading per line). A retest is kept only
+    if its first reading is in the recording, and a line sent twice is kept once."""
+    rows, open_tests, seen = [], set(), set()
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+    except OSError:
+        return rows
+    for text in lines:
+        try:
+            d, t = json.loads(text), None
+            if isinstance(d, dict) and "line" in d:
+                t, d = float(d["t"]), json.loads(d["line"])
+            if not isinstance(d, dict) or d.get("node") != node or d.get("phase") not in ("before", "after"):
+                continue
+            float(d["ph"]), float(d["tds"]), float(d["clarity"])
+            key = (d.get("session"), int(d["test"]))
+        except (ValueError, TypeError, KeyError):
+            continue
+        if (key, d["phase"]) in seen or (d["phase"] == "after" and key not in open_tests):
+            continue
+        seen.add((key, d["phase"]))
+        open_tests.add(key)
+        rows.append((t, d))
+    return rows
 
 
 class MockDevice:
     """Serial-like readline/write, with injectable time for no-wait deterministic tests."""
 
     def __init__(self, node="tank-01", period=None, seed=None, scenario=None, session=None,
-                 clock=None, sleeper=None, ph_estimated=True):
+                 clock=None, sleeper=None, ph_estimated=True, log=None):
         self.node = node
         self.period = float(os.getenv("MOCK_PERIOD", "25")) if period is None else period
         self.scenario = scenario or os.getenv("MOCK_SCENARIO", "cycle")
@@ -77,6 +113,12 @@ class MockDevice:
         self.next_test_at = self.started + 3
         self.cup_cycle = ["clean", "salty", "tea"]
         self.zw_runs = 0
+        self.recorded = []
+        if self.scenario == "replay":
+            path = str(log or os.getenv("MOCK_LOG") or LOG_PATH)
+            self.recorded = load_log(path, node)
+            if not self.recorded:
+                raise ValueError("MOCK_SCENARIO=replay needs recorded pours: none in " + path)
 
     def write(self, data: bytes):
         try:
@@ -113,6 +155,31 @@ class MockDevice:
             self.before_identity = {k: v for k, v in self.before_identity.items() if k >= test - 2}
         return text
 
+    def _schedule_replay(self, now):
+        """Queue one pass over the recording and return how long it lasts. The gaps between
+        lines are the recorded ones, but never longer than the period, so idle hours are skipped."""
+        at, last, first, numbers = now, None, True, {}
+        for t, d in self.recorded:
+            key = (d.get("session"), int(d["test"]))
+            if d["phase"] == "before":
+                self.test += 1
+                numbers[key] = self.test
+            if not first:
+                gap = t - last if t is not None and last is not None else (15 if d["phase"] == "after" else self.period)
+                at += min(max(gap, 0.3), self.period)
+            first, last = False, t
+            self.queue.append((at, ("REPLAY", numbers[key], d)))
+        return at - now
+
+    def _replayed(self, test, d, now):
+        """A recorded reading as this session's own: the values as the tank sent them, a new
+        identity, and no question for the model (the filter is the one the tank's rule chose)."""
+        self.seq += 1
+        out = {k: v for k, v in d.items() if k not in ("measured_ts", "received_ts")}
+        out.update(test=test, session=self.session, seq=self.seq, ask=0,
+                   sender_ms=max(0, int((now - self.started) * 1000)) & 0xffffffff)
+        return json.dumps(out, separators=(",", ":"))
+
     def _schedule_test(self, now):
         self.test += 1
         cup = "close-call" if self.scenario == "close-call" else self.cup_cycle[(self.test - 1) % len(self.cup_cycle)]
@@ -142,12 +209,17 @@ class MockDevice:
     def readline(self) -> bytes:
         now = self.clock()
         if now >= self.next_test_at:
-            self._schedule_test(now)
-            self.next_test_at = now + self.period
+            if self.scenario == "replay":
+                self.next_test_at = now + self._schedule_replay(now) + self.period
+            else:
+                self._schedule_test(now)
+                self.next_test_at = now + self.period
         self.queue.sort(key=lambda x: x[0])
         if self.queue and self.queue[0][0] <= now:
             _, item = self.queue.pop(0)
-            if isinstance(item, tuple):
+            if isinstance(item, tuple) and item[0] == "REPLAY":
+                item = self._replayed(item[1], item[2], now)
+            elif isinstance(item, tuple):
                 _, test, ph, tds, clr, rule_f = item
                 f = self.ai_choice.pop(test, rule_f)
                 ph2, tds2, clr2 = after_filter(ph, tds, clr, f, wear=self.zw_runs // 2, rng=self.rng)

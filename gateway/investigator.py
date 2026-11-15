@@ -87,8 +87,9 @@ RULES += """
 """
 
 LEAD = """You lead the investigation inside Clarity, a low-cost water tester near Princeton, NJ.
-A cup of water was measured (the "before" test), tipped through a filter (ZEROWATER removes
-dissolved solids; BRITA is activated carbon for colour, cloudiness and taste), then poured
+A cup of water was measured (the "before" test), tipped through a filter (BRITA is activated
+carbon for colour, cloudiness and taste, and is not built to remove dissolved solids, so never
+say it does; ZEROWATER, where a record names it, removes dissolved solids), then poured
 back and measured again (the "after" test). You get both readings, plus the verdict of the
 gateway's own statistical checks.
 
