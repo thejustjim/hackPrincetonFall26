@@ -309,11 +309,7 @@
       }
       if (what === "all" || what === "conn") {
         const [short, long] = {
-          live: store.health.mock
-            ? (store.health.simulation?.scenario === "replay"
-              ? ["Replayed pours", "The gateway is playing back pours the tank recorded earlier"]
-              : [`Simulated tank${store.health.ai ? `, ${store.health.ai_name || "AI"} on` : ""}`, "The gateway is running its simulated tank"])
-            : store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} decides whether to filter`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
+          live: store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} decides whether to filter`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
           down: ["Reconnecting", "Lost the gateway; reconnecting"],
           offline: ["Prototype offline", "No live measurements are available; sample readings are not shown in prototype mode"],
           demo: ["Demo data", "No gateway reachable, so this is demo data"],

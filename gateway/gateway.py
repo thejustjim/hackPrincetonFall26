@@ -56,6 +56,7 @@ import analysis
 import cloud
 import guidance
 import ingest
+import baseline
 import mock
 
 MOCK = os.getenv("MOCK") == "1"
@@ -1037,6 +1038,46 @@ async def simulate_nodes():
             await asyncio.sleep(20 / max(1, len(sims)))
 
 
+# ---------------------------------------------------------------- a baseline for a new tank
+BASELINE_DAYS = float(os.getenv("BASELINE_DAYS", "7"))
+
+
+def seed_baseline(node="tank-01"):
+    """Give a tank with no history a week of estimated pours to be read against (baseline.py).
+    Runs once per database: a tank that already has its estimated rows is left alone. The rows
+    are marked by their session and never go to the cloud copy. Returns how many were written."""
+    if BASELINE_DAYS <= 0 or node not in NODES:
+        return 0
+    with db_lock:
+        if db.execute("SELECT 1 FROM readings WHERE node=? AND session=? LIMIT 1", (node, baseline.SESSION)).fetchone():
+            return 0
+        own = [r[0] for r in db.execute("SELECT tds FROM readings WHERE node=? AND phase='before' AND verdict='SAFE' "
+                                        "ORDER BY id DESC LIMIT 30", (node,))]
+    centre = (float(os.getenv("BASELINE_TDS")) if os.getenv("BASELINE_TDS")
+              else statistics.median(own) if len(own) >= 3 else mock.CUPS["clean"][1] if MOCK else baseline.TDS)
+    written = 0
+    for i, e in enumerate(baseline.estimate(days=BASELINE_DAYS, tds=centre), 1):
+        msg, problem = clean_reading({"node": node, "test": i, "phase": "before", "ph": mock.estimated_ph(e["tds"]),
+                                      "tds": e["tds"], "clarity": e["clarity"], "verdict": "SAFE", "filter": "NONE",
+                                      "ph_est": 1, "ask": 0, "session": baseline.SESSION, "seq": i, "measured_ts": e["ts"]})
+        if msg is None:
+            print("baseline row dropped:", problem)
+            continue
+        reading = {**msg, "ts": msg["measured_ts"], "received_ts": msg["measured_ts"], "lat": NODES[node]["lat"],
+                   "lon": NODES[node]["lon"], "sim": NODES[node]["sim"], "ai_filter": "NONE", "explanation": None}
+        reading["anomaly"] = anomaly_score(node, reading)
+        written += store(reading) is not None
+    with db_lock:
+        db.execute("UPDATE readings SET source='local_rule' WHERE node=? AND session=?", (node, baseline.SESSION))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_outbox'").fetchone():
+            # estimates stay on this machine: take them back out of the queue for the cloud copy
+            db.execute("DELETE FROM cloud_outbox WHERE kind='reading' AND row_id IN "
+                       "(SELECT id FROM readings WHERE session=?)", (baseline.SESSION,))
+        db.commit()
+    print(f"baseline: {written} estimated pours around {centre:.0f} ppm written for {node} (session {baseline.SESSION})")
+    return written
+
+
 # ---------------------------------------------------------------- web app
 app = FastAPI(title="Clarity base station")
 # Reading is open to any page (a dashboard hosted elsewhere can point at this gateway).
@@ -1072,6 +1113,10 @@ def require_control(request: Request):
 @app.on_event("startup")
 async def startup():
     global device
+    try:
+        seed_baseline()                                   # before anything is read, sent to the cloud or shown
+    except Exception as e:
+        print(f"baseline skipped ({type(e).__name__}: {e})")
     device = open_device()
     loop = asyncio.get_running_loop()
     threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
@@ -1286,6 +1331,7 @@ def health():
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},
             "clients": len(clients),
+            "estimated_history": db.execute("SELECT count(*) FROM readings WHERE session=?", (baseline.SESSION,)).fetchone()[0],
             "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
     if MOCK:
         state["simulation"] = {"scenario": getattr(device, "scenario", os.getenv("MOCK_SCENARIO", "cycle")),

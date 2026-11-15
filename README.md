@@ -434,7 +434,16 @@ MOCK=1 MOCK_SCENARIO=replay python gateway.py   # a quiet tank: play back the po
 A run against the real receiver keeps every line it sends in `gateway/logs/tank.jsonl` (not in git;
 `RECORD=0` turns that off). `MOCK_SCENARIO=replay` plays that file back as new pours, with the tank's own
 values and waits cut to the period (`MOCK_LOG=<file>` for a recording made elsewhere). With no recording,
-`MOCK=1` runs estimated pours instead. The page says "Replayed pours" or "Simulated tank", never "Live".
+`MOCK=1` runs estimated pours instead.
+
+**A week to be read against.** A tank with no history has nothing to compare a pour with, so at startup the
+gateway gives it one: 168 estimated pours of tap water, one an hour for the past week (`gateway/baseline.py`).
+They centre on what the tank's own in-range pours read if it has a few, else 160 ppm (`BASELINE_TDS=<ppm>`
+sets it), with a wide scatter so ordinary tap water reads as usual for the site and salt or tea does not.
+They are estimates, not measurements: every row has the session `baseline-est`, they stay out of the cloud
+copy, `GET /health` counts them (`estimated_history`), and this removes them:
+`sqlite3 taptest.db "DELETE FROM readings WHERE session = 'baseline-est'"`. `BASELINE_DAYS=0` turns the
+seeding off; it happens once per database.
 `requirements.lock.txt` has the exact versions this was tested with (`pip install -r requirements.lock.txt`).
 
 The gateway looks for the receiver's USB serial port itself, trying USB-serial adapters (the ESP32
