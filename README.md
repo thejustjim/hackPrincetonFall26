@@ -85,7 +85,7 @@ data are labelled, and nothing calls water safe.
 
 ## The pages on the web
 `web/` is plain static files, so it can be hosted anywhere. It is deployed from that folder to
-Vercel's free tier at https://wateramongus.vercel.app (`cd web && vercel deploy --prod`;
+Vercel's free tier at https://wateramong.us (also https://wateramongus.vercel.app; `cd web && vercel deploy --prod`;
 `web/vercel.json` only makes addresses end in a slash). With no gateway behind it, the pages there
 run on the built-in sample data and say "Demo data". The live readings stay on the base station.
 
