@@ -69,6 +69,7 @@ html.opening .glow { filter: opacity(0); }
 .wordmark:hover { text-decoration: none; }
 .wordmark svg { width: 16px; height: 20px; }
 .wordmark .logo { display: block; height: 34px; width: auto; }      /* the team's logo: the drop and the name */
+.bar .tagline { position: relative; top: 5px; }      /* so the words sit on the same line as the name inside the logo */
 .bar .spacer { flex: 1; }
 .conn { display: inline-flex; align-items: center; gap: 7px; color: var(--label2); font-size: 13px; letter-spacing: 0; }
 .conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); }
