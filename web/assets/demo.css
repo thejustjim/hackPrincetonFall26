@@ -200,6 +200,20 @@ td.n, th.n { text-align: right; padding-left: 18px; }
 .agents dd { margin: 2px 0 0; font-size: 17px; line-height: 1.45; }
 .notice { margin: 0; max-width: 40em; padding-left: 18px; border-left: 1px solid var(--accent); font-style: italic; font-size: 18px; line-height: 1.5; color: var(--text); }
 .notice + .by { margin-top: 10px; }
+/* the investigator at work, and afterwards the trail each agent left */
+.swarm { margin: 16px 0 6px; padding: 14px 0 6px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); max-width: 44em; }
+.swarm .by { margin: 0 0 10px; color: var(--label2); }
+.swarm ul { margin: 0 !important; padding: 0 !important; list-style: none; display: grid; gap: 0 !important; }
+.swarm li { display: grid; grid-template-columns: 11.5em minmax(0, 1fr); gap: 16px; padding: 7px 0; font-size: 17px; transition: opacity 0.5s ease; }
+.swarm li b { font-weight: 400; }
+.swarm li span { font: 13px/1.5 var(--sans); color: var(--label2); padding-top: 3px; }
+.swarm li.waiting { opacity: 0.4; }
+.swarm li.asked span, .swarm li.working span { color: var(--accent); }
+.swarm li.working span::after, .swarm li.asked span::after { content: " …"; }
+.agents dt small { display: block; margin-top: 1px; font: normal 13px/1.4 var(--sans); color: var(--label3); }
+.agents .trail { margin-top: 5px; font: 13px/1.4 var(--sans); color: var(--label3); }
+.agents .untraced { color: var(--warn); font-style: italic; }
+#report .by.checked { margin: 0 0 14px; color: var(--label2); }
 .quiet { color: var(--label2); }
 
 #filters + #nearby { margin-top: 36px; }

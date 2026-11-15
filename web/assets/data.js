@@ -145,6 +145,21 @@
       } else if (m.type === "report") {
         s.report = m;
         emit("report");
+      } else if (m.type === "agent") {
+        // the investigator at work: the plan first, then each hand-off, tool call and answer as it happens
+        if (m.event === "plan") {
+          s.swarm = { test: m.test, state: "working", check: null,
+                      rows: new Map((m.plan || []).map((x) => [x.agent, { agent: x.agent, why: x.why, tools: [], state: "waiting" }])) };
+        } else if (s.swarm) {
+          let row = m.agent ? s.swarm.rows.get(m.agent) : null;
+          if (m.agent && !row) s.swarm.rows.set(m.agent, (row = { agent: m.agent, why: "added by the lead", tools: [], state: "waiting" }));
+          if (m.event === "asked" && row) row.state = "asked";
+          else if (m.event === "tool" && row) { row.state = "working"; row.tools.push(m.tool); }
+          else if (m.event === "answered" && row) row.state = "answered";
+          else if (m.event === "check") { s.swarm.state = "checking"; s.swarm.check = m.check; }
+          else if (m.event === "failed" || m.event === "done") s.swarm.state = m.event;
+        }
+        emit("swarm");
       }
     }, (kind) => { s.conn = kind; emit("conn"); });
 

@@ -146,14 +146,38 @@
         { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Measured: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },
         { agent: "comms", title: "Draft notice", text: notice },
       ];
+      // the same triage, tool trail and figure check the gateway reports (analysis.plan, investigator.py, analysis.ground)
+      const plan = (far ? [["analyst", "the pour is unusual for this site"], ["network", "to tell a local change from a regional one, and to set it against published samples"]] : [])
+        .concat([["maintenance", "a filter was used"], ["comms", "every report carries a notice"]]).map(([agent, why]) => ({ agent, why }));
+      const TOOLS = { analyst: ["get_case", "get_baseline", "get_site_history"], network: ["get_case", "get_peer_comparison", "get_reference_data"],
+                      maintenance: ["get_case", "get_filter_life", "search_guidance"], comms: ["get_case", "get_notice_templates"] };
+      const asked = sections.filter((x) => plan.some((q) => q.agent === x.agent));
+      const figures = (asked.map((x) => x.text).concat(findings, [summary]).join(" ").match(/(?<![\w.])\d+(?:\.\d+)?/g) || []).filter((n) => n.includes(".") || +n >= 13).length;
       return { type: "report", id: ++reportId, ts: now(), node: after.node, test: after.test, reading_id: after.id,
                filter: used, summary, findings, actions, source: "sample", model: "sample",
+               plan, trail: plan.map((q, i) => ({ agent: q.agent, tools: TOOLS[q.agent], seconds: 3 + i * 0.3 })),
+               check: { figures, traced: figures, dropped: 0, summary_ok: true, untraced: [] }, seconds: 5,
                kind: checks.kind, kind_words: far ? "Unusual for this site" : "Nothing unusual", severity: back ? (far ? 1 : 0) : 2,
-               severity_words: back ? (far ? "Worth a second look" : "No action needed") : "Act on it", checks, notice, sections };
+               severity_words: back ? (far ? "Worth a second look" : "No action needed") : "Act on it", checks, notice, sections: asked };
     }
 
     const latest = (node) => { for (let i = readings.length - 1; i >= 0; i--) if (readings[i].node === node) return readings[i]; return null; };
     const tank = SITES[0];
+
+    // the sample investigator at work: the same events the gateway sends while its agents run, then the report
+    function playAgents(report) {
+      const who = { type: "agent", node: report.node, test: report.test };
+      const at = (ms, e) => setTimeout(() => emit({ ...who, ...e }), ms);
+      at(500, { event: "plan", agent: null, plan: report.plan });
+      report.plan.forEach((q, i) => {
+        at(900, { event: "asked", agent: q.agent });
+        report.trail[i].tools.forEach((tool, k) => at(1400 + i * 260 + k * 620, { event: "tool", agent: q.agent, tool }));
+        at(3300 + i * 300, { event: "answered", agent: q.agent });
+      });
+      at(4500, { event: "check", agent: null, check: report.check });
+      setTimeout(() => emit(report), 5200);
+      at(5300, { event: "done", agent: null });
+    }
 
     // a tank pour: before -> decision -> tip -> after -> filters -> report
     function pour(cupName, opts = {}) {
@@ -186,7 +210,7 @@
           if (quiet) return;
           emit({ type: "reading", ...a });
           emit({ type: "filters", filters: filterList() });
-          setTimeout(() => emit(report), 5000);
+          playAgents(report);
         };
         quiet ? retest() : setTimeout(retest, 11000);
       };

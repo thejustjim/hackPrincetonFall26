@@ -208,6 +208,18 @@ own tools:
 | `maintenance` | Filter life and upkeep | `get_filter_life`, `search_guidance` (search over EPA and AWWA documents, below) |
 | `comms` | A short notice for the people who use this water | `get_notice_templates` |
 
+Three things happen around the specialists:
+
+- **Triage.** `analysis.plan` decides from the checks which specialists a run needs, and why: two
+  for an ordinary filtered pour, four for an unusual one, the sensor specialist first when a sensor
+  check fails. The lead is handed that plan and may add to it only with a stated reason.
+- **Watching.** Every hand-off, tool call and answer is sent over `/ws` as it happens
+  (`{"type":"agent","event":"plan"|"asked"|"tool"|"answered"|"check"|"done"|"failed", ...}`), and the
+  page shows the agents working until the report arrives.
+- **Checking.** `analysis.ground` compares every figure in what the agents wrote with the case and
+  with everything a tool returned during the run. A finding or action with a figure that cannot be
+  traced is dropped, and the report records how many figures were checked.
+
 The agents explain and decide what to do next; they do not compute. Every number comes from a
 tool, and the verdict and severity come from `analysis.py`, not from a model. The notice is
 filled in from fixed templates, always ends with what Clarity cannot detect, is discarded for

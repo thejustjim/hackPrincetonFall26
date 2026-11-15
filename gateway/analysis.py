@@ -320,3 +320,78 @@ def notice_ok(text):
     """A model-written notice is used only if it keeps the required sentence and promises nothing."""
     low = (text or "").lower()
     return NOTICE_REQUIRED in (text or "") and not any(w in low for w in (" safe", "drink", "healthy", "clean to"))
+
+
+# ---------------------------------------------------------------- who to ask (triage)
+# The checks decide which of the investigator's specialists a case needs, and why. An ordinary
+# pour needs two; a sensor fault needs the sensor looked at before anything is said about the
+# water. The lead agent is handed this plan and may add to it, but has to say why.
+def plan(case, result):
+    """-> [{"agent", "why"}] for one filter run, most important first."""
+    kind, used = result["kind"], case.get("filter") in ("ZEROWATER", "BRITA")
+    after_out = bool(case.get("after")) and case["after"].get("verdict") not in (None, "SAFE")
+    flagged = [s for s in result["sensor"] if s["status"] != "ok"]
+    ask = []
+    if kind == "sensor_fault" or flagged:
+        ask.append(("sensor-health", "a sensor check did not pass, so the reading has to be believed before it is explained"))
+    if kind in ("local_event", "regional_shift", "persistent_shift"):
+        ask.append(("analyst", {"local_event": "the pour is unusual for this site", "regional_shift": "the pour is unusual for this site",
+                                "persistent_shift": "a small shift has persisted across recent pours"}[kind]))
+    if kind in ("local_event", "regional_shift"):
+        ask.append(("network", "to tell a local change from a regional one, and to set it against published samples"))
+    if used or after_out or kind in ("sensor_fault", "persistent_shift"):
+        ask.append(("maintenance", "a filter was used" if used else "upkeep may be what this needs"))
+    ask.append(("comms", "every report carries a notice"))
+    return [{"agent": a, "why": w} for a, w in ask]
+
+
+# ---------------------------------------------------------------- checking what the agents wrote
+# The agents may explain; they may not make up figures. Every number in their report has to appear
+# in the case or in something a tool returned during the run. Small counts and the fixed limits the
+# agents are told about are allowed. A finding or action with a figure that cannot be traced is dropped.
+import re as _re
+
+ALLOWED = {300, 500, 6.5, 8.5, 0.7, 6, 450, 120}       # the limits and makers' ratings in the agents' instructions
+_NUMBER = _re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
+
+
+def _numbers(text):
+    return [m.group(0) for m in _NUMBER.finditer(text or "")]
+
+
+def ground(report, evidence):
+    """report: {"summary", "findings", "actions", "sections"}; evidence: text of the case and of every
+    tool result. -> the report with untraceable findings and actions removed, and a "check" record."""
+    known = {float(n) for n in _numbers(evidence)} | {float(a) for a in ALLOWED}
+
+    def traced(token):
+        value, places = float(token), len(token.split(".")[1]) if "." in token else 0
+        if value == int(value) and value < 13:                      # small counts are prose, not figures
+            return None
+        return value in known or any(round(k, places) == value for k in known)
+
+    figures = traced_n = 0
+    untraced = []
+
+    def ok(where, text):
+        nonlocal figures, traced_n
+        bad = []
+        for token in _numbers(text):
+            t = traced(token)
+            if t is None:
+                continue
+            figures += 1
+            traced_n += bool(t)
+            if not t:
+                bad.append(token)
+        if bad:
+            untraced.append({"where": where, "text": text, "numbers": bad})
+        return not bad
+
+    findings = [f for f in report.get("findings", []) if ok("finding", f)]
+    actions = [a for a in report.get("actions", []) if ok("action", a)]
+    summary_ok = ok("summary", report.get("summary", ""))
+    sections = [{**s, "traced": ok(f"section:{s.get('agent')}", s.get("text", ""))} for s in report.get("sections", [])]
+    dropped = (len(report.get("findings", [])) - len(findings)) + (len(report.get("actions", [])) - len(actions))
+    return ({**report, "findings": findings, "actions": actions, "sections": sections},
+            {"figures": figures, "traced": traced_n, "dropped": dropped, "summary_ok": summary_ok, "untraced": untraced[:6]})

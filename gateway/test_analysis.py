@@ -78,5 +78,29 @@ still = {"filter": "BRITA", "before": pour(5, clarity=0.4, verdict="CLOUDY"), "a
 rep = A.rule_report(still, A.analyse(still["before"], hist), [])
 check("a retest still out of range is acted on", rep["severity"] == 2 and "still out of range" in rep["summary"], rep)
 
+# ---- triage: who a case needs
+salty = A.analyse(spike, hist, [peer("a", 198)])
+agents = lambda c, r: [x["agent"] for x in A.plan(c, r)]
+check("a salty pour through a filter needs the analyst, the network, maintenance and comms", agents(case, salty) == ["analyst", "network", "maintenance", "comms"], agents(case, salty))
+plain = {"filter": "BRITA", "before": pour(40, tds=205), "after": pour(40, tds=198, phase="after")}
+check("an ordinary filtered pour needs only maintenance and comms", agents(plain, A.analyse(plain["before"], hist)) == ["maintenance", "comms"])
+unfiltered = {"filter": "NONE", "before": pour(41, tds=205), "after": pour(41, tds=204, phase="after")}
+check("an ordinary pour that was not filtered needs only the notice", agents(unfiltered, A.analyse(unfiltered["before"], hist)) == ["comms"])
+fault = A.analyse(pour(50, tds=233), stuck)
+check("a sensor fault is looked at first, and the water is not explained", agents({"filter": "NONE", "before": pour(50, tds=233), "after": None}, fault)[:1] == ["sensor-health"]
+      and "analyst" not in agents({"filter": "NONE", "before": pour(50, tds=233), "after": None}, fault))
+check("every planned specialist comes with a reason", all(x["why"] for x in A.plan(case, salty)))
+
+# ---- the check on what the agents wrote
+written = {"summary": "ZeroWater took it from 780 ppm to 4 ppm.", "findings": ["It read 780 ppm against a median of 204 ppm.", "The river read 9999 ppm."],
+           "actions": ["Pour 2 more cups.", "Dilute it by 37%."], "sections": [{"agent": "analyst", "text": "z is 5.5"}, {"agent": "network", "text": "61 km away"}]}
+kept, record = A.ground(written, '{"tds": 780, "after": 4, "median": 204.0, "z": 5.53}')
+check("a finding whose figure no tool returned is dropped, and the others are kept", kept["findings"] == ["It read 780 ppm against a median of 204 ppm."])
+check("so is an action; small counts are not treated as figures", kept["actions"] == ["Pour 2 more cups."])
+check("a figure rounded from a tool's value still counts as traced", kept["sections"][0]["traced"] is True and kept["sections"][1]["traced"] is False)
+check("the record says how many figures there were, how many traced and what was dropped",
+      record["figures"] == 7 and record["traced"] == 4 and record["dropped"] == 2 and record["summary_ok"], record)
+check("the limits the agents are told about are allowed", A.ground({"summary": "", "findings": ["It is above the 500 ppm guideline and outside 6.5 to 8.5."]}, "")[1]["dropped"] == 0)
+
 print("\nall passed" if ok else "\nFAILURES")
 raise SystemExit(0 if ok else 1)

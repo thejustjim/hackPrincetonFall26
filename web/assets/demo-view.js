@@ -79,8 +79,27 @@
         : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
     ];
   }
+  const AGENT = { "sensor-health": "Sensor health", analyst: "This site's history", network: "Nearby and published",
+                  maintenance: "Filters and upkeep", comms: "Draft notice" };
+  const toolName = (n) => String(n).replace(/^get_/, "").replace(/_/g, " ");
+  /* The investigator while it works: which specialists the checks chose, and what each is doing. */
+  function swarmBlock(sw) {
+    if (!sw || sw.state === "done") return "";
+    const { esc } = TapUI;
+    const head = sw.state === "failed" ? "The investigator's agents did not finish, so the report here is the one written from the checks."
+      : sw.state === "checking" ? "The agents have answered. Their figures are being checked against what the tools returned."
+      : `The investigator is working: ${sw.rows.size} of its five specialists, chosen by the checks.`;
+    const rows = sw.state === "failed" ? "" : [...sw.rows.values()].map((r) => `
+      <li class="${r.state}"><b>${esc(AGENT[r.agent] || r.agent)}</b><span>${esc(r.state === "waiting" ? "waiting" : r.tools.map(toolName).concat(r.state === "answered" ? "answered" : "working").join(" · "))}</span></li>`).join("");
+    return `<div class="swarm" aria-live="polite"><p class="by">${esc(head)}</p>${rows ? `<ul>${rows}</ul>` : ""}</div>`;
+  }
   function reportExtras(rep, health) {
     const { esc, t } = TapUI;
+    const trail = new Map((rep.trail || []).map((x) => [x.agent, x])), why = new Map((rep.plan || []).map((x) => [x.agent, x.why]));
+    const left = rep.plan ? Object.keys(AGENT).filter((a) => !why.has(a)).map((a) => AGENT[a]) : [];
+    const c = rep.check;
+    const checked = c ? `Checked ${c.figures} figure${c.figures === 1 ? "" : "s"} against what the tools returned: ${c.traced === c.figures ? "all traced" : `${c.traced} traced`}${
+      c.dropped ? `, and ${c.dropped} statement${c.dropped === 1 ? " was" : "s were"} dropped for giving a figure no tool returned` : ""}.${rep.seconds ? ` The agents took ${Math.round(rep.seconds)} seconds.` : ""}` : "";
     const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and five specialists${health.ai_name ? ` on ${health.ai_name}` : ""}, working from the base station's checks.`
       : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With a model key, the investigator's agents add to it."}`
       : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
@@ -89,8 +108,10 @@
       verdict: rep.kind_words ? `<p class="rep-verdict sev-${rep.severity || 0}"><b>${t(rep.kind_words)}.</b> ${t(rep.severity_words || "")}.</p>` : "",
       checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks).map(([k, v, warn]) =>
         `<tr${warn ? ' class="warn"' : ""}><th scope="row">${k}</th><td>${t(v)}</td></tr>`).join("")}</tbody></table>` : "",
-      agents: rep.sections?.length ? `<h3>What each agent found</h3><dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
-        `<div><dt>${t(x.title)}</dt><dd>${t(x.text)}</dd></div>`).join("")}</dl>` : "",
+      agents: rep.sections?.length ? `<h3>What each agent found</h3>${checked ? `<p class="by checked">${esc(checked)}</p>` : ""}<dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
+        `<div><dt>${t(x.title)}${why.get(x.agent) ? `<small>asked because ${t(why.get(x.agent))}</small>` : ""}</dt><dd>${t(x.text)}${x.traced === false ? ' <em class="untraced">This gives a figure no tool returned.</em>' : ""}</dd>${
+          trail.get(x.agent)?.tools?.length ? `<dd class="trail">called ${esc(trail.get(x.agent).tools.map(toolName).join(" · "))}</dd>` : ""}</div>`).join("")}</dl>${
+        left.length ? `<p class="by">Not asked this time: ${esc(left.join(", "))}. The checks found no reason to.</p>` : ""}` : "",
       notice: rep.notice ? `<h3>Draft notice</h3><blockquote class="notice">${t(rep.notice)}</blockquote><p class="by">Filled in from fixed templates. Nothing sends it.</p>` : "",
     };
   }
@@ -271,7 +292,7 @@
         const earlier = rep && b && rep.test !== b.test;
         $("#report").innerHTML = `<h2>From the investigator</h2>${rep ? `<p class="about">On pour ${esc(rep.test)}${earlier ? ", the one before this" : ""}${rep.ts ? `, ${esc(ago(rep.ts))}` : ""}</p>` : ""}` + (!rep
           ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>`
-          : (() => { const x = reportExtras(rep, store.health); return `${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
+          : (() => { const x = reportExtras(rep, store.health); return `${swarmBlock(store.swarm)}${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
              ${rep.findings?.length ? `<h3>Findings</h3><ul>${rep.findings.map((f) => `<li>${t(f)}</li>`).join("")}</ul>` : ""}
              ${rep.actions?.length ? `<h3>What to do next</h3><ol>${rep.actions.map((f) => `<li>${t(f)}</li>`).join("")}</ol>` : ""}
              ${x.checks}${x.agents}${x.notice}`; })());

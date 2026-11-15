@@ -794,19 +794,47 @@ async def report_on(after, filter_used):
         return
     async with investigate_lock:
         t0 = time.time()
+        who = {"type": "agent", "node": after["node"], "test": after["test"]}
+        case["plan"] = analysis.plan(case, result)            # triage: who this run needs, and why
+        await broadcast({**who, "event": "plan", "agent": None, "t": 0, "plan": case["plan"]})
+        told = 0
+
+        async def tell():                                     # pass on what the agents are doing, as it happens
+            nonlocal told
+            for e in investigator.RUN.events[told:]:
+                await broadcast({**who, **e})
+            told = len(investigator.RUN.events)
+
+        async def keep_telling():
+            while True:
+                await asyncio.sleep(0.15)
+                await tell()
+        watcher = asyncio.create_task(keep_telling())
         try:
             report = await asyncio.wait_for(investigator.investigate(investigator_agent, case), timeout=240)
         except Exception as e:
             print("investigation failed:", type(e).__name__, e)
+            report = None
+        finally:
+            watcher.cancel()
+        await tell()
+        if not report or not report.get("summary"):
+            await broadcast({**who, "event": "failed", "agent": None, "t": round(time.time() - t0, 1)})
             return
-        if not report.get("summary"):
-            return
+        # the check: every figure the agents wrote has to be in the case or in something a tool returned
+        report, check = analysis.ground(report, "\n".join(investigator.RUN.evidence))
+        if not check["summary_ok"]:
+            report["summary"] = rules["summary"]
+        await broadcast({**who, "event": "check", "agent": None, "t": round(time.time() - t0, 1), "check": check})
         notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else extra["notice"]
-        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s "
-              f"from {len(report['sections'])} specialists")
+        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s from {len(report['sections'])} "
+              f"specialists; {check['traced']} of {check['figures']} figures traced, {check['dropped']} dropped")
         await save_report(after, filter_used, report,
-                          {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"]},
+                          {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"],
+                           "plan": case["plan"], "trail": report.get("trail", []), "check": check,
+                           "seconds": round(time.time() - t0, 1)},
                           AI_MODEL or investigator.MODEL)
+        await broadcast({**who, "event": "done", "agent": None, "t": round(time.time() - t0, 1)})
 
 
 def report_message(rid, ts, node, test, reading_id, filter_used, report, model, extra=None):
@@ -815,7 +843,8 @@ def report_message(rid, ts, node, test, reading_id, filter_used, report, model, 
             "reading_id": reading_id, "filter": filter_used, "summary": report["summary"],
             "findings": report["findings"], "actions": report["actions"],
             "source": extra.get("source", "deepagents"), "model": model,
-            **{k: extra.get(k) for k in ("kind", "kind_words", "severity", "severity_words", "checks", "notice", "sections")}}
+            **{k: extra.get(k) for k in ("kind", "kind_words", "severity", "severity_words", "checks", "notice", "sections",
+                                         "plan", "trail", "check", "seconds")}}
 
 
 # ---------------------------------------------------------------- input sources

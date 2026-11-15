@@ -18,6 +18,12 @@ simulated pipe network (localize.py, incident.py): build(..., incident=True).
 The agents explain and decide what to do next. They do not compute: every number comes from
 a tool, and the verdict and severity come from analysis.py, not from a model.
 
+Three things happen around the specialists (the "chain"):
+    triage   analysis.plan decides which specialists this run needs, and why; the lead is given that plan
+    watch    every hand-off, tool call and answer is recorded as it happens, for the page to show
+    check    analysis.ground compares every figure in the report with what the tools returned,
+             and drops any finding or action whose figure cannot be traced
+
 The tools are plain functions the gateway passes in, so this file has no database code.
 
 The agents run on Gemini (through langchain-google-genai) when the gateway has a Google key,
@@ -30,8 +36,10 @@ Env vars:
     INVESTIGATOR_SUBAGENT_MODEL  the specialists' model, default the same as the lead's
     INVESTIGATOR_EFFORT          Claude: low | medium | high (default low: fast, and it still uses every tool)
 """
+import functools
 import json
 import os
+import time
 
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
@@ -71,12 +79,15 @@ dissolved solids; BRITA is activated carbon for colour, cloudiness and taste), t
 back and measured again (the "after" test). You get both readings, plus the verdict of the
 gateway's own statistical checks.
 
-You have five specialists. Start by calling the task tool five times in one message, once for
-each of: sensor-health, analyst, network, maintenance, comms. Each specialist sees only the
-description you write, so give every one the node id and the test number and ask for its
-findings on this filter run. Do not do their work yourself and do not skip any of them.
+You have five specialists: sensor-health, analyst, network, maintenance, comms. The case comes
+with a plan: the ones the gateway's checks say this run needs, and why. Start by calling the
+task tool once for each specialist in the plan, all in one message. Each specialist sees only
+the description you write, so give every one the node id and the test number and ask for its
+findings on this filter run. Do not do their work yourself. Do not call a specialist that is
+not in the plan unless an answer raises a question only it can settle; if you do, say why in
+the findings.
 
-When all five have answered, write the report: a summary (before to after, and whether the
+When they have answered, write the report: a summary (before to after, and whether the
 filter did its job), findings drawn from the specialists (keep each one's source label and
 numbers exactly), actions (most important first) and the notice, copied from the comms
 specialist without changes. If a specialist says the sensor is at fault, say so first: a
@@ -191,6 +202,48 @@ INCIDENT_SPECIALISTS = [
 TITLES = {s["name"]: s["title"] for s in SPECIALISTS + INCIDENT_SPECIALISTS}
 
 
+class Run:
+    """What happened in one investigation: every event in order (for the page to show the agents
+    working), and the text of everything a tool returned (to check the report's figures against).
+    One investigation runs at a time, so one of these is enough."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.t0, self.events, self.evidence = time.time(), [], []
+
+    def event(self, kind, agent=None, **more):
+        self.events.append({"event": kind, "agent": agent, "t": round(time.time() - self.t0, 1), **more})
+
+    def trail(self):
+        """Per specialist: the tools it called, in order, and when it answered."""
+        out = {}
+        for e in self.events:
+            if not e["agent"]:
+                continue
+            row = out.setdefault(e["agent"], {"agent": e["agent"], "tools": [], "seconds": None})
+            if e["event"] == "tool":
+                row["tools"].append(e["tool"])
+            elif e["event"] == "answered":
+                row["seconds"] = e["t"]
+        return list(out.values())
+
+
+RUN = Run()
+
+
+def watched(agent, fn):
+    """A specialist's own copy of a tool: the same function, but each call is noted against its name."""
+    @functools.wraps(fn)
+    def call(*args, **kwargs):
+        out = fn(*args, **kwargs)
+        RUN.evidence.append(json.dumps(out, default=str))
+        RUN.event("tool", agent, tool=fn.__name__)
+        return out
+    return call
+
+
 def chat(model, provider="anthropic", key=None):
     """A chat model for the lead or a specialist: Gemini (provider "google") or Claude."""
     if provider == "google":
@@ -217,7 +270,7 @@ def build(tools, provider="anthropic", model=None, key=None, lead_model=None, sp
     worker = specialist_model or (lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
     subagents = [{"name": s["name"], "description": s["description"],
                   "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + rules,
-                  "tools": [tools[t] for t in s["tools"]], "model": worker} for s in team]
+                  "tools": [watched(s["name"], tools[t]) for t in s["tools"]], "model": worker} for s in team]
     # How the lead hands back the structured report. Claude: its native structured output
     # (the tool strategy would force tool_choice="any", which Opus 5.5 rejects). Gemini: a
     # final call to a "Report" tool, which works on any model that can call tools.
@@ -249,10 +302,22 @@ def sections_from(messages):
 async def investigate(agent, case: dict, ask="Investigate this filter run:") -> dict:
     """case: {"node", "site", "test", "filter", "before", "after", "checks"}, or for the incident
     team {"scenario", ...} -> {"summary", "findings", "actions", "notice", "sections"}."""
-    result = await agent.ainvoke({"messages": [{
-        "role": "user",
-        "content": ask + "\n" + json.dumps(case, indent=1),
-    }]})
+    RUN.reset()
+    RUN.evidence.append(json.dumps(case, default=str))
+    asked, seen, result = {}, 0, {}
+    # The run is followed as it happens: each time the lead hands out work or gets answers back,
+    # the state grows by some messages, and those are turned into events.
+    async for state in agent.astream({"messages": [{"role": "user", "content": ask + "\n" + json.dumps(case, indent=1)}]},
+                                     stream_mode="values"):
+        messages = state.get("messages", [])
+        for m in messages[seen:]:
+            for call in getattr(m, "tool_calls", None) or []:
+                if call.get("name") == "task":
+                    asked[call["id"]] = (call.get("args") or {}).get("subagent_type")
+                    RUN.event("asked", asked[call["id"]])
+            if asked.get(getattr(m, "tool_call_id", None)):
+                RUN.event("answered", asked[m.tool_call_id])
+        seen, result = len(messages), state
     report = result.get("structured_response")
     if isinstance(report, BaseModel):
         report = report.model_dump()
@@ -260,4 +325,5 @@ async def investigate(agent, case: dict, ask="Investigate this filter run:") -> 
         # no structured answer: keep its last message as the summary
         report = {"summary": text_of(result["messages"][-1]), "findings": [], "actions": [], "notice": ""}
     report["sections"] = sections_from(result["messages"])
+    report["trail"] = RUN.trail()
     return report

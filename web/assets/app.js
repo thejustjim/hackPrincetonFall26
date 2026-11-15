@@ -278,6 +278,7 @@
     store.on((type, payload) => {
       if (type === "pour") { renderHero(); M.render(store, "pour"); if (payload === "before") window.TapHero?.drip(); }
       else if (type === "filters" || type === "report") { renderHero(); M.render(store, type); }
+      else if (type === "swarm") M.render(store, "report");     // the investigator's agents at work
       else if (type === "reading") { renderNotes(); M.render(store, "feed", payload); }
       else if (type === "conn") M.render(store, "conn");
     });
