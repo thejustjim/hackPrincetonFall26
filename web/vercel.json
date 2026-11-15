@@ -28,5 +28,23 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/cloud",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/cloud/",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/cloud/rollup",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/cloud/rollup/",
+      "destination": "/api/index"
+    }
   ]
 }

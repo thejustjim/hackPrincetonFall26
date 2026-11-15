@@ -271,12 +271,18 @@
     cloud(store) {
       const box = document.getElementById("cloud"), c = store.health?.cloud;
       if (!box) return;
-      if (store.kind !== "live" || store.conn !== "live" || !c?.enabled || !c.connected || !store.get) { box.hidden = true; return; }
+      const live = store.kind === "live" && store.conn === "live" && c?.enabled && c.connected && store.get;
+      // With no gateway behind the page (the hosted site), the site's own read-only endpoints answer
+      // from the same database (web/api/index.py).
+      const hosted = !live && store.kind === "demo" && location.protocol.startsWith("http");
+      if (!live && !hosted) { box.hidden = true; return; }
       if (performance.now() - this.cloudAt < 20000 && this.cloudAt) return;
       this.cloudAt = performance.now();
       const { esc, fmt } = TapUI, n = (v) => Number(v || 0).toLocaleString();
-      store.get(`/api/cloud/rollup?node=${encodeURIComponent(store.tank)}&hours=24&bucket=hour`).then((r) => {
-        const rows = (r.buckets || []).slice(-8).reverse();
+      const ask = live ? (path) => store.get(path) : (path) => fetch(path).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
+      const slash = live ? "" : "/";                     // the hosted site serves every address with a trailing slash
+      Promise.all([live ? c : ask("/api/cloud/"), ask(`/api/cloud/rollup${slash}?node=${encodeURIComponent(store.tank)}&hours=24&bucket=hour`)]).then(([c, r]) => {
+        const rows = c?.enabled ? (r.buckets || []).slice(-8).reverse() : [];
         box.hidden = !rows.length;
         if (!rows.length) return;
         document.getElementById("cloud-about").textContent = `${n(c.cloud_rows)} readings are kept in ${c.timescale ? "Tiger Cloud (TimescaleDB)" : "a cloud database"}${

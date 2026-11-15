@@ -436,6 +436,14 @@ A run against the real receiver keeps every line it sends in `gateway/logs/tank.
 values and waits cut to the period (`MOCK_LOG=<file>` for a recording made elsewhere). With no recording,
 `MOCK=1` runs estimated pours instead.
 
+**The cloud database, in public.** The hosted site has no base station behind it, so it serves the two
+cloud answers itself, read-only, from the same Tiger Cloud database (`web/api/index.py`, a FastAPI function
+on Vercel): `https://wateramong.us/api/cloud/` (how many readings the cloud holds, and what else is there)
+and `https://wateramong.us/api/cloud/rollup/?node=tank-01&hours=24&bucket=hour` (buckets from a continuous
+aggregate; `5min` and `day` too). The connection string is the Vercel project's `TIGER_DATABASE_URL`
+setting, and every session is opened read-only. The cup page's "In the cloud database" section uses them
+when no gateway answers.
+
 **What the sensors read.** The simulated cups and the estimated week are set from the tank's own serial
 output on 15 Nov 2026 (pH is the estimate from dissolved solids):
 
