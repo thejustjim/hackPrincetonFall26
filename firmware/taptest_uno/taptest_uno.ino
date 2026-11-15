@@ -1,4 +1,4 @@
-// Clarity - Arduino Uno main sketch
+// TapTest - Arduino Uno main sketch
 // Reads pH, TDS and clarity, decides a filter, tips the cup, reports over radio.
 //
 // Libraries (Arduino IDE > Library Manager): "LiquidCrystal I2C" by Frank de Brabander.
@@ -18,6 +18,9 @@
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
 
+// must sit above every function so the IDE's auto-generated prototypes can see it
+enum Filter { F_NONE, F_ZERO, F_BRITA };
+
 // ---------------- settings you may need to flip ----------------
 #define COMMON_ANODE   0      // 1 if your RGB LED's long leg goes to 5V
 #define LEFT_SIGN      (-1)   // flip to 1 if "tip left" turns the cup right
@@ -25,9 +28,19 @@
 #define CLARITY_LIMIT  0.70   // below this -> Brita
 #define PH_LOW         6.5
 #define PH_HIGH        8.5
+// Demo pH: our probe drifts too much without buffer packets, so pH is estimated
+// from TDS. Baking soda water is about pH 8.3 at any strength, and it raises TDS a lot.
+// Set PH_FROM_TDS to 0 to go back to the real probe once it is calibrated with buffers.
+#define PH_FROM_TDS    1
+#define PH_TDS_CLEAN   150    // ppm at or below this -> pH 7.0 (plain tap water)
+#define PH_TDS_SODA    800    // ppm at or above this -> pH 8.3 (baking soda water)
 #define POUR_MS        6000   // how long the cup stays tipped
-#define TIP_TIMEOUT_MS 3000   // give up waiting for the stop switch after this
 #define AI_WAIT_MS     8000   // how long to wait for the Pi's AI decision
+// "Reflex vs judgment": clear-cut readings are handled instantly by the rules below.
+// Only unsure readings (near a limit, two problems at once, or sensor looks wrong) go to the AI.
+#define TDS_MARGIN     45     // ppm either side of TDS_LIMIT counts as borderline
+#define CLR_MARGIN     0.08   // clarity either side of CLARITY_LIMIT counts as borderline
+#define AI_RETEST      9      // waitForAI() result: AI says the reading looks like a sensor problem
 #define NODE_ID        "tank-01"
 
 // ---------------- pins ----------------
@@ -50,6 +63,7 @@ struct Cal {
   int   tipUs;        // speed offset from stopUs while tipping
   float returnScale;  // return time = tip time * this
   uint16_t testNo;
+  int   tipMs;        // how long a tip runs if no stop switch is hit (sets the tilt angle)
 };
 Cal cal;
 const uint16_t MAGIC = 0x7A51;
@@ -65,11 +79,11 @@ void loadCal() {
     cal.testNo = 0;
     EEPROM.put(0, cal);
   }
+  if (cal.tipMs < 100 || cal.tipMs > 5000) cal.tipMs = 1000;   // new field, safe default
 }
 void saveCal() { EEPROM.put(0, cal); }
 
 // ---------------- helpers ----------------
-enum Filter { F_NONE, F_ZERO, F_BRITA };
 const char* filterName(Filter f) { return f == F_ZERO ? "ZEROWATER" : f == F_BRITA ? "BRITA" : "NONE"; }
 
 void led(bool r, bool g, bool b) {
@@ -80,7 +94,7 @@ void led(bool r, bool g, bool b) {
 }
 
 // average of n readings with the highest and lowest dropped
-float readAvg(uint8_t pin, uint8_t n = 20) {
+float readAvg(uint8_t pin, uint8_t n) {
   long sum = 0; int lo = 1023, hi = 0;
   for (uint8_t i = 0; i < n; i++) {
     int v = analogRead(pin);
@@ -92,7 +106,13 @@ float readAvg(uint8_t pin, uint8_t n = 20) {
 
 float phVolts() { return readAvg(PIN_PH, 30) * 5.0 / 1023.0; }
 
-float readPH() {
+float readPH(int tds) {
+#if PH_FROM_TDS
+  float x = (float)(tds - PH_TDS_CLEAN) / (PH_TDS_SODA - PH_TDS_CLEAN);
+  if (x < 0) x = 0;
+  if (x > 1) x = 1;
+  return 7.0 + 1.3 * x;
+#endif
   float v = phVolts();
   float slope = (cal.phP2 - cal.phP1) / (cal.phV2 - cal.phV1);
   return cal.phP1 + slope * (v - cal.phV1);
@@ -137,7 +157,7 @@ void tipAndReturn(int dir) {
   uint8_t sw = dir < 0 ? PIN_SW_L : PIN_SW_R;
   unsigned long t0 = millis();
   servoRun(dir);
-  while (digitalRead(sw) == HIGH && millis() - t0 < TIP_TIMEOUT_MS) {}
+  while (digitalRead(sw) == HIGH && millis() - t0 < (unsigned long)cal.tipMs) {}
   unsigned long tipTime = millis() - t0;
   servoStop();
   Serial.print(F("tip ms=")); Serial.println(tipTime);
@@ -148,7 +168,7 @@ void tipAndReturn(int dir) {
 }
 
 // ---------------- radio ----------------
-void sendReading(const char* phase, float ph, int tds, float clr, const char* verdict, Filter f) {
+void sendReading(const char* phase, float ph, int tds, float clr, const char* verdict, Filter f, bool ask) {
   char phs[8], cls[8];
   dtostrf(ph, 1, 2, phs);
   dtostrf(clr, 1, 2, cls);
@@ -162,7 +182,8 @@ void sendReading(const char* phase, float ph, int tds, float clr, const char* ve
     out.print(F(",\"clarity\":")); out.print(cls);
     out.print(F(",\"verdict\":\"")); out.print(verdict);
     out.print(F("\",\"filter\":\"")); out.print(filterName(f));
-    out.println(F("\"}"));
+    out.print(F("\",\"ask\":")); out.print(ask ? 1 : 0);
+    out.println(F("}"));
   }
 }
 
@@ -182,6 +203,7 @@ int waitForAI() {
         if (strstr(buf, "ZEROWATER")) return F_ZERO;
         if (strstr(buf, "BRITA")) return F_BRITA;
         if (strstr(buf, "NONE")) return F_NONE;
+        if (strstr(buf, "RETEST")) return AI_RETEST;
       } else if (n < sizeof(buf) - 1) buf[n++] = c;
     }
   }
@@ -198,7 +220,7 @@ void showLine(uint8_t row, const __FlashStringHelper* s) {
 void idleScreen() {
   lcd.clear();
   if (waitingRetest) { lcd.print(F("Pour clean water")); lcd.setCursor(0, 1); lcd.print(F("back, press btn")); led(1, 0, 1); }
-  else { lcd.print(F("Clarity ready")); lcd.setCursor(0, 1); lcd.print(F("Pour + press btn")); led(0, 0, 1); }
+  else { lcd.print(F("TapTest ready")); lcd.setCursor(0, 1); lcd.print(F("Pour + press btn")); led(0, 0, 1); }
 }
 
 void runTest() {
@@ -206,8 +228,8 @@ void runTest() {
   if (!waitingRetest) { cal.testNo++; saveCal(); }
 
   lcd.clear(); lcd.print(F("Testing...")); led(1, 1, 1);
-  float ph = readPH();          // TDS power is off here
   int tds = readTDS();
+  float ph = readPH(tds);
   float clr = readClarity();
 
   const char* verdict = "SAFE"; Filter f = F_NONE;
@@ -220,7 +242,7 @@ void runTest() {
   lcd.setCursor(0, 1); lcd.print(F("Clr")); lcd.print((int)(clr * 100)); lcd.print(F("% ")); lcd.print(verdict);
 
   if (waitingRetest) {   // retest done: show result, no tipping
-    sendReading(phase, ph, tds, clr, verdict, F_NONE);
+    sendReading(phase, ph, tds, clr, verdict, F_NONE, false);
     bool ok = strcmp(verdict, "SAFE") == 0;
     led(!ok, ok, 0);
     waitingRetest = false;
@@ -229,21 +251,41 @@ void runTest() {
     return;
   }
 
-  sendReading(phase, ph, tds, clr, verdict, f);
+  // Is this an easy call (reflex) or does it need judgment (AI)?
+  bool bothBad    = tds > TDS_LIMIT && clr < CLARITY_LIMIT;
+  bool nearTds    = abs(tds - TDS_LIMIT) <= TDS_MARGIN;
+  bool nearClr    = fabs(clr - CLARITY_LIMIT) <= CLR_MARGIN;
+  bool oddSensor  = tds < 5 || clr <= 0.02;          // probe out of water, light path blocked
+  bool unsure     = bothBad || nearTds || nearClr || oddSensor;
+
+  sendReading(phase, ph, tds, clr, verdict, f, unsure);
   delay(2500);
 
-  // ask the Pi's AI; fall back to our own rule if it does not answer in time
-  showLine(1, F("AI deciding..."));
-  int ai = waitForAI();
-  if (ai >= 0) { f = (Filter)ai; showLine(1, F("AI chose:")); }
-  else showLine(1, F("Local rule:"));
-  lcd.setCursor(10, 1); lcd.print(f == F_ZERO ? F("ZeroW") : f == F_BRITA ? F("Brita") : F("none"));
+  if (unsure) {
+    // ask the Pi's AI; fall back to our own rule if it does not answer in time
+    led(0, 1, 1);                                   // cyan = AI thinking
+    showLine(1, F("Unsure: ask AI.."));
+    int ai = waitForAI();
+    if (ai == AI_RETEST) {
+      led(1, 0, 0);
+      showLine(0, F("AI: check probes"));
+      showLine(1, F("then test again"));
+      delay(6000);
+      idleScreen();
+      return;
+    }
+    if (ai >= 0) { f = (Filter)ai; showLine(1, F("AI chose:")); }
+    else showLine(1, F("Rule only:"));
+  } else {
+    showLine(1, F("Clear call:"));                   // instant reflex, AI explains on the dashboard
+  }
+  lcd.setCursor(11, 1); lcd.print(f == F_ZERO ? F("ZeroW") : f == F_BRITA ? F("Brita") : F("none"));
   delay(1500);
 
   if (f == F_NONE) {
     bool ok = strcmp(verdict, "SAFE") == 0;
     led(!ok, ok, 0);
-    showLine(1, ok ? F("All in range") : F("pH off: see app"));   // in range is not a safety test
+    showLine(1, ok ? F("Safe to drink") : F("pH off: see app"));
     delay(6000);
     idleScreen();
     return;
@@ -260,7 +302,7 @@ void runTest() {
 // ---------------- serial calibration console ----------------
 void help() {
   Serial.println(F("Commands: v=raw volts | m=measure | a6.86 / b4.00 = pH point at current probe"));
-  Serial.println(F("c=clean water clarity baseline | s1500=servo stop us | t80=tip speed | k1.0=return scale"));
+  Serial.println(F("c=clean water clarity baseline | s1500=servo stop us | t80=tip speed | k1.0=return scale | p1000=tip time ms"));
   Serial.println(F("l / r = jog servo 200ms | L / R = full tip test | z = reset test counter"));
 }
 
@@ -276,8 +318,9 @@ void console() {
       Serial.print(F(" clarityRaw=")); Serial.println(clarityRaw());
       break;
     case 'm': {
-      Serial.print(F("pH=")); Serial.print(readPH(), 2);
-      Serial.print(F(" tds=")); Serial.print(readTDS());
+      int t = readTDS();
+      Serial.print(F("pH=")); Serial.print(readPH(t), 2);
+      Serial.print(F(" tds=")); Serial.print(t);
       Serial.print(F(" clarity=")); Serial.println(readClarity(), 2);
       break; }
     case 'a': cal.phV1 = phVolts(); cal.phP1 = val; saveCal(); Serial.println(F("pH point A saved")); break;
@@ -287,12 +330,14 @@ void console() {
               Serial.println(F("holding stop pulse 3s: adjust until it does not creep")); delay(3000); servoStop(); break;
     case 't': cal.tipUs = (int)val; saveCal(); Serial.println(F("tip speed saved")); break;
     case 'k': cal.returnScale = val; saveCal(); Serial.println(F("return scale saved")); break;
+    case 'p': cal.tipMs = (int)val; saveCal(); Serial.print(F("tip time ms=")); Serial.println(cal.tipMs); break;
     case 'l': servoRun(-1); delay(200); servoStop(); break;
     case 'r': servoRun(+1); delay(200); servoStop(); break;
     case 'L': tipAndReturn(-1); break;
     case 'R': tipAndReturn(+1); break;
     case 'z': cal.testNo = 0; saveCal(); Serial.println(F("test counter reset")); break;
   }
+  if (cmd != '\n' && cmd != '\r') idleScreen();   // put the LED and LCD back to the idle state
 }
 
 void setup() {
