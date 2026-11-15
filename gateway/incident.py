@@ -43,6 +43,29 @@ ACTIONS = [
 QUOTE = 420       # characters of a passage to show
 
 
+_whole = {}
+
+
+def whole_network():
+    """How the trace does when a change enters at every pipe in turn, not only in the four chosen
+    events: one sentence with the counts. (build_network.check_every_pipe does the run.)"""
+    if "line" not in _whole:
+        try:
+            import build_network
+            rows = build_network.check_every_pipe(localize.NET, localize.localize)      # (pipe, sensors alerting, rank, candidates)
+            pipes = len(localize.NET["pipes"])
+            many = [r for r in rows if r[1] >= 2]
+            one = [r for r in rows if r[1] == 1]
+            _whole["line"] = (
+                f"The four events here were chosen by hand. Run for a change entering at every pipe in turn: {pipes - len(rows)} of the "
+                f"{pipes} pipes reach no sensor within six hours, so a change there goes unseen. Of the rest, when two or more sensors "
+                f"alert ({len(many)} pipes) the true pipe is ranked first for {sum(r[2] == 1 for r in many)} and in the top three for "
+                f"{sum(r[2] is not None and r[2] <= 3 for r in many)}; when only one alerts ({len(one)} pipes), first for {sum(r[2] == 1 for r in one)}.")
+        except Exception:
+            _whole["line"] = "The four events here were chosen by hand, so they say little about how often the trace is right in general."
+    return _whole["line"]
+
+
 def excerpt(text):
     """The start of a passage, cut at the end of a sentence where there is one."""
     if len(text) <= QUOTE:
@@ -116,7 +139,7 @@ def report(scenario_id):
             "summary": summary, "severity": severity, "severity_words": SEVERITY_WORDS[severity],
             "alerts": alerts, "quiet": r["quiet"], "timeline": timeline,
             "candidates": r["candidates"], "considered": r["considered"], "method": r["method"],
-            "affected": r["affected"], "actions": actions, "notice": notice, "caveats": CAVEATS,
+            "affected": r["affected"], "actions": actions, "notice": notice, "caveats": CAVEATS[:1] + [whole_network()] + CAVEATS[1:],
             "truth": truth, "check": check}
 
 

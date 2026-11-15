@@ -211,7 +211,10 @@ likely entered from.
   guidance and writes its own account (`POST /api/network/investigate?scenario=..`, a control). The
   agents are never shown where the simulation put the change.
 
-How well it does on its own four events: the true pipe is ranked 1st, 1st and 2nd in the three
+How well it does. Run for a change entering at every pipe in turn: 30 of the 117 pipes reach no
+sensor within six hours, so a change there goes unseen; of the rest, when two or more sensors alert
+(71 pipes) the true pipe is ranked first for 32 and in the top three for 56, and when only one
+alerts (16 pipes) it is first for 4. The page says this too. On its own four hand-picked events: the true pipe is ranked 1st, 1st and 2nd in the three
 where three or more sensors alert, and 7th of 28 in the one where a single sensor alerts, which the
 report says is too little to single out a pipe. `python test_localize.py` (53 checks) also runs a
 change entering at every pipe in turn and prints how often the true pipe is found;
