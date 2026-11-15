@@ -505,9 +505,9 @@ h3 { font: italic 400 18px var(--serif); color: var(--muted); margin: 28px 0 10p
 .maplibregl-ctrl-scale { background: none !important; color: var(--muted) !important; border-color: var(--line-strong) !important; }
 
 /* the loading screen over the map: a globe that spins, settles on Princeton and zooms away (intro.js) */
-.intro { position: absolute; inset: 0; z-index: 7; background: var(--bg); transition: opacity 0.6s ease; cursor: pointer; }
+.intro { position: absolute; inset: 0; z-index: 7; background: var(--bg); cursor: pointer; }
 .intro canvas { display: block; width: 100%; height: 100%; }
-.intro.through { pointer-events: none; background: none; }
-.intro.gone { opacity: 0 !important; pointer-events: none; }
-.intro-note { position: absolute; left: 0; right: 0; bottom: 9%; margin: 0; text-align: center; font: italic 19px var(--serif); color: var(--muted); }
-.intro.through .intro-note { opacity: 0; transition: opacity 0.4s ease; }
+.intro.through { pointer-events: none; }
+.intro.gone { opacity: 0 !important; pointer-events: none; transition: opacity 0.45s ease; }
+.intro-note { position: absolute; left: 0; right: 0; bottom: 9%; margin: 0; text-align: center; font: italic 19px var(--serif); color: var(--muted); transition: opacity 0.5s ease; }
+.intro.diving .intro-note { opacity: 0; }

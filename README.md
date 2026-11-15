@@ -76,10 +76,13 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   The map's 18 MB of data is fetched once: it goes out compressed (about 3 MB), the browser keeps it
   for a day and the built bundle for good, and on a wide screen the main page fetches it quietly
   in the background, so the map opens at once. The same rules are in `web/vercel.json` for the hosted copy.
-  While it loads, the map shows a drawn globe (`src/intro.js`) that spins, slows with Princeton in front and
-  zooms in as the real map flies down to the same spot. It is not locked: a click, a key or the wheel
-  skips it, the map can be grabbed mid-flight, and `?nointro` leaves it out. Princeton is only where it
-  starts, for the demo; the home view is `HOME` in `src/main.js`.
+  While it loads, the map shows a globe (`src/intro.js`) drawn from the same world outline the map uses
+  zoomed out. It spins, slows to a stop with Princeton in front, and dives in; on the way down it takes
+  on the map's colours and flattens into the map's projection at the map's scale, so the real map takes
+  over underneath with no cut and carries on down to the home view. It is not locked: a key skips to the
+  home view, a click or the wheel does too until the map shows and after that leaves the map where it
+  was grabbed, and `?nointro` leaves it out. Princeton is only where it starts, for the demo: the home
+  view is `HOME` in `src/main.js`. `node test_intro.mjs` checks the slow-down and the land it draws.
 - **The Photon agent** (`photon-alerts/`, its own README) watches the gateway's `/ws` and texts
   subscribers. It needs Photon keys and a Google key; `DRY_RUN=1 npm run dev` prints the texts
   instead of sending them. It is not needed for the pages.

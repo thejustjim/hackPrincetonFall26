@@ -122,7 +122,7 @@ const map = new maplibregl.Map({
   antialias: true,
   attributionControl: { compact: true },
 });
-runIntro(map, HOME, import.meta.env.BASE_URL + 'data/');   // the loading screen: a globe that settles on Princeton, then the map flies in
+runIntro(map, HOME, import.meta.env.BASE_URL + 'data/', THEMES.dark);   // the loading screen: a globe that settles on Princeton and dives into the map
 const desktop = () => window.innerWidth > 1100;
 // Start the before/after card folded on short screens and phones, so it doesn't cover the map.
 if (innerWidth <= 760 || innerHeight < 700) document.body.classList.add('hero-collapsed');
