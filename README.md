@@ -436,10 +436,22 @@ A run against the real receiver keeps every line it sends in `gateway/logs/tank.
 values and waits cut to the period (`MOCK_LOG=<file>` for a recording made elsewhere). With no recording,
 `MOCK=1` runs estimated pours instead.
 
+**What the sensors read.** The simulated cups and the estimated week are set from the tank's own serial
+output on 15 Nov 2026 (pH is the estimate from dissolved solids):
+
+| water | dissolved solids | transparency | pH, estimated | readings |
+|---|---|---|---|---|
+| clean | 202 to 204 ppm | 1.00 | 7.10 to 7.11 | 10, over 26 s |
+| not clear | 219 ppm | 0.59 to 0.61 | 7.14 | 6, over 18 s |
+
+So a clean cup is simulated at about 203 ppm and 1.00, and a cup that is not clear at about 219 ppm and
+0.60, which the tank's rule sends to the Brita. The salt-water cup (780 ppm) and every retest value are
+still made up: no retest has been recorded yet.
+
 **A week to be read against.** A tank with no history has nothing to compare a pour with, so at startup the
 gateway gives it one: 168 estimated pours of tap water, one an hour for the past week (`gateway/baseline.py`).
-They centre on what the tank's own in-range pours read if it has a few, else 160 ppm (`BASELINE_TDS=<ppm>`
-sets it), with a wide scatter so ordinary tap water reads as usual for the site and salt or tea does not.
+They centre on what the tank's own in-range pours read if it has a few, else 203 ppm (`BASELINE_TDS=<ppm>`
+sets it), with about 8% of scatter, so ordinary tap water reads as usual for the site and salt or cloudy water does not.
 They are estimates, not measurements: every row has the session `baseline-est`, they stay out of the cloud
 copy, `GET /health` counts them (`estimated_history`), and this removes them:
 `sqlite3 taptest.db "DELETE FROM readings WHERE session = 'baseline-est'"`. `BASELINE_DAYS=0` turns the

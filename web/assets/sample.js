@@ -33,7 +33,9 @@
     { site: "Lake Carnegie", lat: 40.3446, lon: -74.6295, tds_est: 92, date: "2023-11-29", source: "NJ DEP", typical_tds_est: 177 },
   ].map(r => ({ ...r, source_kind: "published_stream", water_type: "untreated_surface_water", live: false }));
 
-  const CUPS = { clean: [7.4, 185, 0.97], salty: [7.6, 780, 0.95], tea: [6.9, 210, 0.42] };
+  // clean and tea are what the tank's sensors read on 15 Nov 2026 (clean water 202-204 ppm at 1.00;
+  // water that was not clear 219 ppm at 0.59-0.61). salty is made up.
+  const CUPS = { clean: [7.1, 203, 1.0], salty: [7.6, 780, 0.95], tea: [7.14, 219, 0.60] };
   const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 
   function verdictFor(ph, tds, clarity) {

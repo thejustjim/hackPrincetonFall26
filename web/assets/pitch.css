@@ -228,9 +228,11 @@
   #pitch .loop li { display: grid; grid-template-columns: 62px 200px minmax(0, 1fr); column-gap: 18px; align-items: baseline; padding: 20px 0 22px; }
   #pitch .loop .n { font-size: 56px; }
   #pitch .loop h3 { margin-top: 0; font-size: 36px; }
-  #pitch .loop p { margin: 0; font-size: 23px; }
-  #pitch .slide.in .loop li[data-step]:not(.is) { opacity: 0.32; }
-  #pitch .slide.in .loop li[data-step].done { opacity: 0.6; }
+  #pitch .loop p { margin: 0; font-size: 25px; }
+  /* the step being shown is at full strength; the others stay readable from the back of a room */
+  #pitch .slide.in .loop li[data-step]:not(.is) { opacity: 0.58; }
+  #pitch .slide.in .loop li[data-step].done { opacity: 0.8; }
+  #pitch .slide.in .loop li[data-step].is p { color: var(--text); }
   #pitch .slide.in.stepping .loop li[data-step] { transition: opacity 0.7s ease 0s; }
 
   /* what measuring first saves */

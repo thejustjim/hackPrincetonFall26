@@ -16,7 +16,9 @@ import uuid
 
 from ingest import fitted
 
-CUPS = {"clean": (7.4, 140, 0.97), "salty": (7.6, 780, 0.95), "tea": (6.9, 210, 0.42),
+# clean and tea are what the tank's own sensors read on 15 Nov 2026: clean water 202-204 ppm at
+# transparency 1.00, water that was not clear 219 ppm at 0.59-0.61. salty and close-call are made up.
+CUPS = {"clean": (7.1, 203, 1.0), "salty": (7.6, 780, 0.95), "tea": (7.14, 219, 0.60),
         "close-call": (7.3, 300, 0.95)}
 SCENARIOS = ("cycle", "duplicate", "sensor-fault", "drift", "regional", "close-call", "replay")
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "tank.jsonl")
@@ -40,7 +42,7 @@ def estimated_ph(tds):
 def jitter(ph, tds, clarity, rng=None):
     rng = rng or random
     return (round(ph + rng.uniform(-0.15, 0.15), 2), max(0, int(tds * rng.uniform(0.93, 1.07))),
-            round(min(1.0, max(0.0, clarity + rng.uniform(-0.03, 0.03))), 2))
+            round(min(1.0, max(0.0, clarity + rng.uniform(-0.02, 0.02))), 2))
 
 
 def line(node, test, phase, ph, tds, clarity, verdict, filt, rssi=None, rng=None, **metadata):

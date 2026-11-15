@@ -377,10 +377,12 @@
       }
 
       if (what === "all" || what === "report") {
-        const rep = store.report;
-        const earlier = rep && b && rep.test !== b.test;
-        $("#report").innerHTML = `<h2>From the investigator</h2>${rep ? `<p class="about">On pour ${esc(rep.test)}${earlier ? ", the one before this" : ""}${rep.ts ? `, ${esc(ago(rep.ts))}` : ""}</p>` : ""}` + (!rep
-          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>`
+        // Until this tank has a report of its own, a sample one (written from the sample data) can be shown on request.
+        const own = store.report, rep = own || store.sampleReport || null;
+        const earlier = own && b && own.test !== b.test;
+        $("#report").innerHTML = `<h2>From the investigator</h2>${own ? `<p class="about">On pour ${esc(own.test)}${earlier ? ", the one before this" : ""}${own.ts ? `, ${esc(ago(own.ts))}` : ""}</p>` : ""}` + (!rep
+          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>
+             ${store.kind === "live" && window.TapSample ? '<p style="margin-top:14px"><button class="link-btn" type="button" id="sample-report">See a sample report</button></p>' : ""}`
           : (() => { const x = reportExtras(rep, store.health); return `${swarmBlock(store.swarm)}${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
              ${rep.findings?.length ? `<h3>Findings</h3><ul>${rep.findings.map((f) => `<li>${t(f)}</li>`).join("")}</ul>` : ""}
              ${rep.actions?.length ? `<h3>What to do next</h3><ol>${rep.actions.map((f) => `<li>${t(f)}</li>`).join("")}</ol>` : ""}
@@ -430,6 +432,15 @@
           if (!confirm(`Mark ${name} as replaced? Its liters and status start over.`)) return;
           try { await store.replaceFilter(btn.dataset.replace); }
           catch (err) { alert(`Couldn't mark ${name} as replaced: ${err.message}`); }
+        });
+        // a sample report, on request, while this tank has none of its own: the sample data's report on a cup that was not clear
+        $("#report").addEventListener("click", async (e) => {
+          if (!e.target.closest("#sample-report")) return;
+          try {
+            const all = await TapSample.create({ seed: 26 }).get("/api/reports?limit=30");
+            store.sampleReport = all.find((r) => r.checks?.lead?.metric === "clarity") || all[0] || null;
+            window.TapView.render(store, "report");
+          } catch (err) { console.warn("no sample report:", err); }
         });
         // context notes: a tap pins one open; a tap elsewhere or Escape closes it
         document.addEventListener("click", (e) => {
