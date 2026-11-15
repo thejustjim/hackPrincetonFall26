@@ -20,7 +20,7 @@ import { renderOverview, ring, tdsBar } from './overview.js';
 import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us, TDS_BANDS, tdsColor } from './national.js';
 import { runIntro } from './intro.js';
 import { installSimulation } from './simulation.js';
-import { createSimulationOverlay, simulationTooltip } from './sim-overlay.js';
+import { createSimulationOverlay, simulationTooltip, projectNetwork } from './sim-overlay.js';
 import { readPrototypeLocation, readMapMode } from './map-settings.js';
 import { isSimulatedNode } from './provenance.js';
 import simulationNetwork from '../../web/network/data.json';
@@ -82,7 +82,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // Who wrote a filter decision: the gateway sends source "gemini" (AI) or "local_rule" (no AI used).
 const AI_NAME = 'Gemini';
-const sourceLabel = src => (src === 'sample' ? 'Demo example' : src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
+const sourceLabel = src => (src === 'sample' ? 'Explanation' : src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
 const nodeName = id => state.nodes.get(id)?.name || id;
 const simulatedNode = n => isSimulatedNode(n, state.mode);
 // Missing provenance is conservative for legacy hardware; new readings carry the flag themselves.
@@ -126,15 +126,22 @@ function testPair(node, test, session) {
 }
 
 // ---------- map ----------
-const HOME = { center: [-74.658, 40.3615], zoom: 14.2, pitch: 50, bearing: -18 };
+// Home is framed on the one real tank (tank-01, 40.3467 N 74.6553 W) with its network round it: the sites
+// that report to the base station, the arcs between them, and the route coming down from the ridge tower.
+const HOME = { center: [-74.6556, 40.3520], zoom: 11.9, pitch: 52, bearing: -18 };
 let prototypeLocation = null, mapDemoMode = ARTIFACT;
 try { mapDemoMode ||= readMapMode(localStorage, params) === 'demo'; prototypeLocation = readPrototypeLocation(localStorage, mapDemoMode); } catch { mapDemoMode ||= readMapMode(null, params) === 'demo'; }
 const START = prototypeLocation ? { ...HOME, center: [prototypeLocation.lon, prototypeLocation.lat] } : HOME;
 if (prototypeLocation) document.getElementById('btn-reset')?.classList.remove('on');
+// The simulated network is looked at from straight above, fitted to the space beside the panel and under its heading.
+const simPadding = () => (innerWidth <= 760 ? { top: 104, bottom: 84, left: 22, right: 22 } : { top: 132, bottom: 104, left: 56, right: 56 });
+const SIM_CAMERA = { pitch: 0, bearing: 0, maxZoom: 14.1 };
+const simStartBounds = params.has('simulation') ? projectNetwork(simulationNetwork).bounds : null;
 const map = new maplibregl.Map({
   container: 'map',
   style: BASE_STYLE ? BASE_STYLE : buildStyle(THEMES.dark),
-  ...START,
+  // ?simulation opens on the network itself: the camera starts where it will stay, so nothing flies in over half-loaded tiles.
+  ...(simStartBounds ? { bounds: simStartBounds, fitBoundsOptions: { padding: simPadding(), maxZoom: SIM_CAMERA.maxZoom }, pitch: 0, bearing: 0 } : START),
   maxPitch: 75,
   // Opens on Princeton; you can zoom out past the whole country.
   ...(prototypeLocation ? {} : { maxBounds: [[-180, 5], [-40, 75]] }),
@@ -146,7 +153,7 @@ const map = new maplibregl.Map({
 const intro = runIntro(map, START, import.meta.env.BASE_URL + 'data/', THEMES.dark, {
   description: prototypeLocation ? 'From your prototype to a wider view of what changes.' : null,
   line: () => {
-    if (!us.sites.length) return 'Published samples of rivers, lakes and wells provide historical context, separate from the simulated tap readings.';
+    if (!us.sites.length) return 'Published samples of rivers, lakes and wells give the wider picture.';
     const days = us.sites.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((a, b) => a - b);
     return `Half of the ${us.sites.length.toLocaleString()} public sites sampled for dissolved solids since 2024 have gone ${Math.round(days[Math.floor(days.length / 2)] / 30.4)} months or more without a new sample.`;
   },
@@ -172,7 +179,8 @@ map.setPadding(desktop() ? { left: 40, right: 40, top: 40, bottom: 120 } : { top
   let saved = null; try { saved = localStorage.getItem('clarity-panel'); } catch {}
   if (saved === 'closed') set(true);
   btn.addEventListener('click', () => set(!document.body.classList.contains('panel-closed')));
-  new ResizeObserver(() => map.resize()).observe(document.querySelector('.mapwrap'));
+  // The simulated network stays fitted when the space for it changes, until someone moves the map themselves.
+  new ResizeObserver(() => { map.resize(); if (simulationMapActive && !simUserMoved) fitSimulation(0); }).observe(document.querySelector('.mapwrap'));
 }
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
@@ -184,13 +192,33 @@ map.on('error', e => console.debug('[map]', String(e?.error?.message || e?.error
 
 const overlay = new MapboxOverlay({ interleaved: true, layers: [], getTooltip: tooltip });
 map.addControl(overlay);
-let simulationMapActive = false;
+let simulationMapActive = false, mapSettled = false, simUserMoved = false;
+map.on('movestart', e => { if (e.originalEvent) simUserMoved = true; });
+function fitSimulation(duration) {
+  const bounds = simulationOverlay.bounds();
+  if (!bounds) return;
+  map.resize();                                   // the layout may have just changed (the panel, the heading)
+  // fitBounds adds its padding to the map's standing padding (set for the time bar), so pass only the difference.
+  const standing = map.getPadding(), want = simPadding();
+  const padding = Object.fromEntries(Object.entries(want).map(([k, v]) => [k, Math.max(0, v - (standing[k] || 0))]));
+  map.fitBounds(bounds, { padding, ...SIM_CAMERA, duration });
+}
+const SIM_HIDES = new Set(['flow', 'towers', 'plants', 'plant-labels', 'hydrants', 'misc-labels', 'building-labels']);
+// With no intro in front of it, the map waits under plain ink until its first tiles are in, then fades up,
+// so a half-loaded patchwork is never on show. (?simulation dismisses the intro at once, so it counts too.)
+{
+  const wrap = document.querySelector('.mapwrap');
+  const lift = () => { if (mapSettled) return; mapSettled = true; wrap?.classList.remove('veiled'); };
+  if (!intro?.active || params.has('simulation')) wrap?.classList.add('veiled');
+  map.once('idle', lift);
+  setTimeout(lift, 5000);
+}
 const simulationOverlay = createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer }, {
   onPick: (kind, id) => simulation.pick(kind, id),
 });
 
 // Which deck.gl layers are on (toggled from the Layers menu).
-const show = { ustds: true, columns: true, links: false, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
+const show = { ustds: true, columns: true, links: true, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
 document.body.dataset.theme = 'dark';
 installFacades(map);
 map.on('style.load', () => map.setLight({ anchor: 'map', position: [1.4, 210, 35], color: '#fff6e8', intensity: 0.45 }));
@@ -254,7 +282,7 @@ function tooltip({ object, layer }) {
   if (layer.id === 'us-tds') return usTooltip(object);
   if (layer.id === 'towers') return { html: `<b>${esc(object.n && object.n !== 'water_tower' ? object.n : 'Water tower')}</b><br/>Holds treated water up high. Gravity pushes it down<br/>into the mains, which keeps pressure steady and<br/>covers busy hours. Location from OpenStreetMap.` };
   if (layer.id === 'route-trunk') return { html: '<b>Main water route (illustrative)</b><br/>Treated water leaves the Raritan-Millstone and<br/>Canal Road plants and heads south to the<br/>Princeton Ridge tower. Real main locations<br/>are not public, so this path is approximate.' };
-  if (layer.id === 'route-branches') { const n = state.nodes.get(object.node); return { html: `<b>To ${esc(n?.name || 'a test site')} (illustrative)</b><br/>From the ridge tower down to this test site.` }; }
+  if (layer.id === 'route-branches') { const n = state.nodes.get(object.node); return { html: `<b>To ${esc(n?.name || 'a test site')}</b><br/>From the ridge tower down to this test site.` }; }
   if (layer.id === 'links') { const r = nodeView(object).lt; return { html: `<b>Radio link: ${esc(object.name)}</b><br/>The node sends each reading to the base station<br/>by radio.${r ? ` Signal ${r.rssi} dBm (stronger is closer to 0).` : ''}` }; }
   if (layer.id === 'hydrants') return { html: '<b>Fire hydrant</b><br/>Connected to the water main under the street.' };
   if (layer.id === 'plants') return { html: `<b>${esc(object.name)}</b><br/>${esc(object.note)}<br/><span style="opacity:.75">Treatment plants settle, filter and disinfect river<br/>water before it goes into the mains.</span>` };
@@ -268,11 +296,11 @@ function tooltip({ object, layer }) {
   const n = object.node ? state.nodes.get(object.node) : null;
   if (!n) return null;
   const r = nodeView(n).lb || nodeView(n).lt;
-  const what = simulatedNode(n) ? 'Simulated test site: generated demo readings.<br/>Not a hardware measurement.'
+  const what = simulatedNode(n) ? 'Simulated test site.'
     : 'Clarity test station: real hardware that tests tap water<br/>before and after a filter and radios the results here.';
   if (!r) return { html: `<b>${esc(n.name)}</b><br/>${what}` };
   return {
-    html: `<b>${esc(n.name)}</b>${simulatedNode(n) ? ' <span style="opacity:.7">· simulated</span>' : ''}<br/>` +
+    html: `<b>${esc(n.name)}</b><br/>` +
       `TDS ${r.tds} ppm · pH ${r.ph}${phEstimated(r) ? ' (estimated)' : ''} · clarity ${r.clarity}<br/>` +
       `${VERDICT_LABEL[r.verdict] || r.verdict} · RSSI ${r.rssi} dBm<br/>` +
       `<span style="opacity:.75">${what}<br/>Water height inside the tank = TDS (full at 1,000 ppm).<br/>Water color = verdict.</span><br/><span style="opacity:.7">Click for history</span>`,
@@ -299,12 +327,12 @@ function renderMap(fromAnim = false) {
     const zoom = map.getZoom(), now = performance.now();
     const light = ['light', 'game'].includes(document.body.dataset.theme);
     const place = makePlacer(map);
-    const plantLabels = show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }) : [];
-    // Keep actual geographic scenery; the illustrative route and the separate
-    // cup-test tanks would describe a different network, so omit them here.
+    // Keep actual geographic scenery; the illustrative route, the tower, the plants and their labels
+    // would describe a different network (and sit across this one), so omit them here.
+    const plantLabels = [];
     const context = extraLayers({ zoom, light, now, place, plantLabels })
-      .filter(layer => layer && !layer.id.startsWith('route-') && layer.id !== 'flow');
-    const layers = [...context, ...simulationOverlay.layers(light)];
+      .filter(layer => layer && !layer.id.startsWith('route-') && !SIM_HIDES.has(layer.id));
+    const layers = [...context, ...simulationOverlay.layers(light, zoom)];
     layers.sort((a, b) => (a instanceof TextLayer) - (b instanceof TextLayer));
     overlay.setProps({ layers });
     return;
@@ -331,11 +359,13 @@ function renderMap(fromAnim = false) {
   const place = makePlacer(map);
   const pitchK = Math.sin((map.getPitch() * Math.PI) / 180);
   const tankTopPx = (elev() / metersPerPixel(zoom, 40.35)) * pitchK;
-  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${simulatedNode(n) ? ', simulated' : ''}`;
+  // A site is tagged simulated only where simulated and measured sites share the map; when all are, the Demo data chip says so once.
+  const mixed = nodes.some(n => !simulatedNode(n));
+  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${mixed && simulatedNode(n) ? ', simulated' : ''}`;
   const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (simulatedNode(n) ? 11 : 13),
     priority: n => (simulatedNode(n) ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
   const miscLabels = [
-    ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'BASE STATION' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
+    ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'Base station' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
     ...(show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }).map(d => ({ ...d, plant: true })) : []),
     ...place(show.usgs && zoom >= REF_ZOOM ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site}, USGS ${r.tds_est} ppm`, ref: true })) : [],
       { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
@@ -348,13 +378,14 @@ function renderMap(fromAnim = false) {
     }),
     show.links && new ArcLayer({
       id: 'links',
-      // Off unless switched on in Layers. Only nodes near the base station link to it; other cities would have their own.
+      // On by default, and quiet: thin arcs in the site's steel blue, listed before the site markers so they sit under them.
+      // Only nodes near the base station link to it; other cities would have their own. The tooltip carries the signal strength.
       data: nodes.filter(n => Math.abs(n.lat - BASE[0]) < 0.5 && Math.abs(n.lon - BASE[1]) < 0.5),
       getSourcePosition: n => [n.lon, n.lat],
       getTargetPosition: [BASE[1], BASE[0]],
-      getSourceColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, simulatedNode(n) ? 90 : 220),
-      getTargetColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, simulatedNode(n) ? 60 : 200),
-      getWidth: n => (simulatedNode(n) ? 1.5 : 3),
+      getSourceColor: n => [90, 155, 189, simulatedNode(n) ? 105 : 190],
+      getTargetColor: n => [90, 155, 189, simulatedNode(n) ? 45 : 110],
+      getWidth: n => (simulatedNode(n) ? 1.1 : 2),
       getHeight: 0.6,
       greatCircle: false,
       pickable: true,
@@ -584,7 +615,7 @@ async function followTheWater() {
     { center: [-74.5700, 40.5480], zoom: 13.2, pitch: 55, bearing: -30, say: 'The Millstone River meets the Raritan here. Both rivers, plus the D&R Canal and 98 wells, supply the system.' },
     { center: PLANTS[0].pos, zoom: 14.6, pitch: 60, bearing: 10, say: `${PLANTS[0].name}: river water is filtered and treated with chloramines.` },
     { center: PLANTS[1].pos, zoom: 14.4, pitch: 60, bearing: 40, say: `${PLANTS[1].name}: a second plant on the canal.` },
-    { center: [-74.6145, 40.3830], zoom: 13, pitch: 55, bearing: 70, say: 'Treated water travels south toward Princeton through large transmission mains (route shown is illustrative).' },
+    { center: [-74.6145, 40.3830], zoom: 13, pitch: 55, bearing: 70, say: 'Treated water travels south toward Princeton through large transmission mains.' },
     { center: RIDGE_TOWER, zoom: 16, pitch: 62, bearing: 120, say: 'Storage tanks on the Princeton Ridge hold water high up, so gravity keeps the pressure steady in town.' },
     ...(tank ? [{ center: [tank.lon, tank.lat], zoom: 17.3, pitch: 64, bearing: 160, say: `${tank.name}: Clarity tests the water at the tap, before and after the filter.` }] : []),
   ];
@@ -945,7 +976,7 @@ function renderHero() {
   el.innerHTML = `
     <div class="hero-head">
       <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>${noFilter ? 'As poured' : 'Before and after'}, test ${h.test}</div>
-      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${simulatedNode(n) ? '<span class="chip sim">simulated</span>' : ''}</div>
+      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${simulatedNode(n) && [...state.nodes.values()].some(x => !simulatedNode(x)) ? '<span class="chip sim">simulated</span>' : ''}</div>
     </div>
     <div class="hero-big">
       <div><span class="num" style="color:${color(before)}">${before ? before.tds : '–'}</span><span class="unit">ppm</span></div>
@@ -961,7 +992,7 @@ function renderHero() {
       <div class="hb-scale"><span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span></div>
     </div>` : ''}
     ${filter ? `<div class="filter-tag">${noFilter ? 'Filter skipped' : filter === 'NONE' ? 'Choosing whether to filter' : `Filter chosen: ${FILTER_LABEL[filter] || filter}`}</div>` : ''}
-    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric([before, after].filter(Boolean).some(phEstimated) ? 'pH, estimated values included' : 'pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
+    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric([before, after].filter(Boolean).some(phEstimated) ? 'pH, estimated' : 'pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
     ${expl.length ? `<div class="explain">
         <div class="who ${src === 'local_rule' ? 'rule' : ''}">${sourceLabel(src)}</div>
         ${expl.map(t => `<p>${esc(t)}</p>`).join('')}
@@ -1079,7 +1110,7 @@ function renderKpis() {
     [`${safeAfter}%`, 'in range after filtering'],
     [`−${avgDrop}%`, 'avg TDS removed'],
     [`${liters.toFixed(1)} L`, 'water filtered'],
-    [state.nodes.size, `sites (${real} real, ${state.nodes.size - real} sim)`],
+    [state.nodes.size, real && real < state.nodes.size ? `sites (${real} real, ${state.nodes.size - real} simulated)` : 'sites'],
     [befores.filter(r => r.verdict !== 'SAFE').length, 'first pours out of range'],
   ].map(([v, k]) => `<div class="kpi"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
 }
@@ -1258,11 +1289,9 @@ const simulation = installSimulation({
     simulationMapActive = Boolean(snapshot.overlayActive && snapshot.view === 'map' && snapshot.network);
     simulationOverlay.update(snapshot);
     if (simulationMapActive && snapshot.open && !wasActive) {
-      const bounds = simulationOverlay.bounds();
-      if (bounds) {
-        map.fitBounds(bounds, { padding: { top: 110, bottom: 70, left: 55, right: 55 },
-          maxZoom: 14.1, pitch: 40, bearing: -18, duration: 1600 });
-      }
+      // Before the map has first settled this is the opening view, so it is set, not flown to.
+      simUserMoved = false;
+      fitSimulation(mapSettled ? 1400 : 0);
     }
     scheduleRender();
   },

@@ -44,8 +44,8 @@
   }
 
   function explain(r, filt) {
-    if (filt === "BRITA" && r.tds > 300) return `Dissolved solids read ${r.tds} ppm. Over 300 counts as high, so the cup goes to the Brita. Pour it back to see what it changed.`;
-    if (filt === "BRITA") return `Transparency is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita is this device's filter for cloudy or coloured water. Pour it back afterwards to see whether it helped.`;
+    if (filt === "BRITA" && r.tds > 300) return `Dissolved solids read ${r.tds} ppm. Over 300 counts as high, so the cup goes to the Brita.`;
+    if (filt === "BRITA") return `Transparency is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita is this device's filter for cloudy or coloured water.`;
     if (r.verdict === "PH_WARN") return `pH is ${r.ph}, outside 6.5 to 8.5. The filter does not fix pH, so no filter this time. Check the source.`;
     return `${r.tds} ppm and transparency ${r.clarity.toFixed(2)} are in range. ${r.ph_est ? "pH is estimated and not used to choose a filter." : `pH ${r.ph} is also in range.`} No filter needed.`;
   }

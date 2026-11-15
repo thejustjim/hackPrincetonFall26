@@ -280,13 +280,13 @@ export function runIntro(map, home, dataUrl, paint, start) {
   if (off || !wrapEl) return;
   const el = document.createElement("div");
   el.className = "intro";
-  el.innerHTML = '<canvas aria-hidden="true"></canvas><p class="intro-note" role="status">Preparing your view</p><button class="intro-skip" type="button">Skip to map ↗</button>' + (start ? `<div class="intro-start"><div class="intro-copy"><p class="intro-kicker">THE WATER MAP</p><h1>Follow<br>the water.</h1><p class="intro-desc">From one cup in Princeton<br>to a wider view of what changes.</p></div><div class="intro-actions"><div class="intro-choices">${
-    start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}"><span class="intro-choice-num">0${i + 1}</span><span>${c.label}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>`).join("")}</div><details class="intro-record"><summary>About the public water record <span>+</span></summary><p class="intro-line"></p></details></div><p class="intro-orbit-label" aria-hidden="true">PRINCETON, NEW JERSEY <span>40.35° N · 74.66° W</span></p></div>` : "");
+  el.innerHTML = '<canvas aria-hidden="true"></canvas><p class="intro-note" role="status">Preparing your view</p><button class="intro-skip" type="button">Skip to map</button>' + (start ? `<div class="intro-start"><div class="intro-copy"><h1>Follow<br>the water.</h1><p class="intro-desc">From one cup in Princeton <br>to a wider view of what changes.</p></div><div class="intro-actions"><div class="intro-choices">${
+    start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}">${c.label}</button>`).join("")}</div><details class="intro-record"><summary>About the public water record <span>+</span></summary><p class="intro-line"></p></details></div><p class="intro-orbit-label" aria-hidden="true">Princeton, New Jersey <span>40.35° N · 74.66° W</span></p></div>` : "");
   const canvas = el.querySelector("canvas"), note = el.querySelector(".intro-note"), ctx = canvas.getContext("2d");
   if (start) {
     if (start.description) el.querySelector(".intro-desc").textContent = start.description;
     const label = el.querySelector('.intro-orbit-label'), coordinates = label.querySelector('span');
-    label.firstChild.textContent = (start.choices[0]?.name || 'Princeton, New Jersey').toUpperCase() + ' ';
+    label.firstChild.textContent = (start.choices[0]?.name || 'Princeton, New Jersey') + ' ';
     const [lon, lat] = home.center;
     coordinates.textContent = `${Math.abs(lat).toFixed(2)}° ${lat < 0 ? 'S' : 'N'} · ${Math.abs(lon).toFixed(2)}° ${lon < 0 ? 'W' : 'E'}`;
   }

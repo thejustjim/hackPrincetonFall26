@@ -25,8 +25,8 @@ const REFERENCE = [
   { site: 'Millstone River', lat: 40.3133, lon: -74.5892, tds_est: 299, date: '2025-11-24', source: 'NJ DEP', typical_tds_est: 248 },
   { site: 'Lake Carnegie', lat: 40.3446, lon: -74.6295, tds_est: 92, date: '2023-11-29', source: 'NJ DEP', typical_tds_est: 177 },
 ].map(r => ({ ...r, source_kind: 'published_stream', water_type: 'untreated_surface_water', live: false }));
+// The rig carries one filter, a Brita: anything out of range goes through it.
 const FILTERS = [
-  { filter: 'ZEROWATER', liters: 3.2, last_after_tds: 3, status: 'OK' },
   { filter: 'BRITA', liters: 35, last_after_tds: 175, status: 'OK', rated_liters: 450 },
 ];
 const SESSION = `map-${Date.now().toString(16)}-${Math.floor(Math.random()*0xffffff).toString(16)}`;
@@ -41,17 +41,16 @@ function verdictFor(r) {
   if (!r.ph_est && (r.ph < 6.5 || r.ph > 8.5)) return 'PH_WARN';
   return 'SAFE';
 }
-const ruleFilter = r => r.tds > 300 ? 'ZEROWATER' : r.clarity < 0.70 ? 'BRITA' : 'NONE';
+const ruleFilter = r => r.tds > 300 || r.clarity < 0.70 ? 'BRITA' : 'NONE';
 function explain(r) {
-  const ph = r.ph_est ? 'pH is estimated from dissolved solids, not an independent measurement.' : 'The simulated pH reading is in range.';
   if (r.phase === 'after') {
     const b = readings.find(x => x.node === r.node && x.test === r.test && x.phase === 'before' && x.session === r.session);
-    return r.filter === 'BRITA' ? `Scripted cloudy-cup retest: transparency ${b?.clarity} → ${r.clarity} through Brita Elite. ${ph}`
-      : `Scripted high-solids retest: ${b?.tds} → ${r.tds} ppm through ZeroWater. ${ph}`;
+    return b && b.clarity < 0.70 ? `Transparency ${b.clarity} → ${r.clarity} through the Brita.`
+      : `Dissolved solids ${b?.tds} → ${r.tds} ppm through the Brita, still high.`;
   }
-  if (r.tds > 300) return `Scripted high-solids cup: ${r.tds} ppm, so the demo chooses ZeroWater and awaits a retest. This is a water-change example, not a failed sensor. ${ph}`;
-  if (r.clarity < 0.70) return `Scripted cloudy cup: transparency ${r.clarity}, so the demo chooses Brita Elite and awaits a retest. This is a water-change example, not a failed sensor. ${ph}`;
-  return `Dissolved solids ${r.tds} ppm and transparency ${r.clarity} are in range. No filter is needed. ${ph}`;
+  if (r.tds > 300) return `Dissolved solids read ${r.tds} ppm, over 300, so the cup goes to the Brita. The retest follows.`;
+  if (r.clarity < 0.70) return `Transparency read ${r.clarity}, under 0.70, so the cup goes to the Brita. The retest follows.`;
+  return `Dissolved solids ${r.tds} ppm and transparency ${r.clarity} are in range. No filter is needed.`;
 }
 function makeReading(n, phase, test, { ts = new Date(), before, cup = 'normal' } = {}) {
   const id = nextId++;
@@ -59,8 +58,9 @@ function makeReading(n, phase, test, { ts = new Date(), before, cup = 'normal' }
   if (phase === 'before' && cup === 'cloudy') { tds = round(rnd(190, 220)); clarity = round(rnd(0.40, 0.47), 2); }
   if (phase === 'before' && cup === 'salty') { tds = round(rnd(740, 800)); clarity = round(rnd(0.92, 0.97), 2); }
   if (phase === 'after') {
-    tds = before.filter === 'ZEROWATER' ? round(rnd(2, 4)) : round(before.tds * rnd(0.90, 0.98));
-    clarity = round(rnd(0.93, 0.99), 2);
+    // An illustrative Brita response, not a measured one: dissolved solids barely move, cloudy water clears.
+    tds = round(before.tds * rnd(0.95, 1.0));
+    clarity = before.clarity < 0.70 ? round(rnd(0.86, 0.95), 2) : round(Math.min(0.99, before.clarity + rnd(0, 0.02)), 2);
     cup = before.sample_case;
   }
   const r = { type: 'reading', id, ts: ts.toISOString().replace(/\.\d+Z$/, '+00:00'), node: n.node,
@@ -117,13 +117,12 @@ export function mockSocket(onMessage) {
         const f = FILTERS.find(f => f.filter === after.filter);
         if (f) {
           f.liters = round(f.liters + 0.1, 1); f.last_after_tds = after.tds;
-          f.status = f.filter === 'ZEROWATER' ? after.tds >= 6 ? 'REPLACE' : 'OK'
-            : f.liters >= 450 ? 'REPLACE' : f.liters >= 405 ? 'REPLACE_SOON' : 'OK';
+          f.status = f.liters >= 450 ? 'REPLACE' : f.liters >= 405 ? 'REPLACE_SOON' : 'OK';
         }
         later(() => emit({ type: 'report', node: n.node, test: after.test, source: 'sample',
-          summary: explain(after), findings: ['Prepared map-demo example, not a model-generated investigation.',
-            before.filter === 'BRITA' ? `Transparency ${before.clarity} → ${after.clarity}.` : `Dissolved solids ${before.tds} → ${after.tds} ppm.`],
-          actions: ['Continue the demonstration. These samples do not establish drinking suitability.'] }), 2500);
+          summary: explain(after), findings: [
+            before.clarity < 0.70 ? `Transparency ${before.clarity} → ${after.clarity}.` : `Dissolved solids ${before.tds} → ${after.tds} ppm.`],
+          actions: [before.clarity < 0.70 ? 'Nothing further for this pour.' : 'Still high after the Brita: this water needs a filter made for dissolved solids.'] }), 2500);
       }, 6000);
     }, 2500);
   };

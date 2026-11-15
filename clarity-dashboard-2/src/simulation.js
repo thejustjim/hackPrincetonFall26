@@ -76,6 +76,10 @@ export function createSimulationLoader({ network, placement, refreshNetwork, ref
   } };
 }
 
+// The panel says once that this is a simulation, so the data's own sentences need not say it again.
+const plain = t => String(t || '').replace(/^Simulated stress test:\s*/i, 'Stress test: ').replace(/^Simulated:\s*/i, '')
+  .replace(/\bsimulated (sensors?|pipe events?|events?)\b/gi, '$1');
+
 export function installSimulation({ apiBase = '', mock = false, fallbackNetwork, fallbackPlacement, chooseTab, onOpen = () => {}, onChange = () => {} }) {
   const panel = document.querySelector('#panel'), mapWrap = document.querySelector('.mapwrap');
   const tab = document.createElement('button');
@@ -86,19 +90,18 @@ export function installSimulation({ apiBase = '', mock = false, fallbackNetwork,
   launcher.addEventListener('click', () => chooseTab('sim'));
   document.querySelector('.mapbar').append(launcher);
   const body = document.createElement('div'); body.id = 'tab-sim'; body.className = 'tab-body hidden';
-  body.innerHTML = `<p class="sim-kicker">Simulation, not measurements</p><h2 class="sim-heading">Explore the network</h2>
-    <p class="sim-intro">A simulated network over Princeton. Connections are illustrative, not verified pipe routes.</p>
+  body.innerHTML = `<h2 class="sim-heading">Explore the network</h2>
+    <p class="sim-intro">A simulated network over Princeton.</p>
     <div class="sim-views seg" role="group" aria-label="Network view"><button type="button" data-view="map" class="on">On the demo map</button><button type="button" data-view="schematic">Schematic</button></div>
     <div class="sim-modes seg" role="group" aria-label="Simulation view"><button type="button" data-mode="events" class="on">Incident replay</button><button type="button" data-mode="placement">Sensor placement</button></div>
-    <div class="sim-event-controls"><label class="sim-control" for="sim-scenario">Made-up event<select id="sim-scenario"></select></label><p id="sim-description" class="sim-small"></p>
+    <div class="sim-event-controls"><label class="sim-control" for="sim-scenario">Event<select id="sim-scenario"></select></label><p id="sim-description" class="sim-small"></p>
       <div class="sim-replay-controls"><button type="button" class="tool" id="sim-play">Replay event</button><output id="sim-clock" for="sim-time">Model minute 360 / 360</output></div>
-      <label class="sim-control" for="sim-time">Observation timeline<input id="sim-time" type="range" min="0" max="360" value="360" step="1" /></label>
-      <p class="sim-small">A 24-second replay. The clock shows simulated minutes.</p></div>
+      <label class="sim-control" for="sim-time">Observation timeline<input id="sim-time" type="range" min="0" max="360" value="360" step="1" /></label></div>
     <div class="sim-placement-controls hidden"><label class="sim-control" for="sim-budget">Sensor budget<select id="sim-budget"></select></label><p class="sim-small">Recommendations favor coverage, a second sensor, then earlier alerts. All sites have equal assumed cost.</p></div>
     <div id="sim-details" aria-live="polite"><p class="sim-small">Loading the simulation…</p></div>`;
   panel.append(body);
   const stage = document.createElement('section'); stage.className = 'sim-stage hidden'; stage.setAttribute('aria-label', 'Simulated water network');
-  stage.innerHTML = `<header class="sim-stage-head"><div><p class="sim-kicker">Simulated overlay · illustrative connections</p><h2 id="sim-stage-title">Incident replay</h2></div><button type="button" class="tool" data-back-map>Back to map</button></header>
+  stage.innerHTML = `<header class="sim-stage-head"><div><h2 id="sim-stage-title">Incident replay</h2></div><button type="button" class="tool" data-back-map>Back to map</button></header>
     <div class="sim-graph" id="sim-graph"></div><div class="sim-legend" id="sim-legend"></div><p id="sim-selection" class="sim-selection" aria-live="polite">Choose a sensor or pipe to inspect it.</p>`;
   mapWrap.append(stage);
   const overlayBanner = document.createElement('p'); overlayBanner.className = 'sim-overlay-banner hidden';
@@ -113,7 +116,7 @@ export function installSimulation({ apiBase = '', mock = false, fallbackNetwork,
   const notify = () => {
     if (isOpen && view === 'map' && network) overlayActive = true;
     if (view === 'schematic') overlayActive = false;
-    overlayBanner.classList.toggle('hidden', !overlayActive || isOpen);
+    overlayBanner.classList.add('hidden');      // the Simulation tab and its one line say what this is; the map need not repeat it
     onChange(snapshot());
   };
   function pauseReplay() { playing = false; if (raf) cancelAnimationFrame(raf); raf = 0; updateReplayControls(); }
@@ -130,12 +133,12 @@ export function installSimulation({ apiBase = '', mock = false, fallbackNetwork,
       const status = scenarioSensorState(el.dataset.node, visible, network.sensors);
       const cls = `sim-node ${status}${picked?.kind === 'node' && picked.id === el.dataset.node ? ' selected' : ''}`;
       if (el.getAttribute('class') !== cls) el.setAttribute('class', cls);
-      el.setAttribute('aria-label', `Simulated junction ${el.dataset.node}, ${status}`);
+      el.setAttribute('aria-label', `Junction ${el.dataset.node}, ${status}`);
     });
     for (const [key, count] of Object.entries({ alerts: visible.alerts.length, quiet: visible.quiet.length, unavailable: visible.unavailable.length, waiting: visible.waiting.length })) {
       const el = details.querySelector(`[data-replay-count="${key}"]`); if (el) el.textContent = String(count);
     }
-    const progress = details.querySelector('[data-replay-status]'); if (progress) progress.textContent = visible.summary;
+    const progress = details.querySelector('[data-replay-status]'); if (progress) progress.textContent = plain(visible.summary);
     renderSelection();
     // Overlay geometry changes only when sensor evidence changes, not on every animation frame.
     if (Math.floor(replayMinute / 3) !== lastOverlayMinute) { lastOverlayMinute = Math.floor(replayMinute / 3); notify(); }
@@ -229,37 +232,35 @@ export function installSimulation({ apiBase = '', mock = false, fallbackNetwork,
     stage.classList.toggle('sim-geographic', view === 'map');
     graph.setAttribute('aria-hidden', String(view === 'map')); graph.inert = view === 'map';
     body.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('on', b.dataset.view === view); b.setAttribute('aria-pressed', String(b.dataset.view === view)); });
-    stage.querySelector('.sim-kicker').textContent = view === 'map' ? 'Simulated overlay · illustrative connections' : 'Simulated network · illustrative connections';
-    body.querySelector('.sim-intro').textContent = view === 'map' ? 'A simulated network over Princeton. Connections are illustrative, not verified pipe routes.' : 'An illustrative water network. These are simulated observations and connections.';
+    body.querySelector('.sim-intro').textContent = view === 'map' ? 'A simulated network over Princeton.' : 'A simulated water network.';
     updateReplayControls();
     if ((mode === 'events' && !network) || (mode === 'placement' && !placement)) {
       details.innerHTML = '<p class="sim-small">This simulation view is unavailable. The other view can still be used.</p>'; graph.innerHTML = ''; stage.querySelector('#sim-legend').innerHTML = ''; notify(); return;
     }
     if (mode === 'events') {
       const s = visibleScenario(); if (!s) return;
-      body.querySelector('#sim-description').textContent = s.description || '';
+      body.querySelector('#sim-description').textContent = plain(s.description);
       const usable = s.fit_quality === 'usable';
       details.innerHTML = `<p class="sim-fit ${!s.complete || usable ? '' : 'sim-caution'}">${!s.complete ? 'Replay gathering observations' : usable ? 'Multiple observations to compare' : s.fit_quality === 'poor' ? 'Timing disagrees · verify before acting' : 'Too little evidence to single out a pipe'}</p>
         <div class="sim-counts"><div><b data-replay-count="alerts">${s.alerts.length}</b><span>alerting</span></div><div><b data-replay-count="quiet">${s.quiet.length}</b><span>quiet</span></div><div><b data-replay-count="unavailable">${(s.unavailable || []).length}</b><span>unavailable</span></div>${!s.complete ? `<div><b data-replay-count="waiting">${s.waiting.length}</b><span>observing</span></div>` : ''}</div>
-        <p class="sim-small" data-replay-status>${esc(s.summary)}</p><h3>${s.complete ? 'Leading candidates' : 'Waiting for the observation window'}</h3>
+        <p class="sim-small" data-replay-status>${esc(plain(s.summary))}</p><h3>${s.complete ? 'Leading candidates' : 'Waiting for the observation window'}</h3>
         <ol class="sim-candidates">${(s.candidates || []).map(c => `<li><button type="button" data-sim-pipe="${esc(c.pipe)}"><span>Pipe ${esc(c.pipe)}</span><span>${Math.round(c.confidence * 100)}% weight</span></button></li>`).join('') || '<li class="sim-small">A ranking appears when the replay completes. Available sensors are still being observed.</li>'}</ol>
-        <p class="sim-small">Weights compare these candidates; they are not probabilities of being right. An unavailable sensor is missing evidence, never a quiet sensor.</p>
+        <p class="sim-small">Weights compare the candidates with each other.</p>
         <details class="sim-evidence"><summary>Arrival times and next steps</summary><ol>${s.alerts.map(a => `<li>Sensor ${esc(a.sensor)} · minute ${esc(a.minute)}</li>`).join('')}</ol><p>${esc(s.actions?.[0]?.do || 'Verify with sampling before choosing an intervention.')}</p></details>
         <button type="button" class="btn sim-reveal" data-reveal-source ${s.complete ? '' : 'disabled'}>${revealed ? 'Hide injected source' : 'Reveal injected source'}</button>${revealed ? `<p class="sim-small">${esc(s.check)}</p>` : ''}
-        <p class="sim-foot">Frozen flow, synthetic pipe attributes and injected events. <a href="../network/">Open the full simulation report</a>.</p>`;
+        <p class="sim-foot"><a href="../network/">Open the full report</a></p>`;
       stage.querySelector('#sim-legend').innerHTML = '<span><i class="alert"></i>Alert</span><span><i class="quiet"></i>Quiet</span><span><i class="unavailable"></i>Unavailable</span><span><i class="candidate"></i>Candidate pipe</span>' + (!s.complete ? '<span><i class="waiting"></i>Observing</span>' : '');
     } else {
       const plan = selectedPlan(); if (!plan) return;
       const c = coverageComparison(plan, placement.existing), old = placement.existing.metrics;
-      details.innerHTML = `<p class="sim-fit">${plan.sensors.length} recommended sites · ${c.total} simulated pipe events</p>
+      details.innerHTML = `<p class="sim-fit">${plan.sensors.length} recommended sites · ${c.total} pipe events</p>
         <div class="sim-coverage"><div><b>${c.observedPct}%</b><span>reach at least one sensor</span><small>${c.observed} / ${c.total} events</small></div><div><b>${c.corroboratedPct}%</b><span>reach two or more sensors</span><small>${c.corroborated} / ${c.total} events</small></div></div>
-        <table class="sim-comparison"><caption>Compared with the existing ${placement.existing.sensors.length}-sensor layout</caption><thead><tr><th>Simulated coverage</th><th>Existing</th><th>This plan</th></tr></thead><tbody>
+        <table class="sim-comparison"><caption>Compared with the existing ${placement.existing.sensors.length}-sensor layout</caption><thead><tr><th>Coverage</th><th>Existing</th><th>This plan</th></tr></thead><tbody>
           <tr><td>1+ sensor</td><td>${c.baselineObserved}</td><td>${c.observed}</td></tr><tr><td>2+ sensors</td><td>${c.baselineCorroborated}</td><td>${c.corroborated}</td></tr>
           <tr><td>Mean first alert*</td><td>${minutes(c.baselineDelay)}</td><td>${minutes(c.delay)}</td></tr><tr><td>Median, detected only</td><td>${minutes(old.median_first_alert_min)}</td><td>${minutes(plan.metrics.median_first_alert_min)}</td></tr></tbody></table>
-        <p class="sim-small">*No alert counts as six hours in the mean. Reaching more distant events can increase the detected-only median. Two-sensor coverage helps corroborate an event; it does not prove correct localization.</p>
+        <p class="sim-small">*No alert counts as six hours in the mean.</p>
         <h3>Recommended junctions</h3><div class="sim-site-list">${plan.sensors.map(id => `<button type="button" data-sim-node="${esc(id)}">${esc(id)}</button>`).join('')}</div>
-        <p class="sim-small">${esc(placement.model?.note || 'Greedy recommendations on the frozen Net3 model, not an optimal real-world placement.')}</p>
-        <p class="sim-foot">Every pipe is tested as an injected source. These are schematic Net3 junctions, not places to install hardware in Princeton.</p>`;
+        <p class="sim-foot">Every pipe is tested as an injected source.</p>`;
       details.querySelectorAll('[data-sim-node]').forEach(b => b.addEventListener('click', () => { picked = { kind: 'node', id: b.dataset.simNode }; renderGraph(); renderSelection(); notify(); }));
       stage.querySelector('#sim-legend').innerHTML = '<span><i class="recommended"></i>Recommended sensor</span><span><i class="existing"></i>Existing layout</span><span><i class="covered"></i>Event reaches a sensor</span><span><i class="uncovered"></i>Not observed in six hours</span>';
     }
@@ -277,26 +278,26 @@ export function installSimulation({ apiBase = '', mock = false, fallbackNetwork,
       const truth = mode === 'events' && revealed && String(s?.truth?.pipe) === String(p.id);
       const selected = picked?.kind === 'pipe' && picked.id === String(p.id);
       const cls = `sim-pipe${candidate ? ' candidate' : ''}${truth ? ' truth' : ''}${selected ? ' selected' : ''}${mode === 'placement' ? covered.has(String(p.id)) ? ' covered' : ' uncovered' : ''}`;
-      return `<g data-pipe="${esc(p.id)}" role="button" tabindex="${candidate || selected ? '0' : '-1'}" aria-label="Simulated pipe ${esc(p.id)}${candidate ? ', ranked candidate' : ''}"><title>Simulated pipe ${esc(p.id)}: ${esc(p.from)} → ${esc(p.to)}</title><line class="sim-pipe-hit" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line class="${cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/></g>`;
+      return `<g data-pipe="${esc(p.id)}" role="button" tabindex="${candidate || selected ? '0' : '-1'}" aria-label="Pipe ${esc(p.id)}${candidate ? ', ranked candidate' : ''}"><title>Pipe ${esc(p.id)}: ${esc(p.from)} → ${esc(p.to)}</title><line class="sim-pipe-hit" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line class="${cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/></g>`;
     }).join('');
     const nodes = n.nodes.map(node => {
       const id = String(node.id), p = positions.get(id); if (!p) return '';
       const status = mode === 'placement' ? recommended.has(id) ? 'recommended' : existing.has(id) ? 'existing' : 'junction' : scenarioSensorState(id, s, network?.sensors || []);
       const selected = picked?.kind === 'node' && picked.id === id, sensor = status !== 'junction';
-      return `<g data-node="${esc(id)}" class="sim-node ${status}${selected ? ' selected' : ''}" role="button" tabindex="${sensor ? '0' : '-1'}" aria-label="Simulated junction ${esc(id)}, ${status}"><title>Simulated junction ${esc(id)} · ${status}</title>${mode === 'placement' && recommended.has(id) && existing.has(id) ? `<circle class="sim-existing-ring" cx="${p.x}" cy="${p.y}" r="12"/>` : ''}<circle cx="${p.x}" cy="${p.y}" r="${sensor ? 7 : node.kind === 'junction' ? 2.3 : 4.5}"/>${status === 'unavailable' ? `<path d="M${p.x-4} ${p.y-4}l8 8m-8 0l8-8"/>` : ''}${sensor ? `<text x="${p.x+11}" y="${p.y-10}">${esc(id)}</text>` : ''}</g>`;
+      return `<g data-node="${esc(id)}" class="sim-node ${status}${selected ? ' selected' : ''}" role="button" tabindex="${sensor ? '0' : '-1'}" aria-label="Junction ${esc(id)}, ${status}"><title>Junction ${esc(id)} · ${status}</title>${mode === 'placement' && recommended.has(id) && existing.has(id) ? `<circle class="sim-existing-ring" cx="${p.x}" cy="${p.y}" r="12"/>` : ''}<circle cx="${p.x}" cy="${p.y}" r="${sensor ? 7 : node.kind === 'junction' ? 2.3 : 4.5}"/>${status === 'unavailable' ? `<path d="M${p.x-4} ${p.y-4}l8 8m-8 0l8-8"/>` : ''}${sensor ? `<text x="${p.x+11}" y="${p.y-10}">${esc(id)}</text>` : ''}</g>`;
     }).join('');
     graph.innerHTML = `<svg viewBox="0 0 960 600" role="group" aria-label="Schematic Net3 network, not real pipe locations">${pipes}${nodes}</svg>`;
   }
   function renderSelection() {
     const el = stage.querySelector('#sim-selection');
-    if (!picked) { el.textContent = mode === 'placement' ? 'Select a recommended junction or pipe. Coverage is modeled, not a sensor-health reading.' : 'Select a sensor or candidate pipe. Stress cases run only when you choose them.'; return; }
+    if (!picked) { el.textContent = mode === 'placement' ? 'Select a junction or pipe.' : 'Select a sensor or pipe.'; return; }
     if (picked.kind === 'node') {
       const node = (network || placement)?.nodes.find(n => String(n.id) === picked.id), s = visibleScenario();
       const status = mode === 'placement' ? selectedPlan()?.sensors.map(String).includes(picked.id) ? 'recommended sensor site' : 'junction' : scenarioSensorState(picked.id, s, network?.sensors || []);
-      el.textContent = `Simulated junction ${picked.id} · ${status}${node?.demand_lps != null ? ` · ${node.demand_lps} L/s assumed demand` : ''}. No real location is implied.`;
+      el.textContent = `Junction ${picked.id} · ${status}${node?.demand_lps != null ? ` · ${node.demand_lps} L/s demand` : ''}.`;
     } else {
       const p = (network || placement)?.pipes.find(p => String(p.id) === picked.id), c = visibleScenario()?.candidates?.find(c => String(c.pipe) === picked.id);
-      el.textContent = p ? `Simulated pipe ${p.id}: ${p.from} → ${p.to}${p.length_m != null ? ` · ${p.length_m} m · ${p.diameter_mm} mm` : ''}${mode === 'events' && c ? ` · ${Math.round(c.confidence*100)}% ranking weight · ${c.fit_minutes} min timing mismatch` : ''}.` : `Simulated pipe ${picked.id}.`;
+      el.textContent = p ? `Pipe ${p.id}: ${p.from} → ${p.to}${p.length_m != null ? ` · ${p.length_m} m · ${p.diameter_mm} mm` : ''}${mode === 'events' && c ? ` · ${Math.round(c.confidence*100)}% ranking weight · ${c.fit_minutes} min timing mismatch` : ''}.` : `Pipe ${picked.id}.`;
     }
   }
   return {

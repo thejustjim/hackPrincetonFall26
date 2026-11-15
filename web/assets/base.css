@@ -158,7 +158,11 @@ html.opening .glow { filter: opacity(0); }
 /* ---- phones: no pinned hero; the notes sit in a grid under the cup */
 @media (max-width: 760px) {
   :root { --cup-h: 56vh; --cup-w: 100vw; --cup-y: 28vh; }
-  .bar { position: static; padding: 12px 16px; }
+  /* the logo and the status share the first row; the links take a row of their own, each on one line */
+  .bar { position: static; padding: 12px 16px; flex-wrap: wrap; row-gap: 8px; }
+  .bar .conn, .bar .links a { white-space: nowrap; }
+  .bar .links { flex: 1 0 100%; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; }
+  .bar .links::-webkit-scrollbar { display: none; }
   .hero { position: relative; height: auto; overflow: visible; }
   #hero-inner { position: relative; }
   .stage { position: relative; }

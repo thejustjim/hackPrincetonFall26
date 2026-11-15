@@ -89,11 +89,11 @@
               <p class="setup-description">A sample cup, or a simulated water network. Start in Princeton and see how Clarity works.</p>
               <fieldset class="setup-demo-choices"><legend class="visually-hidden">Choose a demo</legend>
                 <label><input type="radio" name="setup-demo-view" value="cup" checked><span><b>Follow a cup</b><small>Measure, choose a filter, and compare the retest.</small></span><i aria-hidden="true">↗</i></label>
-                <label><input type="radio" name="setup-demo-view" value="network"><span><b>Explore the network</b><small>Trace simulated events and compare sensor placement.</small></span><i aria-hidden="true">↗</i></label>
+                <label><input type="radio" name="setup-demo-view" value="network"><span><b>Explore the network</b><small>Trace events and compare sensor placement.</small></span><i aria-hidden="true">↗</i></label>
               </fieldset>
             </div>
             <p class="setup-status" role="status" aria-live="polite"></p>
-            <footer class="setup-actions"><button class="setup-continue" type="submit"><span>Open my test</span><i aria-hidden="true">→</i></button><p>Your place stays in this browser.<br>This choice does not assign a sensor.</p></footer>
+            <footer class="setup-actions"><button class="setup-continue" type="submit"><span>Open my test</span><i aria-hidden="true">→</i></button></footer>
           </form>
           <div class="setup-orbit" aria-hidden="true"><svg viewBox="0 0 520 520"><circle cx="260" cy="260" r="230"/><ellipse cx="260" cy="260" rx="104" ry="230"/><ellipse cx="260" cy="260" rx="230" ry="88"/><path d="M30 260h460M260 30v460"/><circle class="setup-orbit-dot" cx="367" cy="184" r="5"/></svg></div>
         </div>`;

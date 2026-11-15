@@ -516,37 +516,32 @@ body.starting .mapbar > :not(#search):not(datalist), body.starting #topstats { o
 .intro.ask { cursor: default; }
 .intro-start { position: absolute; inset: 0; opacity: 1; pointer-events: none; transition: opacity .45s ease; }
 .intro-copy { position: absolute; left: 7%; top: 17%; width: 40%; }
-.intro-kicker { margin: 0 0 24px; font: 500 10px var(--sans); letter-spacing: .2em; color: var(--sky); }
 .intro-copy h1 { margin: 0; font: 400 clamp(54px, 6.2vw, 96px)/.99 var(--serif); letter-spacing: -.045em; color: #f7f0f0; }
 .intro-desc { margin: 24px 0 0; font: 15px/1.6 var(--sans); color: #a5b4be; }
 .intro-actions { position: absolute; left: 7%; top: 60%; width: 37%; max-width: 460px; opacity: 0; transition: opacity .5s ease; }
 .intro.ask .intro-actions { opacity: 1; pointer-events: auto; }
 .intro.departing .intro-start { opacity: 0; pointer-events: none; }
 .intro-choices { display: grid; }
-.intro-go { display: grid; grid-template-columns: 24px minmax(0,1fr) 22px; gap: 12px; align-items: center; text-align: left; font: 400 clamp(21px, 2vw, 29px)/1.2 var(--serif); padding: 20px 0; border: 0; border-bottom: 1px solid #263d4a; border-radius: 0; background: transparent; color: #c3cfd6; cursor: pointer; transition: color .2s ease, border-color .2s ease; }
+.intro-go { display: block; width: 100%; text-align: left; font: 400 clamp(21px, 2vw, 29px)/1.2 var(--serif); padding: 20px 0; border: 0; border-bottom: 1px solid #263d4a; border-radius: 0; background: transparent; color: #c3cfd6; cursor: pointer; transition: color .2s ease, border-color .2s ease; }
 .intro-go.first { color: #f7f0f0; border-top: 1px solid #263d4a; }
-.intro-choice-num { font: 10px var(--sans); letter-spacing: .06em; color: #718c9d; }
-.intro-go svg { width: 22px; height: 22px; fill: none; stroke: var(--sky); stroke-width: 1.25; transition: transform .2s ease; }
 .intro-go:hover { color: #fff; border-color: #719bb1; }
-.intro-go:hover svg { transform: translateX(4px); }
 .intro-go:focus-visible, .intro-record summary:focus-visible { outline: 2px solid var(--sky); outline-offset: 5px; }
 .intro-record { margin-top: 22px; color: #8298a7; font: 11px/1.5 var(--sans); }
 .intro-record summary { display: flex; justify-content: space-between; gap: 20px; cursor: pointer; list-style: none; }
 .intro-record summary::-webkit-details-marker { display: none; }
 .intro-record summary span { font-size: 16px; line-height: 1; }
 .intro-line { margin: 12px 0 0; max-width: 36em; font: 12px/1.6 var(--sans); color: #a5b4be; }
-.intro-orbit-label { position: absolute; right: 7%; bottom: 11%; width: 40%; text-align: center; font: 9px/1.8 var(--sans); letter-spacing: .17em; color: #91b2c5; }
-.intro-orbit-label span { display: block; color: #556e7e; letter-spacing: .06em; }
+.intro-orbit-label { position: absolute; right: 7%; bottom: 11%; width: 40%; text-align: center; font: 12px/1.7 var(--sans); color: #91b2c5; }
+.intro-orbit-label span { display: block; color: #556e7e; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) {
   body.starting { height: 100dvh; overflow: hidden; }
   .intro-copy { top: 24px; left: 24px; width: calc(100% - 48px); }
-  .intro-kicker { margin-bottom: 16px; font-size: 9px; }
   .intro-copy h1 { font-size: clamp(38px, 11vw, 54px); line-height: .98; }
   .intro-desc { margin-top: 14px; font-size: 12px; line-height: 1.5; }
   .intro-desc br { display: none; }
   .intro-desc { max-width: 260px; }
   .intro-actions { top: auto; bottom: max(24px, env(safe-area-inset-bottom)); left: 24px; width: calc(100% - 48px); max-width: none; }
-  .intro-go { font-size: 22px; padding: 15px 0; gap: 8px; }
+  .intro-go { font-size: 22px; padding: 15px 0; }
   .intro-record { margin-top: 16px; font-size: 10px; }
   .intro-line { max-height: 80px; overflow: auto; }
   .intro-orbit-label { display: none; }
@@ -555,7 +550,6 @@ body.starting .mapbar > :not(#search):not(datalist), body.starting #topstats { o
 @media (max-height: 650px) and (min-width: 761px) {
   .intro-copy { top: 9%; }
   .intro-copy h1 { font-size: 58px; }
-  .intro-kicker { margin-bottom: 14px; }
   .intro-desc { margin-top: 14px; }
   .intro-actions { top: 57%; }
   .intro-go { padding: 14px 0; font-size: 23px; }
@@ -564,7 +558,6 @@ body.starting .mapbar > :not(#search):not(datalist), body.starting #topstats { o
 @media (max-height: 700px) and (max-width: 760px) {
   .intro-copy { top: 16px; }
   .intro-copy h1 { font-size: 36px; }
-  .intro-kicker { margin-bottom: 10px; }
   .intro-desc { display: none; }
   .intro-go { font-size: 20px; padding: 12px 0; }
   .intro-record { margin-top: 12px; }
@@ -600,9 +593,8 @@ body.starting .mapbar > #btn-simulation { opacity: 1; pointer-events: auto; }
 .sim-stage { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--bg); padding: 22px 26px 14px; }
 .sim-stage-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .sim-kicker { margin: 17px 0 9px; color: var(--sky); font: 11px/1.5 var(--sans); letter-spacing: .045em; text-transform: uppercase; }
-.sim-stage .sim-kicker { margin-top: 0; }
 .sim-stage h2 { font: 400 clamp(24px, 2.5vw, 38px)/1.08 var(--serif); letter-spacing: -.02em; margin: 0; }
-.sim-heading { font: 400 30px/1.1 var(--serif); margin: 0 0 12px; letter-spacing: -.02em; }
+.sim-heading { font: 400 30px/1.1 var(--serif); margin: 22px 0 12px; letter-spacing: -.02em; }
 .sim-intro { font: 16px/1.45 var(--serif); color: var(--muted); margin: 0 0 18px; }
 .sim-modes { display: flex; margin-bottom: 20px; }
 .sim-modes button { flex: 1; font-size: 12px; padding: 9px 5px; }
@@ -637,7 +629,7 @@ body.starting .mapbar > #btn-simulation { opacity: 1; pointer-events: auto; }
 .sim-pipe.uncovered { stroke: var(--muted); stroke-opacity: .4; stroke-dasharray: 4 5; }
 .sim-node { cursor: pointer; }
 .sim-node circle { fill: var(--slate); stroke: var(--bg); stroke-width: 1.5; }
-.sim-node.alert circle { fill: var(--cloudy); stroke: var(--cloudy); }
+.sim-node.alert circle { fill: #d9667e; stroke: #d9667e; }
 .sim-node.quiet circle { fill: var(--bg); stroke: var(--text); stroke-width: 2; }
 .sim-node.unavailable circle { fill: var(--bg); stroke: var(--slate); stroke-width: 2; stroke-dasharray: 3 2; }
 .sim-node.unavailable path { stroke: var(--slate); stroke-width: 1.5; }
@@ -650,12 +642,13 @@ body.starting .mapbar > #btn-simulation { opacity: 1; pointer-events: auto; }
 .sim-graph [role=button]:focus-visible .sim-pipe, .sim-graph [role=button]:focus-visible circle { stroke: var(--cloudy); stroke-opacity: 1; stroke-width: 5; }
 .sim-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; border-top: 1px solid var(--line); padding-top: 12px; font: 12px/1.4 var(--sans); color: var(--muted); }
 .sim-legend span { display: inline-flex; align-items: center; gap: 7px; }
-.sim-legend i { width: 9px; height: 9px; display: inline-block; border-radius: 50%; border: 1.5px solid var(--text); }
-.sim-legend i.alert { background: var(--cloudy); border-color: var(--cloudy); }
+/* padding and flex are reset: the page's own .alert rule (a notice with a rule down its side) would stretch the dot into an oval */
+.sim-legend i { flex: none; box-sizing: border-box; width: 10px; height: 10px; padding: 0; margin: 0; display: inline-block; border-radius: 50%; border: 1.5px solid var(--text); }
+.sim-legend i.alert { background: #d9667e; border: 1.5px solid #d9667e; }
 .sim-legend i.quiet { background: var(--bg); }
 .sim-legend i.unavailable { border: 1.5px dashed var(--slate); }
 .sim-legend i.recommended { background: var(--sky); border-color: var(--sky); }
-.sim-legend i.candidate, .sim-legend i.covered, .sim-legend i.uncovered { width: 18px; height: 0; border: 0; border-top: 3px solid var(--sky); border-radius: 0; }
+.sim-legend i.candidate, .sim-legend i.covered, .sim-legend i.uncovered { width: 18px; height: 0; border: 0; border-top: 3px solid var(--steel); border-radius: 0; }
 .sim-legend i.uncovered { border-top: 2px dashed var(--slate); }
 .sim-selection { min-height: 36px; margin: 10px 0 0; font: 12px/1.5 var(--sans); color: var(--muted); }
 .sim-coverage { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 22px; }
@@ -676,7 +669,6 @@ body.starting .mapbar > #btn-simulation { opacity: 1; pointer-events: auto; }
   .sim-stage-head { gap: 8px; }
   .sim-stage-head .tool { font-size: 11px; padding: 6px; }
   .sim-stage h2 { font-size: 25px; }
-  .sim-stage .sim-kicker { font-size: 9px; }
   .sim-graph { min-height: 190px; }
   .sim-legend { gap: 6px 12px; font-size: 10px; }
   .simulation-open .mapwrap { height: 65vh; min-height: 440px; }
@@ -699,7 +691,21 @@ body.starting .mapbar > #btn-simulation { opacity: 1; pointer-events: auto; }
 .intro.departing .intro-skip { display: block; }
 .intro-skip:focus-visible { outline: 2px solid var(--sky); outline-offset: 5px; }
 
-.sim-geographic .sim-legend i.alert { background: #ee8971; border-color: #ee8971; }
-.sim-geographic .sim-legend i.quiet { background: #85beda; border-color: #85beda; }
+.sim-geographic .sim-legend i.alert { background: #d9667e; border-color: #d9667e; }
+.sim-geographic .sim-legend i.quiet { background: #5a9bbd; border-color: #5a9bbd; }
 .sim-legend i.waiting { background: transparent; border: 1.5px dashed #a4b1b8; }
 .sim-geographic .sim-legend, .sim-geographic .sim-selection { align-self: flex-start; padding: 6px 9px; background: rgba(5,10,17,.88); }
+
+/* The map waits under plain ink until its first tiles are in (main.js lifts this at the first idle). */
+#map { transition: opacity .6s ease; }
+.mapwrap.veiled { background: #0f2233; }
+.mapwrap.veiled #map { opacity: 0; transition: none; }
+.mapwrap.veiled::after { content: "Preparing the map"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font: italic 16px var(--serif); color: #8fa3b3; pointer-events: none; }
+
+/* Sliders in the site's steel blue: a hairline and a dot, the same in every browser. */
+.sim-control input[type=range], .timebar input[type=range] { -webkit-appearance: none; appearance: none; height: 20px; margin: 0; background: transparent; accent-color: var(--steel); cursor: pointer; }
+.sim-control input[type=range]::-webkit-slider-runnable-track, .timebar input[type=range]::-webkit-slider-runnable-track { height: 2px; background: rgba(90, 155, 189, .45); }
+.sim-control input[type=range]::-webkit-slider-thumb, .timebar input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; margin-top: -5.5px; border: 0; border-radius: 50%; background: #5a9bbd; }
+.sim-control input[type=range]::-moz-range-track, .timebar input[type=range]::-moz-range-track { height: 2px; background: rgba(90, 155, 189, .45); }
+.sim-control input[type=range]::-moz-range-thumb, .timebar input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: 50%; background: #5a9bbd; }
+.sim-control input[type=range]:focus-visible, .timebar input[type=range]:focus-visible { outline: 2px solid var(--sky); outline-offset: 4px; }

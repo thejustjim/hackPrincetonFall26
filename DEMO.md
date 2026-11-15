@@ -11,6 +11,9 @@ independent reviews of the site (a judge, a water engineer and a design lead) th
   problems at once, or a sensor that looks wrong). Every other pour is settled by the tank's own rule, and
   the page says so. And one cup already filtered, to pour back at once: the retest is the payoff, and the
   report only appears after it.
+- **Make the filtered cup tea or cloudy water.** The rig's one filter is a Brita: it clears colour and
+  cloudiness, so that retest comes back in range. Salt water retests about where it started and the page
+  says "still out of range"; pour it only to show that the retest reports a filter that did not help.
 - **For the physical prototype:** the gateway running with the actual receiver (`cd gateway && python
   gateway.py`, without `MOCK=1`) and the page showing "Live". Prototype mode requires a verified physical
   gateway; an unavailable or mock gateway stays disconnected rather than substituting sample readings.

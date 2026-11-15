@@ -60,21 +60,21 @@ export function simulationTooltip(object) {
   if (object.kind === 'pipe') {
     const evidence = object.truth ? 'Revealed injected source' : object.candidate
       ? `Candidate ${object.candidate.rank} · ${Math.round(object.candidate.confidence * 100)}% of ranking weight`
-      : object.coverage === 2 ? 'Two or more recommended sensors can observe this modeled event'
-      : object.coverage === 1 ? 'One recommended sensor can observe this modeled event'
-      : object.coverage === 0 ? 'No recommended sensor observes this event within six modeled hours' : 'Example network connection';
-    return `Simulated pipe ${object.id}\n${evidence}\nIllustrative position, not a Princeton pipe. Click to inspect.`;
+      : object.coverage === 2 ? 'Two or more recommended sensors can observe this event'
+      : object.coverage === 1 ? 'One recommended sensor can observe this event'
+      : object.coverage === 0 ? 'No recommended sensor observes this event within six hours' : 'Network connection';
+    return `Pipe ${object.id}\n${evidence}\nClick to inspect.`;
   }
-  const label = { alert: `Alert at model minute ${Math.round(object.minute || 0)}`, quiet: 'No alert during the observation window',
+  const label = { alert: `Alert at minute ${Math.round(object.minute || 0)}`, quiet: 'No alert during the observation window',
     waiting: 'Still being observed', unavailable: 'Sensor unavailable, not a quiet reading', recommended: 'Recommended sensor site',
-    existing: 'Original example sensor site', junction: 'Example network junction' }[object.status];
-  return `Simulated ${object.sensor || object.proposed ? 'sensor' : 'junction'} ${object.id}\n${label}\nIllustrative position, not an installed Princeton sensor. Click to inspect.`;
+    existing: 'Existing sensor site', junction: 'Junction' }[object.status];
+  return `${object.sensor || object.proposed ? 'Sensor' : 'Junction'} ${object.id}\n${label}\nClick to inspect.`;
 }
 
 // Deck's frequent scenery/particle renders reuse these exact layer objects. Only a
 // new simulation snapshot or theme rebuilds attributes; geometry survives replay.
 export function createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer }, { onPick = () => {} } = {}) {
-  let network = null, geometry = null, current = null, last = null, lastLight = null, layers = [];
+  let network = null, geometry = null, current = null, last = null, lastLight = null, lastClose = null, layers = [];
   const click = ({ object }) => { if (object?._simulation) onPick(object.kind, object.id); };
   return {
     update(snapshot) { current = snapshot; },
@@ -82,34 +82,38 @@ export function createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer
       if (network !== current?.network) { network = current?.network; geometry = projectNetwork(network); }
       return geometry?.bounds;
     },
-    layers(light = false) {
-      if (last === current && lastLight === light) return layers;
-      last = current; lastLight = light;
+    layers(light = false, zoom = 0) {
+      // Every sensor's number only fits close in; further out the alerting, recommended and chosen ones are named.
+      const close = zoom >= 13.4;
+      if (last === current && lastLight === light && lastClose === close) return layers;
+      last = current; lastLight = light; lastClose = close;
       if (!current?.network) return (layers = []);
       if (network !== current.network) { network = current.network; geometry = projectNetwork(network); }
       const f = overlayFeatures(current, geometry);
       const ink = light ? [11, 32, 39, 255] : [247, 240, 240, 255];
       const background = light ? [255, 252, 245, 245] : [11, 32, 39, 245];
-      const blue = [125, 195, 229, 255], warm = [238, 137, 113, 255], gold = [243, 204, 117, 255];
+      // The site's palette: steel blue for what is quiet, rose for what alerts, amber for what is chosen.
+      const blue = [90, 155, 189, 255], warm = [217, 102, 126, 255], gold = [224, 164, 88, 255];
       const pipeColor = d => d.selected || d.truth ? gold : d.candidate ? (d.candidate.rank === 1 ? warm : blue)
-        : d.coverage === 2 ? [101, 185, 219, 215] : d.coverage === 1 ? [90, 155, 189, 160]
-        : light ? [74, 104, 121, 100] : [132, 166, 183, 105];
+        : d.coverage === 2 ? [90, 155, 189, 235] : d.coverage === 1 ? [90, 155, 189, 140]
+        : light ? [74, 104, 121, 100] : [152, 170, 184, 95];
       const nodeColor = d => d.selected ? gold : d.status === 'alert' ? warm : d.proposed ? blue
         : d.status === 'unavailable' ? [113, 117, 128, 220] : d.status === 'waiting' ? [164, 177, 184, 255]
-        : d.sensor ? [133, 190, 218, 255] : [117, 155, 176, 130];
+        : d.sensor ? blue : [152, 170, 184, 120];
       const important = f.nodes.filter(n => n.sensor || n.proposed || n.selected);
+      const named = close ? important : important.filter(n => n.status === 'alert' || n.proposed || n.selected);
       layers = [
         new PathLayer({ id: 'sim-map-pipes', data: f.pipes, getPath: d => d.path, getColor: pipeColor,
           getWidth: d => d.selected || d.truth ? 6 : d.candidate ? d.candidate.rank === 1 ? 5 : 3.5 : d.coverage ? 2.5 : 1.5,
           widthUnits: 'pixels', widthMinPixels: 1, capRounded: true, jointRounded: true,
           pickable: true, autoHighlight: true, highlightColor: gold, onClick: click, parameters: { depthTest: false } }),
-        new PathLayer({ id: 'sim-map-pumps', data: f.pumps, getPath: d => d.path, getColor: [137, 168, 183, 120],
+        new PathLayer({ id: 'sim-map-pumps', data: f.pumps, getPath: d => d.path, getColor: [152, 170, 184, 120],
           getWidth: 2, widthUnits: 'pixels', parameters: { depthTest: false } }),
         new ScatterplotLayer({ id: 'sim-map-junctions', data: f.nodes.filter(n => !n.sensor && !n.proposed),
-          getPosition: d => d.position, getRadius: d => d.selected ? 7 : 2, radiusUnits: 'pixels',
+          getPosition: d => d.position, getRadius: d => d.selected ? 7 : 2, radiusUnits: 'pixels', billboard: true,
           getFillColor: nodeColor, pickable: true, onClick: click, parameters: { depthTest: false } }),
         new ScatterplotLayer({ id: 'sim-map-sensors', data: important, getPosition: d => d.position,
-          getRadius: d => d.selected ? 10 : d.proposed ? 8 : 7, radiusUnits: 'pixels',
+          getRadius: d => d.selected ? 10 : d.proposed ? 8 : 7, radiusUnits: 'pixels', billboard: true,
           getFillColor: d => d.status === 'unavailable' || d.status === 'waiting' || d.status === 'existing' ? background : nodeColor(d),
           getLineColor: nodeColor, stroked: true, lineWidthMinPixels: 2.5, pickable: true, onClick: click,
           parameters: { depthTest: false } }),
@@ -117,7 +121,7 @@ export function createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer
           getPosition: d => d.position, getText: '×', getSize: 16, getColor: ink,
           fontFamily: 'Inter, system-ui, sans-serif', getTextAnchor: 'middle', getAlignmentBaseline: 'center',
           pickable: true, onClick: click, parameters: { depthTest: false } }),
-        new TextLayer({ id: 'sim-map-labels', data: important, getPosition: d => d.position,
+        new TextLayer({ id: 'sim-map-labels', data: named, getPosition: d => d.position,
           getText: d => d.id, getSize: 11, getPixelOffset: [0, -17], getColor: ink,
           getTextAnchor: 'middle', getAlignmentBaseline: 'bottom', fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
           fontSettings: { sdf: true }, characterSet: 'auto', outlineWidth: 3, outlineColor: background,

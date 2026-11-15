@@ -55,7 +55,8 @@ assert.equal(f.nodes.filter(n => n.proposed).length, 12);
 assert.equal(f.pipes.filter(p => p.coverage >= 1).length, plan.metrics.observed);
 assert.equal(f.pipes.filter(p => p.coverage === 2).length, plan.metrics.localized);
 assert.equal(f.pipes.filter(p => p.candidate || p.truth).length, 0);
-assert.match(simulationTooltip(f.pipes[0]), /not a Princeton pipe/);
+// The Simulation tab says once what this is; a tooltip names the pipe and what is known about it.
+assert.match(simulationTooltip(f.pipes[0]), /^Pipe \S+\n.+\nClick to inspect\.$/);
 assert.equal(simulationTooltip({ node: 'real-hardware' }), null);
 // Verify the data/accessor/click contract passed to Deck; the production build verifies its imports.
 const picks = [];
