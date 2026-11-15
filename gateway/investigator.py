@@ -17,22 +17,25 @@ a tool, and the verdict and severity come from analysis.py, not from a model.
 
 The tools are plain functions the gateway passes in, so this file has no database code.
 
+The agents run on Gemini (through langchain-google-genai) when the gateway has a Google key,
+and on Claude (langchain-anthropic) when it has an Anthropic key.
+
 Env vars:
-    INVESTIGATOR=0               turn it off (it is on whenever ANTHROPIC_API_KEY is set)
-    INVESTIGATOR_MODEL           the lead's model, default claude-opus-5-5
+    INVESTIGATOR=0               turn it off (it is on whenever a model key is set)
+    GEMINI_MODEL                 Gemini: the model to use (the gateway picks a current Flash model otherwise)
+    INVESTIGATOR_MODEL           Claude: the lead's model, default claude-opus-5-5
     INVESTIGATOR_SUBAGENT_MODEL  the specialists' model, default the same as the lead's
-    INVESTIGATOR_EFFORT          low | medium | high (default low: fast, and it still uses every tool)
+    INVESTIGATOR_EFFORT          Claude: low | medium | high (default low: fast, and it still uses every tool)
 """
 import json
 import os
 
 from deepagents import create_deep_agent
-from langchain.agents.structured_output import ProviderStrategy
+from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
 from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel, Field
 
-MODEL = os.getenv("INVESTIGATOR_MODEL", "claude-opus-5-5")
-SUBAGENT_MODEL = os.getenv("INVESTIGATOR_SUBAGENT_MODEL", MODEL)
+MODEL = os.getenv("INVESTIGATOR_MODEL", "claude-opus-5-5")     # Claude's model; Gemini's is chosen by the gateway
 EFFORT = os.getenv("INVESTIGATOR_EFFORT", "low")
 
 
@@ -127,8 +130,11 @@ SPECIALISTS = [
 TITLES = {s["name"]: s["title"] for s in SPECIALISTS}
 
 
-def chat(model):
-    """A Claude chat model for the lead or a specialist."""
+def chat(model, provider="anthropic", key=None):
+    """A chat model for the lead or a specialist: Gemini (provider "google") or Claude."""
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.2, timeout=60, max_retries=2)
     extra = {}
     if not model.startswith("claude-haiku"):
         # if a safety classifier declines, the API retries on a fallback model by itself
@@ -137,17 +143,23 @@ def chat(model):
     return ChatAnthropic(model=model, max_tokens=16000, effort=EFFORT, **extra)
 
 
-def build(tools, lead_model=None, specialist_model=None):
-    """tools: {name: function}. The two model arguments are for tests; left out, Claude is used."""
-    lead = lead_model or chat(MODEL)
-    worker = specialist_model or (lead if SUBAGENT_MODEL == MODEL and lead_model is None else chat(SUBAGENT_MODEL))
+def build(tools, provider="anthropic", model=None, key=None, lead_model=None, specialist_model=None):
+    """tools: {name: function}. provider "google" runs every agent on Gemini (`model` is the Gemini
+    model to use), anything else on Claude. The two *_model arguments are for tests."""
+    google = provider == "google"
+    lead_name = (model or "gemini-3.5-flash") if google else MODEL
+    worker_name = os.getenv("INVESTIGATOR_SUBAGENT_MODEL") or lead_name
+    lead = lead_model or chat(lead_name, provider, key)
+    worker = specialist_model or (lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
     subagents = [{"name": s["name"], "description": s["description"],
                   "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + RULES,
                   "tools": [tools[t] for t in s["tools"]], "model": worker} for s in SPECIALISTS]
-    # ProviderStrategy = Claude's native structured output. (The tool strategy would force
-    # tool_choice="any", which Opus 5.5 rejects.)
+    # How the lead hands back the structured report. Claude: its native structured output
+    # (the tool strategy would force tool_choice="any", which Opus 5.5 rejects). Gemini: a
+    # final call to a "Report" tool, which works on any model that can call tools.
+    answer = ToolStrategy(Report) if google else ProviderStrategy(Report)
     return create_deep_agent(model=lead, tools=[], system_prompt=LEAD, subagents=subagents,
-                             response_format=ProviderStrategy(Report), name="clarity-investigator")
+                             response_format=answer, name="clarity-investigator")
 
 
 def text_of(message):

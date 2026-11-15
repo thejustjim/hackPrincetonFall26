@@ -222,7 +222,7 @@ def load_reference():
         return None
 
 
-# ---------------------------------------------------------------- Claude agent
+# ---------------------------------------------------------------- the decision agent (Gemini or Claude)
 SYSTEM = (
     "You are the decision agent inside Clarity, a water tester with two filters: ZEROWATER "
     "(ion exchange: removes dissolved solids, the choice for high TDS) and BRITA (activated carbon: "
@@ -247,26 +247,71 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-claude = None
-if os.getenv("ANTHROPIC_API_KEY"):
+# Which model answers. Gemini (Google's Gemini API) when GOOGLE_API_KEY or GEMINI_API_KEY is set,
+# otherwise Claude when ANTHROPIC_API_KEY is set, otherwise none: the tank's own rule decides and
+# reports are written from the checks. AI_PROVIDER=google|anthropic chooses when both keys are set.
+GOOGLE_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or ("google" if GOOGLE_KEY else "anthropic" if os.getenv("ANTHROPIC_API_KEY") else "")).lower()
+GEMINI_CHOICES = [m for m in (os.getenv("GEMINI_MODEL"), "gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash",
+                              "gemini-3.5-flash-lite") if m]
+
+
+def pick_gemini_model(client):
+    """The first model on our list that this key can use. Asking is free and saves a refused first pour."""
+    try:
+        have = {m.name.split("/")[-1] for m in client.models.list(config={"http_options": {"timeout": 8000}})}
+    except Exception as e:
+        print("could not list Gemini models, using", GEMINI_CHOICES[0], "-", type(e).__name__)
+        return GEMINI_CHOICES[0]
+    return next((m for m in GEMINI_CHOICES if m in have), GEMINI_CHOICES[0])
+
+
+claude = gemini = AI_MODEL = None
+if AI_PROVIDER == "google" and GOOGLE_KEY:
+    from google import genai
+    gemini = genai.Client(api_key=GOOGLE_KEY)
+    AI_MODEL = pick_gemini_model(gemini)
+elif AI_PROVIDER == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
     from anthropic import AsyncAnthropic
     claude = AsyncAnthropic()
+    AI_MODEL = MODEL
+elif AI_PROVIDER:
+    print(f"AI_PROVIDER={AI_PROVIDER} but its key is not set: the tank's own rule will decide")
+
+
+def ai_name():
+    return "Gemini" if gemini is not None else "Claude" if claude is not None else None
+
+
+def decision_prompt(reading, past):
+    recent = [{k: h[k] for k in ("ts", "phase", "ph", "tds", "clarity", "verdict")} for h in past[:8]]
+    return (f"Site: {NODES.get(reading['node'], {}).get('name', reading['node'])}\n"
+            f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter')})}\n"
+            f"Anomaly score vs this site's history (0-1): {reading['anomaly']}\n"
+            f"Recent history (newest first): {json.dumps(recent)}")
+
+
+def checked(text, who):
+    """A model's answer is used only if it is the JSON we asked for and names a real filter."""
+    try:
+        result = json.loads(text) if text else None
+    except json.JSONDecodeError:
+        print(f"{who}'s answer was not JSON:", (text or "")[:120])
+        return None
+    if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
+        return None
+    return result
 
 
 async def ask_claude(reading, past):
     """Returns {"filter", "explanation"} or None."""
     if claude is None:
         return None
-    recent = [{k: h[k] for k in ("ts", "phase", "ph", "tds", "clarity", "verdict")} for h in past[:8]]
-    prompt = (f"Site: {NODES.get(reading['node'], {}).get('name', reading['node'])}\n"
-              f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter')})}\n"
-              f"Anomaly score vs this site's history (0-1): {reading['anomaly']}\n"
-              f"Recent history (newest first): {json.dumps(recent)}")
     resp = await claude.beta.messages.create(
         model=MODEL,
         max_tokens=4000,           # thinking is always on for this model and counts against this
         system=SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": decision_prompt(reading, past)}],
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         betas=["server-side-fallback-2026-07-01"],
         fallbacks="default",
@@ -274,15 +319,29 @@ async def ask_claude(reading, past):
     if resp.stop_reason != "end_turn":          # refusal, max_tokens, ...: let the tank's rule decide
         print("Claude gave no decision:", resp.stop_reason)
         return None
-    text = next((b.text for b in resp.content if b.type == "text"), None)
-    try:
-        result = json.loads(text) if text else None
-    except json.JSONDecodeError:
-        print("Claude's answer was not JSON:", (text or "")[:120])
+    return checked(next((b.text for b in resp.content if b.type == "text"), None), "Claude")
+
+
+async def ask_gemini(reading, past):
+    """Returns {"filter", "explanation"} or None."""
+    if gemini is None:
         return None
-    if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
+    resp = await gemini.aio.models.generate_content(
+        model=AI_MODEL,
+        contents=decision_prompt(reading, past),
+        config={"system_instruction": SYSTEM, "response_mime_type": "application/json", "max_output_tokens": 4000,
+                "response_json_schema": {k: v for k, v in SCHEMA.items() if k != "additionalProperties"}},
+    )
+    text = resp.text                               # None when the answer was blocked or cut off
+    if not text:
+        print("Gemini gave no decision:", getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else resp.prompt_feedback)
         return None
-    return result
+    return checked(text, "Gemini")
+
+
+async def ask_model(reading, past):
+    """Whichever model is configured. Returns {"filter", "explanation"} or None."""
+    return await (ask_gemini if gemini is not None else ask_claude)(reading, past)
 
 
 # ---------------------------------------------------------------- live push
@@ -390,14 +449,15 @@ async def handle_line(raw: str):
 
 async def decide(reading, past):
     try:
-        result = await asyncio.wait_for(ask_claude(reading, past), timeout=AI_TIMEOUT)
+        result = await asyncio.wait_for(ask_model(reading, past), timeout=AI_TIMEOUT)
     except Exception as e:
         print("AI decision skipped:", type(e).__name__, e)
         result = None
     if result:
         send_to_tank({"cmd": "filter", "test": reading["test"], "filter": result["filter"]})
-        await save_explanation(reading, result["filter"], result["explanation"], source="claude")
-        used, source = result["filter"], "claude"
+        source = ai_name().lower()
+        await save_explanation(reading, result["filter"], result["explanation"], source=source)
+        used = result["filter"]
     else:
         # Uno falls back to its own rule; we record the same rule here
         await save_explanation(reading, reading["filter"], None, source="local_rule")
@@ -409,11 +469,11 @@ async def decide(reading, past):
 
 async def explain_only(reading, past):
     try:
-        result = await asyncio.wait_for(ask_claude(reading, past), timeout=20)
+        result = await asyncio.wait_for(ask_model(reading, past), timeout=20)
     except Exception:
         result = None
     if result:
-        await save_explanation(reading, None, result["explanation"], source="claude")
+        await save_explanation(reading, None, result["explanation"], source=ai_name().lower())
 
 
 async def save_explanation(reading, ai_filter, explanation, source):
@@ -633,10 +693,11 @@ INVESTIGATOR_TOOLS = [get_site_history, get_nearby_nodes, get_filter_life, get_r
                       get_sensor_checks, get_baseline, get_peer_comparison, query_readings, search_guidance,
                       get_notice_templates]
 investigator_agent = None
-if claude is not None and os.getenv("INVESTIGATOR", "1") != "0":
+if ai_name() and os.getenv("INVESTIGATOR", "1") != "0":
     try:
         import investigator
-        investigator_agent = investigator.build({f.__name__: f for f in INVESTIGATOR_TOOLS})
+        investigator_agent = investigator.build({f.__name__: f for f in INVESTIGATOR_TOOLS},
+                                                provider=AI_PROVIDER, model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY)
     except Exception as e:
         print("investigator off:", type(e).__name__, e)
 investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
@@ -683,7 +744,7 @@ async def report_on(after, filter_used):
               f"from {len(report['sections'])} specialists")
         await save_report(after, filter_used, report,
                           {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"]},
-                          investigator.MODEL)
+                          AI_MODEL or investigator.MODEL)
 
 
 def report_message(rid, ts, node, test, reading_id, filter_used, report, model, extra=None):
@@ -922,7 +983,7 @@ def analysis_for(node: str = "tank-01", test: int | None = None):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": claude is not None, "control": "token" if CONTROL_TOKEN else "local",
+    return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},

@@ -230,11 +230,19 @@
     h.setAttribute("aria-label", words.join(" "));
     h.innerHTML = words.map((w, k) => `<span class="w" aria-hidden="true" style="--w:${k}">${w.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</span>`).join(" ");
   }
+  // The slides name the model that picks filters. They say Gemini unless a gateway says it is using another.
+  const nameModel = () => {
+    const name = window.TapApp?.store?.health?.ai_name;
+    if (name) host.querySelectorAll("[data-ai]").forEach((el) => { el.textContent = name; });
+  };
+  window.addEventListener("app:ready", nameModel);
+
   function build(html) {
     const mark = document.querySelector(".bar .wordmark");
     host.innerHTML = html + `<p class="p-mark wordmark" aria-hidden="true">${mark ? mark.innerHTML : "Clarity"}</p><p class="p-count" aria-hidden="true"></p><div class="p-end" aria-hidden="true"></div>`;
     slides = [...host.querySelectorAll(".slide")];
     if (!slides.length) throw new Error("no slides");
+    nameModel();
     slides.forEach((s) => {
       s.querySelectorAll("h1, h2").forEach(splitWords);
       s.querySelectorAll("[data-rise]").forEach((el, i) => el.style.setProperty("--i", i));

@@ -5,4 +5,6 @@ anthropic
 python-dotenv
 deepagents
 langchain-anthropic
+langchain-google-genai
+google-genai
 psycopg[binary]

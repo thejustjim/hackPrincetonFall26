@@ -14,7 +14,7 @@
                    CLOUDY: "This cup is cloudy.", PH_WARN: "This cup's pH is outside the usual range." }[b.verdict];
     if (!d) return `${what} ${b.verdict === "SAFE" ? "It may not need a filter; that is being decided." : "A filter is being chosen."}`;
     const f = d.ai_filter;
-    const who = d.source === "claude" ? "Claude" : d.source === "sample" ? "The demo data" : "The tank's own rule";
+    const who = TapUI.AI[d.source] || (d.source === "sample" ? "The demo data" : "The tank's own rule");
     if (f === "NONE") {
       return b.verdict === "SAFE"
         ? `${what} No filter was needed. That is not a safety test: these readings can't show lead or bacteria.`
@@ -81,8 +81,8 @@
   }
   function reportExtras(rep, health) {
     const { esc, t } = TapUI;
-    const by = rep.source === "deepagents" ? "Written by the investigator: a lead agent and five specialists, working from the base station's checks."
-      : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With an Anthropic key, the investigator's agents add to it."}`
+    const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and five specialists${health.ai_name ? ` on ${health.ai_name}` : ""}, working from the base station's checks.`
+      : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With a model key, the investigator's agents add to it."}`
       : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
     return {
       by: by ? `<p class="${rep.source === "sample" ? "sample-note" : "by"}">${esc(by)}</p>` : "",
@@ -207,7 +207,7 @@
       }
       if (what === "all" || what === "conn") {
         const [short, long] = {
-          live: store.health.ai ? ["Live, Claude on", "Live from the gateway; Claude picks filters"] : ["Live, local rule", "Live from the gateway; no Anthropic key, so the tank's own rule picks filters"],
+          live: store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} picks filters`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
           down: ["Reconnecting", "Lost the gateway; reconnecting"],
           demo: ["Demo data", "No gateway reachable, so this is demo data"],
         }[store.conn] || ["Connecting", ""];
@@ -234,8 +234,8 @@
         $("#why").innerHTML = !b
           ? `<p class="lede">No cup has been poured yet.</p>`
           : `<p class="lede">${t(!d ? (b.verdict === "SAFE" ? "Whether it needs a filter is being decided." : "A filter is being chosen.") : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "No filter would help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
-             <p>${t(!d ? "The tank waits a few seconds for Claude, then falls back on its own thresholds." : d.explanation || "There is no AI explanation for this pour: the tank used its built-in thresholds, ZeroWater above 300 ppm and Brita below 0.70 transparency.")}</p>
-             ${d?.source === "sample" ? '<p class="sample-note">Sample explanation written for the demo data, not by Claude.</p>' : ""}`;
+             <p>${t(!d ? `The tank waits a few seconds for ${store.health.ai_name || "the AI model"}, then falls back on its own thresholds.` : d.explanation || "There is no AI explanation for this pour: the tank used its built-in thresholds, ZeroWater above 300 ppm and Brita below 0.70 transparency.")}</p>
+             ${d?.source === "sample" ? '<p class="sample-note">Sample explanation written for the demo data, not by a model.</p>' : ""}`;
 
         const warn = { tds: (r) => r && r.tds > 300, ph: (r) => r && (r.ph < 6.5 || r.ph > 8.5), clarity: (r) => r && r.clarity < 0.7 };
         const cell = (r, key, digits) => `<td class="n${warn[key](r) ? " warn" : ""}">${r ? (digits == null ? esc(r[key]) : fmt(r[key], digits)) : "–"}</td>`;

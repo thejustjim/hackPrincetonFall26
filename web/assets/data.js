@@ -1,6 +1,6 @@
 /* One place that talks to the gateway and holds the current state, for any page.
    Live: same origin, or ?api=http://<pi>:8000. Falls back to sample data (sample.js) when no
-   gateway answers, or with ?demo. Sample decisions and reports carry source "sample", never "claude".
+   gateway answers, or with ?demo. Sample decisions and reports carry source "sample", never a model's name.
 
    const store = await TapStore.connect();
    store.on((type, payload) => ...)   // "reading" | "pour" | "filters" | "report" | "conn"
@@ -49,12 +49,13 @@
 
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 
+  let aiName = null;   // the model the gateway says it is using ("Gemini" or "Claude"), once known
   function pourFromPair(pair, kind) {
     const before = pair.find((r) => r.phase === "before") || null;
     const after = pair.find((r) => r.phase === "after") || null;
     let decision = null;
     if (before && before.ai_filter) {
-      decision = { ai_filter: before.ai_filter, explanation: before.explanation, source: !before.explanation ? "local_rule" : kind === "demo" ? "sample" : "claude" };
+      decision = { ai_filter: before.ai_filter, explanation: before.explanation, source: !before.explanation ? "local_rule" : kind === "demo" ? "sample" : (aiName || "Claude").toLowerCase() };
     }
     return { before, after, decision };
   }
@@ -72,6 +73,7 @@
       } catch { /* no gateway: demo */ }
     }
     if (!source) { source = TapSample.create(); health = await source.get("/health"); }
+    aiName = health.ai_name || null;
 
     const s = { kind: source.kind, conn: source.kind === "live" ? "live" : "demo", health,
                 nodes: new Map(), feed: [], pour: null, filters: [], report: null, reference: [], tank: "tank-01" };
@@ -91,7 +93,7 @@
       if (Array.isArray(list)) { s.filters = mergeFilters(list); emit("filters"); }
     };
     s.isSim = (r) => r.sim ?? s.nodes.get(r.node)?.sim ?? false;
-    s.refreshHealth = () => source.get("/health").then((h) => { s.health = h; }).catch(() => {});   // e.g. the cloud copy's counts
+    s.refreshHealth = () => source.get("/health").then((h) => { s.health = h; aiName = h.ai_name || null; }).catch(() => {});   // e.g. the cloud copy's counts
     s.nodeName = (id) => s.nodes.get(id)?.name || id;
 
     const soft = (p, fallback) => source.get(p).catch(() => fallback);

@@ -40,6 +40,7 @@ def text(m):
 class Scripted(BaseChatModel):
     """Answers from what it is shown, so five specialists can run at once without a shared script."""
     lead: bool = False
+    by_tool: bool = False     # hand the report back as a call to the "Report" tool (the Gemini path), not as JSON text
     offered: list = []
 
     @property
@@ -64,9 +65,11 @@ class Scripted(BaseChatModel):
                      "description": f"Node tank-01, test 21. Report your findings on this filter run."}}
                     for i, s in enumerate(investigator.SPECIALISTS)])
             notice = next(text(m) for m in results if "Clarity measured" in text(m))
-            return AIMessage(content=json.dumps({
-                "summary": "ZeroWater took dissolved solids from 780 ppm to 4 ppm.",
-                "findings": [text(m)[:80] for m in results[:4]], "actions": ["Pour a second cup."], "notice": notice}))
+            report = {"summary": "ZeroWater took dissolved solids from 780 ppm to 4 ppm.",
+                      "findings": [text(m)[:80] for m in results[:4]], "actions": ["Pour a second cup."], "notice": notice}
+            if self.by_tool:
+                return AIMessage(content="", tool_calls=[{"name": "Report", "id": "final", "args": report}])
+            return AIMessage(content=json.dumps(report))
         me = next(s for s in investigator.SPECIALISTS if system.startswith(s["prompt"]))
         OFFERED[me["name"]] = self.offered
         if not results:
@@ -140,6 +143,16 @@ async def main():
     check("guidance search finds the maker's rule with its source", found and "ZeroWater" in found[0]["document"] and found[0]["prepared_by"], found[:1])
     check("an unrelated search finds nothing", gateway.search_guidance("xyzzy") == [])
 
+    # the same run as Gemini would do it: the report comes back through a "Report" tool call
+    OFFERED.clear()
+    gateway.investigator_agent = investigator.build(tools, provider="google", lead_model=Scripted(lead=True, by_tool=True), specialist_model=Scripted())
+    sent.clear()
+    await gateway.report_on(after, used)
+    via_tool = [m for m in sent if m.get("source") == "deepagents"]
+    check("on the Gemini path the lead is offered a Report tool for its answer", "Report" in OFFERED.get("lead", []), OFFERED.get("lead"))
+    check("and the report and all five sections still come back", len(via_tool) == 1 and via_tool[0]["summary"].startswith("ZeroWater")
+          and [x["agent"] for x in via_tool[0]["sections"]] == [x["name"] for x in investigator.SPECIALISTS], via_tool[:1])
+
     gateway.investigator_agent = investigator.build(tools, lead_model=Scripted(lead=True), specialist_model=Scripted())
 
     async def boom(agent, case):
@@ -149,6 +162,29 @@ async def main():
     await gateway.report_on(after, used)
     investigator.investigate = real
     check("if the investigator fails, the rule-written report still stands", [m["source"] for m in sent] == ["rules"])
+
+    # the filter decision on Gemini, with a stand-in for Google's client
+    class FakeGemini:
+        def __init__(self, text):
+            self.text, self.seen = text, None
+            self.aio = self.models = self
+
+        async def generate_content(self, **kw):
+            self.seen = kw
+            return type("Resp", (), {"text": self.text, "candidates": [], "prompt_feedback": "blocked"})()
+
+    reading = gateway.raw_reading("tank-01", 21)
+    gateway.gemini, gateway.AI_MODEL = FakeGemini('{"filter": "ZEROWATER", "explanation": "Dissolved solids read 780 ppm."}'), "gemini-test"
+    out = await gateway.ask_model(reading, [])
+    seen = gateway.gemini.seen
+    check("with a Google key the decision goes to Gemini", out == {"filter": "ZEROWATER", "explanation": "Dissolved solids read 780 ppm."} and seen["model"] == "gemini-test")
+    check("Gemini gets the same rules and is asked for JSON", "never say the water is safe" in seen["config"]["system_instruction"]
+          and seen["config"]["response_mime_type"] == "application/json" and "filter" in seen["config"]["response_json_schema"]["properties"])
+    check("the page is told which model it was", gateway.ai_name() == "Gemini" and gateway.health()["ai_name"] == "Gemini")
+    for bad in ('{"filter": "BLEACH", "explanation": "x"}', "not json", None):
+        gateway.gemini = FakeGemini(bad)
+        check(f"a bad Gemini answer ({str(bad)[:12]}) leaves it to the tank's rule", await gateway.ask_model(reading, []) is None)
+    gateway.gemini = None
 
     print("\nall passed" if ok else "\nFAILURES")
     raise SystemExit(0 if ok else 1)

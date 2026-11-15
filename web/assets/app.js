@@ -86,7 +86,8 @@
     if (!c.connected) return `The copy to ${where} is paused: ${n(c.pending)} readings are kept here until the link is back.`;
     return `Every reading is also copied to ${where}: ${n(c.cloud_rows)} there, ${n(c.pending)} waiting.`;
   }
-  window.TapUI = { $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
+  const AI = { gemini: "Gemini", claude: "Claude" };   // a decision's source -> the model's name
+  window.TapUI = { AI, $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
 
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
@@ -129,7 +130,7 @@
         detail: `Minerals and salts in the water${a ? `. This cup went from ${b.tds} to ${a.tds} ppm` : ""}. Above 300 is high; the EPA guideline is 500.` });
     }
     if (d) {
-      const who = d.source === "claude" ? "Claude chose it." : d.source === "sample" ? "Sample explanation, written for the demo data." : "The tank's own rule chose it.";
+      const who = AI[d.source] ? `${AI[d.source]} chose it.` : d.source === "sample" ? "Sample explanation, written for the demo data." : "The tank's own rule chose it.";
       out.push({ id: "filter", group: "cup", minor: true, icon: "funnel", label: f === "NONE" ? "Filter" : "Sent through", value: FILTER_NAME[f] || f,
         detail: d.explanation ? `${who} ${d.explanation}` : `${who} It uses fixed thresholds: ZeroWater above 300 ppm, Brita below 0.70 transparency.` });
     }

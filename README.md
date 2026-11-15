@@ -16,7 +16,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `firmware/taptest_uno` - Arduino Uno: sensors, decision rule, tipping cup, LCD, radio out
 - `firmware/taptest_node` - HUZZAH32 Feather on the tank: serial <-> ESP-NOW
 - `firmware/taptest_receiver` - Inland ESP32 board at the base station: ESP-NOW <-> USB serial
-- `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
+- `gateway` - Python base station for the Pi (or a laptop): SQLite, layered detection, an AI agent (Gemini or Claude), REST + WebSocket
   - `analysis.py` - layered detection: sensor checks, each node's own baseline and control charts, peer comparison
   - `investigator.py` - deepagents (LangChain): a lead agent and five specialists that write a report after every `after` test
   - `fetch_guidance.py`, `guidance.py` - build and search an index of EPA and AWWA documents for the maintenance agent
@@ -53,7 +53,7 @@ The receiver prints one JSON object per line at 115200 baud:
 | rssi | radio signal strength, dBm |
 
 The gateway adds `id`, `ts` (UTC ISO), `lat`, `lon`, `sim`, `anomaly` (0-1), and later
-`ai_filter` + `explanation` once Claude answers.
+`ai_filter` + `explanation` once the model answers.
 
 Lines are checked before they are stored: the node must be one the gateway knows (`ALLOW_UNKNOWN_NODES=1`
 lifts that), and the phase, verdict and number ranges must be valid. Anything else is dropped with a
@@ -64,7 +64,7 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
 ## Gateway API (port 8000)
 - `WS /ws` - live messages:
   - `{"type":"reading", ...all fields above}`
-  - `{"type":"decision","id":..,"node":..,"test":..,"ai_filter":..,"explanation":..,"source":"claude"|"local_rule"}`
+  - `{"type":"decision","id":..,"node":..,"test":..,"ai_filter":..,"explanation":..,"source":"gemini"|"claude"|"local_rule"}`
   - `{"type":"filters","filters":[...same as GET /api/filters]}` - after every tip and every retest
   - `{"type":"report","node":..,"test":..,"summary":"..","findings":[..],"actions":[..],"filter":..,"source":"rules"|"deepagents","model":..,`
     `"kind":"local_event","kind_words":"..","severity":0|1|2,"severity_words":"..","checks":{...GET /api/analysis},"sections":[{"agent","title","text"}],"notice":".."}`
@@ -92,6 +92,21 @@ Every time the cup tips into a filter, the gateway counts about 0.1 L through it
 - **ZeroWater**: `REPLACE` once an `after` test of ZeroWater-filtered water reads 6 ppm or more
   (ZeroWater's own "006" rule). It stays `REPLACE` until you call the replace endpoint.
 - **Brita Elite**: rated for about 450 L. `REPLACE_SOON` at 90%, `REPLACE` at 100%.
+
+## Which model
+The filter decision and the investigator run on **Gemini** (Google's Gemini API, through
+`google-genai` and `langchain-google-genai`) when `.env` has `GOOGLE_API_KEY` or `GEMINI_API_KEY`,
+and on **Claude** (Opus 5.5) when it has only `ANTHROPIC_API_KEY`. `AI_PROVIDER=google|anthropic`
+chooses when both are set. `/health` reports `ai_name` and `ai_model`, and the pages name
+whichever is in use.
+
+On Gemini the gateway asks the API which models the key can use and takes the first of
+`GEMINI_MODEL` (if set), `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`,
+`gemini-3.5-flash-lite`. Gemini's free tier allows only about 20 requests a day per model, and
+one investigator report takes a dozen or more, so turn on billing for the key. If a call fails
+or runs out of quota, the tank's own rule decides and the rule-written report stands.
+
+Neither model has been run from this code yet: there was no key on the machine it was written on.
 
 ## Layered detection (`analysis.py`)
 A new sensor has almost no labelled data, so detection is statistics, in three layers, worked out
@@ -121,7 +136,7 @@ Every `after` test gets a report at once, written from the checks above by fixed
 (`"source":"rules"`), so the page never waits on a model and still has a report with no key or
 no internet.
 
-When `ANTHROPIC_API_KEY` is set, a LangChain deep agent (Claude Opus 5.5) then writes a fuller
+When a model key is set (see "Which model" below), a LangChain deep agent then writes a fuller
 one (`"source":"deepagents"`), which takes the first one's place on the page. The lead agent
 hands the case to five specialists at once through deepagents' `task` tool, each with only its
 own tools:
@@ -166,7 +181,8 @@ is told to say so. `python test_guidance.py` checks the search (13 checks).
 
 `python test_swarm.py` drives the lead and all five specialists with scripted stand-in models
 (no key needed): it shows the delegation, the tool wiring, the read-only SQL guard and the
-fallback to the rule-written report. It does not show what Claude would write; that needs a key.
+fallback to the rule-written report, on both the Gemini and the Claude path. It does not show what
+either model would write; that needs a key.
 
 ## Published reference data
 `python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake
@@ -212,7 +228,7 @@ Or use a managed service:
 
 ## Run the gateway
 ```
-cp .env.example .env                  # then put the Anthropic key in .env (never commit it)
+cp .env.example .env                  # then put a Google (Gemini) or Anthropic key in .env (never commit it)
 cd gateway
 python3 -m venv .venv && . .venv/bin/activate   # Python 3.11+
 pip install -r requirements.txt
@@ -225,7 +241,7 @@ The gateway looks for the receiver's USB serial port itself, trying USB-serial a
 receiver) before boards like the Uno. If more than one is plugged in it says which it picked; set
 `SERIAL_PORT=/dev/...` to choose.
 Without a key, the gateway uses the tank's local rule and writes each report from its own checks.
-With one, Claude picks filters (`"source":"claude"`) and the investigator's agents write the reports.
+With one, the model picks filters (`"source":"gemini"` or `"claude"`) and the investigator's agents write the reports.
 `python mock.py` alone prints the exact receiver lines, so you can test a parser.
 
 ## Hardware bring-up order (Uno)
