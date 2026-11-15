@@ -18,6 +18,7 @@ import { Protocol } from 'pmtiles';
 import { installFacades } from './facades.js';
 import { renderOverview, ring, tdsBar } from './overview.js';
 import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us } from './national.js';
+import { runIntro } from './intro.js';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
 // Building fields differ between the bundled Princeton GeoJSON (h, n, c) and Overture tiles (height, @name, class).
@@ -121,6 +122,7 @@ const map = new maplibregl.Map({
   antialias: true,
   attributionControl: { compact: true },
 });
+runIntro(map, HOME, import.meta.env.BASE_URL + 'data/');   // the loading screen: a globe that settles on Princeton, then the map flies in
 const desktop = () => window.innerWidth > 1100;
 // Start the before/after card folded on short screens and phones, so it doesn't cover the map.
 if (innerWidth <= 760 || innerHeight < 700) document.body.classList.add('hero-collapsed');
