@@ -62,6 +62,12 @@ def whole_network():
                 f"{pipes} pipes reach no sensor within six hours, so a change there goes unseen. Of the rest, when two or more sensors "
                 f"alert ({len(many)} pipes) the true pipe is ranked first for {sum(r[2] == 1 for r in many)} and in the top three for "
                 f"{sum(r[2] is not None and r[2] <= 3 for r in many)}; when only one alerts ({len(one)} pipes), first for {sum(r[2] == 1 for r in one)}.")
+            # the same run with the fitted break-rate model as the prior in place of the hand-set score
+            fitted = build_network.check_every_pipe(localize.NET, lambda a, q, top=None: localize.localize(a, q, top=top, prior="fitted"))
+            f_many = [r for r in fitted if r[1] >= 2]
+            _whole["line"] += (f" With a break-rate model fitted to the same synthetic break history as the prior, in place of the hand-set score, "
+                               f"it is first for {sum(r[2] == 1 for r in f_many)} and in the top three for {sum(r[2] is not None and r[2] <= 3 for r in f_many)}. "
+                               "Fitted to synthetic history, that model learns only the rule the history was drawn from, so the hand-set score stays the default.")
         except Exception:
             _whole["line"] = "The four events here were chosen by hand, so they say little about how often the trace is right in general."
     return _whole["line"]
@@ -89,14 +95,20 @@ def report(scenario_id):
     """The incident report for one simulated scenario: the trace plus everything written around it."""
     r = localize.scenario_result(scenario_id)
     alerts = sorted(r["alerts"], key=lambda a: a["minute"])
-    total = len(alerts) + len(r["quiet"])
+    unavailable = r.get("unavailable", [])
+    total = len(alerts) + len(r["quiet"]) + len(unavailable)
     top = r["candidates"][0] if r["candidates"] else None
     span = alerts[-1]["minute"] - alerts[0]["minute"] if alerts else 0
     heard = f"{len(alerts)} of the {total} simulated sensors alerted" + (f" over {span:.0f} minutes" if len(alerts) > 1 else "")
 
+    weak_fit = r.get("fit_quality") in ("poor", "insufficient")
     if not top:
         summary, severity = f"{heard}, but no pipe is upstream of all of them, so the trace found no single entry point.", 1
-    elif top["confidence"] >= 0.35:
+    elif r.get("fit_quality") == "poor":
+        summary = (f"{heard}, but the arrival times fit the model poorly. Pipe {top['pipe']} leads the ranking "
+                   f"with {top['confidence']:.0%} of its weight; that does not make the weak trace reliable. Check sensor timing and take samples first.")
+        severity = 1
+    elif top["confidence"] >= 0.35 and not weak_fit:
         second = r["candidates"][1] if len(r["candidates"]) > 1 else None
         summary = (f"{heard}. Tracing upstream from each puts the most likely entry point at pipe {top['pipe']} "
                    f"({top['confidence']:.0%} of the weight among {r['considered']} candidates)"
@@ -108,12 +120,12 @@ def report(scenario_id):
         severity = 2 if len(alerts) >= 3 else 1
 
     actions = []
-    if top and top["confidence"] < 0.35:               # no pipe stands out: sample along the list, isolate nothing yet
+    if top and (top["confidence"] < 0.35 or weak_fit):               # no pipe stands out: sample along the list, isolate nothing yet
         names = ", ".join(c["pipe"] for c in r["candidates"][:3])
         actions = [
             {"do": f"Sample before anything else. Take grab samples at the alerting node{'s' if len(alerts) != 1 else ''} and along the leading "
                    f"candidates (pipes {names}), in that order, and send them to a certified laboratory.", "guidance": cite(ACTIONS[0][1])},
-            {"do": "Do not isolate or flush yet. No pipe stands out, and closing valves on a guess moves the problem. Wait for the samples, "
+            {"do": "Do not isolate or flush yet. The timing or sensor coverage does not support a pipe-level conclusion. Wait for the samples, "
                    "or for a second sensor to alert, which would narrow the list.", "guidance": cite(ACTIONS[1][1])},
             {"do": ACTIONS[4][0], "guidance": cite(ACTIONS[4][1])},
         ]
@@ -138,10 +150,21 @@ def report(scenario_id):
                 else "outside its candidates.")) if truth else ""
     return {"simulated": True, "id": r["id"], "name": r["name"], "description": r["description"], "hard": r.get("hard", False),
             "summary": summary, "severity": severity, "severity_words": SEVERITY_WORDS[severity],
-            "alerts": alerts, "quiet": r["quiet"], "timeline": timeline,
+            "alerts": alerts, "quiet": r["quiet"], "unavailable": unavailable, "stress": r.get("stress", False), "fit_quality": r.get("fit_quality"), "timeline": timeline,
             "candidates": r["candidates"], "considered": r["considered"], "method": r["method"],
-            "affected": r["affected"], "actions": actions, "notice": notice, "caveats": CAVEATS[:1] + [whole_network()] + CAVEATS[1:],
+            "affected": r["affected"], "actions": actions, "notice": notice, "caveats": CAVEATS[:1] + [whole_network()] + ([r["description"]] if r.get("stress") else []) + CAVEATS[1:],
             "truth": truth, "check": check}
+
+
+_robustness = None
+
+
+def robustness():
+    global _robustness
+    if _robustness is None:
+        import simulation
+        _robustness = simulation.network_benchmark(localize.NET, localize.localize)
+    return _robustness
 
 
 def payload():
@@ -149,7 +172,7 @@ def payload():
     net = json.loads(Path(localize.__file__).with_name("network.json").read_text())
     return {"simulated": True, "summary": localize.summary(), "note": net.get("note"),
             "nodes": net["nodes"], "pipes": net["pipes"], "pumps": net.get("pumps", []), "sensors": net["sensors"],
-            "guidance": guidance.status()["documents"],
+            "guidance": guidance.status()["documents"], "robustness": robustness(),
             "scenarios": [report(s["id"]) for s in localize.scenarios()]}
 
 

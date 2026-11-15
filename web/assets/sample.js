@@ -5,25 +5,35 @@
 (function () {
   "use strict";
 
+  // Primary sources support the supply context; they do not supply these tap readings.
+  // Do not infer TDS from reported hardness or map NTU onto the device transparency ratio.
+  const CONTEXT = {
+    kind: "illustrative", place: "Princeton, NJ",
+    note: "Synthetic readings, not current tap measurements. Normal TDS baselines of 180–220 ppm, small variation, and device transparency are demo assumptions. Transparency is not utility-reported NTU. Public stream references are separate untreated-water samples.",
+    sources: [
+      { title: "NJ American Water · 2025 Raritan water quality report", url: "https://amwater.com/ccr/raritan.pdf" },
+      { title: "Princeton · 2025 Environmental Resource Inventory, §7.3", url: "https://www.princetonnj.gov/DocumentCenter/View/20490/250417-Princeton-ERI-ADOPTED-web_64MB" },
+    ],
+  };
+
   const SITES = [
     ["tank-01", "Clarity demo (HackPrinceton)", 40.3467, -74.6553, false, 0],
-    ["sim-01", "Carnegie Lake", 40.3380, -74.6380, true, 180], ["sim-02", "Kingston", 40.3762, -74.6143, true, 230],
-    ["sim-03", "Rocky Hill", 40.3990, -74.6385, true, 260], ["sim-04", "Lawrenceville", 40.2973, -74.7296, true, 210],
-    ["sim-05", "Plainsboro", 40.3335, -74.5927, true, 170], ["sim-06", "Hopewell (well)", 40.3893, -74.7621, true, 420],
-    ["sim-07", "Penns Neck", 40.3290, -74.6370, true, 190], ["sim-08", "Montgomery (well)", 40.4268, -74.6810, true, 380],
-    ["sim-09", "West Windsor", 40.2915, -74.6360, true, 200], ["sim-10", "Witherspoon St", 40.3530, -74.6640, true, 150],
-    ["sim-11", "Princeton Junction", 40.3168, -74.6235, true, 220], ["sim-12", "Mercer Oaks", 40.2770, -74.6760, true, 240],
+    ["sim-01", "Carnegie Lake", 40.3380, -74.6380, true, 180], ["sim-02", "Kingston", 40.3762, -74.6143, true, 190],
+    ["sim-03", "Rocky Hill", 40.3990, -74.6385, true, 195], ["sim-04", "Lawrenceville", 40.2973, -74.7296, true, 205],
+    ["sim-05", "Plainsboro", 40.3335, -74.5927, true, 220], ["sim-06", "Hopewell", 40.3893, -74.7621, true, 215],
+    ["sim-07", "Penns Neck", 40.3290, -74.6370, true, 190], ["sim-08", "Montgomery", 40.4268, -74.6810, true, 210],
+    ["sim-09", "West Windsor", 40.2915, -74.6360, true, 200], ["sim-10", "Witherspoon St", 40.3530, -74.6640, true, 185],
+    ["sim-11", "Princeton Junction", 40.3168, -74.6235, true, 220], ["sim-12", "Mercer Oaks", 40.2770, -74.6760, true, 205],
   ].map(([node, name, lat, lon, sim, base]) => ({ node, name, lat, lon, sim, base }));
 
-  // Real values, from gateway/reference.json (Water Quality Portal).
+  // Published untreated stream samples, from gateway/reference.json (Water Quality Portal).
   const REFERENCE = [
     { site: "Stony Brook", lat: 40.3331, lon: -74.6819, tds_est: 109, date: "2023-07-27", source: "NJ DEP", typical_tds_est: 180 },
     { site: "Millstone River", lat: 40.3133, lon: -74.5892, tds_est: 299, date: "2025-11-24", source: "NJ DEP", typical_tds_est: 248 },
     { site: "Lake Carnegie", lat: 40.3446, lon: -74.6295, tds_est: 92, date: "2023-11-29", source: "NJ DEP", typical_tds_est: 177 },
-  ];
+  ].map(r => ({ ...r, source_kind: "published_stream", water_type: "untreated_surface_water", live: false }));
 
-  const CUPS = { clean: [7.4, 140, 0.97], salty: [7.6, 780, 0.95], tea: [6.9, 210, 0.42] };
-  const gauss = (m, s) => m + s * Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+  const CUPS = { clean: [7.4, 185, 0.97], salty: [7.6, 780, 0.95], tea: [6.9, 210, 0.42] };
   const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
 
   function verdictFor(ph, tds, clarity) {
@@ -34,32 +44,42 @@
   }
 
   function explain(r, filt) {
-    if (filt === "ZEROWATER") return `Dissolved solids read ${r.tds} ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater removes dissolved solids, so the cup goes there. Pour it back afterwards to see whether it helped.`;
+    if (filt === "ZEROWATER") return `This scripted high-solids cup reads ${r.tds} ppm, above the demo's 300 ppm filter threshold. ZeroWater removes dissolved solids, so the cup goes there. Pour it back afterwards to see whether it helped.`;
     if (filt === "BRITA") return `Transparency is ${r.clarity.toFixed(2)}, below the 0.70 cutoff, so this water is cloudy or coloured. Brita is this device's filter for cloudy or coloured water. Pour it back afterwards to see whether it helped.`;
     if (r.verdict === "PH_WARN") return `pH is ${r.ph}, outside 6.5 to 8.5. Neither filter fixes pH, so no filter this time. Check the source.`;
-    return `pH ${r.ph}, ${r.tds} ppm and transparency ${r.clarity.toFixed(2)} are all in the normal range. No filter needed.`;
+    return `${r.tds} ppm and transparency ${r.clarity.toFixed(2)} are in range. ${r.ph_est ? "pH is estimated and not used to choose a filter." : `pH ${r.ph} is also in range.`} No filter needed.`;
   }
 
-  function create() {
+  function create(options = {}) {
+    const seed = Number(options.seed ?? new URLSearchParams(location.search).get("seed") ?? 26) >>> 0;
+    let randomState = seed;
+    const random = () => ((randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0) / 4294967296);
+    const gauss = (m, s) => m + s * Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
     const readings = [];
     const listeners = [];
     let nextId = 1, test = 0, reportId = 0;
     const reports = [];
-    // start the filters part-used so status changes show up within a few minutes
+    // Lightly used demonstration cartridges. Maintenance faults belong to explicit stress cases.
     const filt = {
       ZEROWATER: { liters: 2.9, tips: 29, runs: 1, last: 2, bad: null },
-      BRITA: { liters: 404.4, tips: 4044, last: null },
+      BRITA: { liters: 35, tips: 350, last: null },
     };
     const emit = (m) => listeners.forEach((fn) => fn(m));
-    const now = (ago = 0) => new Date(Date.now() - ago * 1000).toISOString().replace(/\.\d+Z$/, "+00:00");
+    const seedEpoch = Date.now();
+    const session = `sample-${seedEpoch.toString(16)}-${seed.toString(16)}`;
+    let seeding = true;
+    const now = (ago = 0) => new Date((seeding ? seedEpoch : Date.now()) - ago * 1000).toISOString().replace(/\.\d+Z$/, "+00:00");
 
     function add(site, testNo, phase, ph, tds, clarity, ago = 0) {
+      const ph_est = !site.sim;
+      if (ph_est) ph = Math.max(7, Math.min(8.3, 7 + (tds - 150) * 1.3 / 650));
       const [verdict, rule] = verdictFor(ph, tds, clarity);
       const r = {
-        id: nextId++, ts: now(ago), node: site.node, test: testNo, phase, ph: round(ph, 2), tds: Math.round(tds),
+        id: nextId++, session, seq: nextId - 1, ts: now(ago), node: site.node, test: testNo, phase, ph: round(ph, 2), ph_est, tds: Math.round(tds),
         clarity: round(clarity, 2), verdict, filter: phase === "after" ? "NONE" : rule, ai_filter: null,
         rssi: Math.round(site.sim ? gauss(-80, 8) : gauss(-62, 4)), lat: site.lat, lon: site.lon, sim: site.sim,
         anomaly: round(Math.min(1, site.sim ? Math.abs(tds - site.base) / (site.base * 1.6) : Math.abs(tds - 180) / 700), 2),
+        mock: true, source: "sample", sample_case: site.sim ? "normal" : tds > 300 ? "salty" : clarity < 0.7 ? "cloudy" : "normal",
         explanation: null,
       };
       readings.push(r);
@@ -69,11 +89,11 @@
 
     const simTests = {};
     function simReading(site, ago = 0) {
-      let tds = Math.max(20, gauss(site.base, 14));
-      if (Math.random() < 0.03) tds *= 1.8 + Math.random() * 0.8;   // rare spike
-      const ph = gauss(site.name.includes("well") ? 7.0 : 7.5, 0.15);
+      // Bounded ambient variation: no invented regional incidents or random broken probes.
+      const tds = site.base * (0.96 + random() * 0.08);
+      const ph = 7.25 + random() * 0.45;
       simTests[site.node] = (simTests[site.node] || 0) + 1;
-      return add(site, simTests[site.node], "before", ph, tds, Math.min(1, gauss(0.95, 0.03)), ago);
+      return add(site, simTests[site.node], "before", ph, tds, 0.94 + random() * 0.05, ago);
     }
 
     function filterList() {
@@ -101,9 +121,10 @@
         return { metric: k, value: before[k], median, sigma, n: vals.length, source: vals.length < 8 ? "typical" : "history",
                  z: round((before[k] - median) / sigma, 1), ewma_signal: false, cusum_signal: false, direction: "up" };
       });
-      const lead = baseline.reduce((a, b) => (Math.abs(b.z) > Math.abs(a.z) ? b : a));
+      baseline.forEach((row) => { row.included = row.metric !== "ph" || !before.ph_est; row.estimated = row.metric === "ph" && before.ph_est; if (!row.included) row.z = 0; });
+      const lead = baseline.filter((row) => row.included).reduce((a, b) => (Math.abs(b.z) > Math.abs(a.z) ? b : a));
       const sims = SITES.filter((x) => x.sim).length;
-      return { sensor: ["ph", "tds", "clarity"].map((k) => ({ metric: k, status: "ok", note: "" })), baseline,
+      return { reading: { ph_est: before.ph_est }, measured_metrics: before.ph_est ? ["tds", "clarity"] : ["ph", "tds", "clarity"], sensor: ["ph", "tds", "clarity"].map((k) => ({ metric: k, status: "ok", note: "" })), baseline,
                lead: { metric: lead.metric, z: lead.z, direction: lead.z >= 0 ? "up" : "down" }, repeat: 1,
                peers: { scope: "local", n: sims, moved: 0, simulated: sims }, kind: Math.abs(lead.z) >= 3 ? "local_event" : "normal" };
     }
@@ -114,11 +135,11 @@
       const f = filterList().find((x) => x.filter === used);
       const zw = used === "ZEROWATER";
       const findings = zw
-        ? [`Measured: dissolved solids fell from ${before.tds} to ${after.tds} ppm; pH moved from ${before.ph.toFixed(1)} to ${after.ph.toFixed(1)}.`,
+        ? [`Demo reading: dissolved solids fell from ${before.tds} to ${after.tds} ppm; estimated pH ${before.ph.toFixed(1)} to ${after.ph.toFixed(1)} was not used as independent evidence.`,
            `Published: the Millstone River typically runs about 248 ppm (NJ DEP, 2024 to 2025), so ${before.tds} ppm is far saltier than local surface water.`,
            `Simulated: the simulated nodes nearby read ${lo} to ${hi} ppm.`,
            `Filter: ZeroWater has filtered ${f.liters} L; this retest read ${after.tds} ppm against its 6 ppm replace point.`]
-        : [`Measured: transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
+        : [`Demo reading: transparency went from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}; dissolved solids ${before.tds} to ${after.tds} ppm.`,
            `Published: Lake Carnegie typically reads about 177 ppm (NJ DEP, 2022 to 2023), similar to this sample.`,
            `Simulated: the simulated nodes nearby read ${lo} to ${hi} ppm.`,
            `Filter: Brita Elite has filtered ${f.liters} L of its ~450 L rating (${f.percent_used}%).`];
@@ -137,13 +158,13 @@
       const val = (k, v) => (k === "tds" ? `${Math.round(v)} ppm` : v.toFixed(k === "clarity" ? 2 : 1));
       const far = Math.abs(lead.z) >= 3, name = zw ? "ZeroWater" : "Brita Elite", back = after.verdict === "SAFE";
       const problem = { HIGH_TDS: `high in dissolved solids (${before.tds} ppm)`, CLOUDY: `cloudy (transparency ${before.clarity.toFixed(2)})`, PH_WARN: `outside the usual pH range (pH ${before.ph.toFixed(1)})` }[before.verdict];
-      const notice = `Clarity measured a cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, dissolved solids and transparency both read in range.`
+      const notice = `Demo example: a scripted cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, dissolved solids and transparency both read in range.`
         : `, and after ${name} the retest was still out of range. Have this source tested by a certified lab before relying on it.`}${before.verdict === "CLOUDY" ? " A pitcher filter does not disinfect." : ""} Clarity reads only dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant.`;
       const sections = [
-        { agent: "sensor-health", title: "Sensor health", text: "Measured: dissolved solids and transparency both read plausibly, and the pH estimated from them is in its usual range. Nothing is stuck, out of range or trending, so this is a water event, not a sensor fault." },
-        { agent: "analyst", title: "This site's history", text: `Measured: ${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
+        { agent: "sensor-health", title: "Sensor health", text: "Demo reading: dissolved solids and transparency both read plausibly, and the pH estimated from TDS is not independent evidence. Nothing is stuck, out of range or trending. These are simplified sample checks, not a live sensor diagnosis." },
+        { agent: "analyst", title: "This site's history", text: `Demo reading: ${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
         { agent: "network", title: "Nearby and published", text: `Simulated: none of the ${checks.peers.n} simulated nodes nearby moved the same way, so this looks local to this site. ${findings[1]}` },
-        { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Measured: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },
+        { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Demo filter: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },
         { agent: "comms", title: "Draft notice", text: notice },
       ];
       // the same triage, tool trail and figure check the gateway reports (analysis.plan, investigator.py, analysis.ground)
@@ -183,7 +204,7 @@
     function pour(cupName, opts = {}) {
       test += 1;
       const [ph, tds, clarity] = CUPS[cupName];
-      const before = add(tank, test, "before", gauss(ph, 0.08), tds * (0.95 + Math.random() * 0.1), Math.min(1, clarity + gauss(0, 0.02)), opts.ago || 0);
+      const before = add(tank, test, "before", gauss(ph, 0.08), tds * (0.95 + random() * 0.1), Math.min(1, clarity + gauss(0, 0.02)), opts.ago || 0);
       const quiet = opts.quiet;   // seeding history: no events
       if (!quiet) emit({ type: "reading", ...before });
       const decide = () => {
@@ -198,12 +219,13 @@
         const retest = () => {
           let a;
           if (used === "ZEROWATER") {
-            const out = Math.floor(Math.random() * 3) + Math.floor(f.runs / 2); f.runs += 1;
-            a = add(tank, before.test, "after", before.ph - 0.6 - Math.random() * 0.4, out, Math.min(1, before.clarity + 0.03), opts.ago ? opts.ago - 20 : 0);
+            const out = 1 + Math.floor(random() * 4); f.runs += 1;
+            a = add(tank, before.test, "after", before.ph - 0.6 - random() * 0.4, out, Math.min(1, before.clarity + 0.03), opts.ago ? opts.ago - 20 : 0);
             if (out >= 6 && !f.bad) f.bad = a.test;
           } else {
-            a = add(tank, before.test, "after", before.ph - 0.1, before.tds * 0.9, 0.86 + Math.random() * 0.09, opts.ago ? opts.ago - 20 : 0);
+            a = add(tank, before.test, "after", before.ph - 0.1, before.tds * 0.9, 0.86 + random() * 0.09, opts.ago ? opts.ago - 20 : 0);
           }
+          a.sample_case = before.sample_case;
           f.last = a.tds;
           const report = makeReport(before, a, used);
           reports.push(report);
@@ -218,12 +240,13 @@
     }
 
     // seed: some history for every sim node, and one finished tank pour
-    SITES.filter((s) => s.sim).forEach((s) => { for (let k = 6; k >= 1; k--) simReading(s, k * 120 + Math.random() * 60); });
+    SITES.filter((s) => s.sim).forEach((s) => { for (let k = 6; k >= 1; k--) simReading(s, k * 120 + random() * 60); });
     // an hour of earlier pours, so the history has something to show
     ["salty", "tea", "clean", "salty", "tea", "clean", "salty", "tea"].forEach((cupName, k) => pour(cupName, { quiet: true, ago: 3600 - k * 400 }));
     pour("clean", { quiet: true, ago: 150 });
     pour("salty", { quiet: true, ago: 70 });
     readings.sort((a, b) => a.ts.localeCompare(b.ts));   // seeded out of order; the API is oldest -> newest
+    seeding = false;
 
     function start() {
       const order = ["tea", "clean", "salty"];
@@ -241,7 +264,7 @@
       const q = url.searchParams, p = url.pathname;
       const limit = Number(q.get("limit") || 200);
       let m;
-      if (p === "/health") return Promise.resolve({ ok: true, mock: true, ai: true, investigator: true, demo: true, ph_estimated: true });
+      if (p === "/health") return Promise.resolve({ ok: true, mock: true, ai: true, investigator: true, demo: true, ph_estimated: true, simulation_seed: seed, demo_context: CONTEXT });
       if (p === "/api/nodes") return Promise.resolve(SITES.map(({ base, ...s }) => ({ ...s, latest: latest(s.node) })));
       if (p === "/api/readings") {
         const node = q.get("node");
@@ -278,5 +301,5 @@
     return { kind: "demo", get, post, subscribe };
   }
 
-  window.TapSample = { create, SITES, REFERENCE };
+  window.TapSample = { create, SITES, REFERENCE, CONTEXT };
 })();

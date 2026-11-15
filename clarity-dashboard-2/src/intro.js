@@ -16,10 +16,11 @@
    the wheel does too until the map shows, and after that stops the descent where it is. ?nointro
    leaves the whole thing out, and so does a reduced-motion setting. */
 const RAD = Math.PI / 180, TAU = Math.PI * 2, HALF = Math.PI / 2;
-export const SPIN = 80;                  // degrees a second while loading
-const TILT = 18;                         // latitude the globe is seen from while it spins
-const MIN_SPIN = 1.2, HOLD = 0.35, DIVE = 4.8;      // seconds
-const SIZE = 0.32;                       // the globe's radius, as a share of the shorter side
+export const SPIN = 14;                  // degrees a second while loading
+const VIEW_LAT = 18;                     // viewing latitude; separate from the planet's axial roll
+export const AXIAL_TILT = 23;             // north leans naturally on screen while the globe turns
+const MIN_SPIN = 0.15, HOLD = 0.25;         // seconds; let Princeton rest in view before approaching
+export const APPROACH_SECONDS = 6.2;
 const NEAR = Math.cos(45 * RAD);         // outlines with a point this close to home are kept whole
 const SMALL = 2 * RAD;                   // outlines smaller than this are not walked along the globe's edge
 const clamp01 = (t) => Math.min(1, Math.max(0, t));
@@ -28,19 +29,36 @@ const smoother = (t) => { t = clamp01(t); return t * t * t * (t * (t * 6 - 15) +
 const wrap = (a) => a - TAU * Math.round(a / TAU);
 const mercY = (lat) => Math.log(Math.tan(Math.PI / 4 + (Math.max(-85.05, Math.min(85.05, lat)) * RAD) / 2));
 
-/* ---------------------------------------------------------------- slowing to a stop
-
-   The spin has to end with home in front, and it must not lurch on the way: the speed carries over
-   from the spin and falls to nothing, and the globe never turns back. `d` is how far there is still
-   to turn, at least 55 degrees so there is room to slow down. */
+/* ---------------------------------------------------------------- turning toward the destination
+   Idle rotation is quiet. Choosing a destination takes the nearest orientation in under 3.2s,
+   matching the incoming angular velocity and arriving at rest before the gradual approach. */
 export function settlePlan(lonNow, homeLon, speed = SPIN) {
-  let d = (((homeLon - lonNow) % 360) + 360) % 360;
-  if (d < 55) d += 360;
-  return { from: lonNow, d, t: 1.6 + d / 160, speed };
+  const d = ((homeLon - lonNow + 540) % 360 + 360) % 360 - 180;
+  return { from: lonNow, d, t: 2.2 + Math.abs(d) / 180, speed };
 }
 export function settleLon(plan, since) {
-  const s = clamp01(since / plan.t), v = plan.speed * plan.t;
-  return plan.from + v * (s - 2 * s * s + s * s * s) + plan.d * (3 * s * s - 2 * s * s * s);
+  const s = clamp01(since / plan.t), s2 = s * s, s3 = s2 * s;
+  // A short camera turn with the incoming angular velocity and a stationary arrival.
+  // Taking the nearest orientation avoids waiting for an extra full revolution.
+  return plan.from + plan.speed * plan.t * (s - 2 * s2 + s3) + plan.d * (3 * s2 - 2 * s3);
+}
+
+/* The same schedule drives the canvas and the real map camera. Finish removing the axial roll
+   before Mercator flattening begins, so the final geographic alignment stays north-up. */
+export function approachState(fly, goalZoom, since) {
+  const zoom = fly.zG + (goalZoom - fly.zG) * smooth(since / APPROACH_SECONDS);
+  return { zoom,
+    roll: AXIAL_TILT * (1 - smooth((zoom - fly.zG) / (fly.zM - fly.zG))),
+    color: smooth((zoom - fly.zG) / (fly.zM - fly.zG)),
+    morph: smooth((zoom - fly.zM) / (fly.zA - fly.zM)),
+    fade: 1 - smooth((zoom - fly.zA) / (fly.zB - fly.zA)),
+  };
+}
+
+// The overlay is always the visible viewport, independent of the stacked phone panel below it.
+export function restingGlobe(w, h) {
+  if (w <= 760) return { x: w * 0.56, y: h * 0.49, r: Math.min(w * 0.33, h * 0.205) };
+  return { x: w * 0.73, y: h * 0.47, r: Math.min(w * 0.235, h * 0.35) };
 }
 
 /* ---------------------------------------------------------------- the outlines
@@ -50,7 +68,7 @@ export function settleLon(plan, since) {
    the edge of the globe be closed along the edge the right way round. Far from home the points are
    thinned, by a rule that depends only on where a point is, so two countries that share a border
    keep the same points along it and no gap opens between them. */
-export function prepare(geo, home) {
+export function prepare(geo, home, overview = false) {
   const hl = home[0] * RAD, hp = home[1] * RAD;
   const hx = Math.cos(hp) * Math.cos(hl), hy = Math.cos(hp) * Math.sin(hl), hz = Math.sin(hp);
   const out = { other: [], us: [], states: [], most: 0 };
@@ -62,7 +80,7 @@ export function prepare(geo, home) {
     if (closed && pts.every((q) => q[1] < -89.9)) return;  // Antarctica comes with a pin-prick ring round the pole: not land
     const dot = ([lon, lat]) => Math.cos(lat * RAD) * (Math.cos(lon * RAD) * hx + Math.sin(lon * RAD) * hy) + Math.sin(lat * RAD) * hz;
     const near = pts.some((p) => dot(p) >= NEAR);
-    if (!near) pts = pts.filter((p, i) => keep(p) || (!closed && (i === 0 || i === pts.length - 1)));
+    if (!near && !overview) pts = pts.filter((p, i) => keep(p) || (!closed && (i === 0 || i === pts.length - 1)));
     if (closed) {
       let a = 0, turn = 0;
       for (let i = 0; i < pts.length; i++) {
@@ -100,10 +118,20 @@ export function prepare(geo, home) {
 }
 
 /* Where the globe is seen from. */
-export function view(lon, lat) {
-  const l0 = lon * RAD, p0 = lat * RAD;
+export function view(lon, lat, roll = 0) {
+  const l0 = lon * RAD, p0 = lat * RAD, r0 = roll * RAD;
   return { l0, m0: mercY(lat), cl: Math.cos(l0), sl: Math.sin(l0), s0: Math.sin(p0), c0: Math.cos(p0),
+           cr: Math.cos(r0), sr: Math.sin(r0),
            x: Math.cos(p0) * Math.cos(l0), y: Math.cos(p0) * Math.sin(l0), z: Math.sin(p0) };
+}
+
+/* One geographic point in the same rolled projection used by land, grid and home marker. */
+export function projectPoint(lon, lat, V, morph = 0) {
+  const d = lon * RAD - V.l0, p = lat * RAD, cp = Math.cos(p), sp = Math.sin(p), cd = Math.cos(d);
+  const east = cp * Math.sin(d), north = V.c0 * sp - V.s0 * cp * cd;
+  let x = east * V.cr - north * V.sr, y = east * V.sr + north * V.cr;
+  if (morph > 0) { x += morph * (wrap(d) * V.c0 - x); y += morph * ((mercY(lat) - V.m0) * V.c0 - y); }
+  return { x, y, front: V.s0 * sp + V.c0 * cp * cd };
 }
 
 let px = new Float64Array(0), py = new Float64Array(0), pz = new Float64Array(0);
@@ -112,7 +140,8 @@ function project(r, V) {
   let hidden = -1;
   for (let i = 0; i < r.n; i++) {
     const a = r.X[i] * V.cl + r.Y[i] * V.sl;
-    px[i] = r.Y[i] * V.cl - r.X[i] * V.sl; py[i] = V.c0 * r.Z[i] - V.s0 * a; pz[i] = V.s0 * r.Z[i] + V.c0 * a;
+    const east = r.Y[i] * V.cl - r.X[i] * V.sl, north = V.c0 * r.Z[i] - V.s0 * a;
+    px[i] = east * V.cr - north * V.sr; py[i] = east * V.sr + north * V.cr; pz[i] = V.s0 * r.Z[i] + V.c0 * a;
     if (hidden < 0 && pz[i] <= 0) hidden = i;
   }
   return hidden;
@@ -238,7 +267,7 @@ export function traceFlat(rings, V, m, closed, fill, line) {
 /* ---------------------------------------------------------------- the screen */
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
-const GLOBE = { ocean: rgb("#07161F"), other: rgb("#143541"), us: rgb("#1E5E73"), line: rgb("#8DBDD8") };
+const GLOBE = { ocean: rgb("#092331"), other: rgb("#47798A"), us: rgb("#47798A"), line: rgb("#9BCDDD") };
 const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn", "Dead"]);
 
 /* `paint` is the map's own colours for the zoomed-out view: { ocean, other, usLand, border }.
@@ -251,9 +280,16 @@ export function runIntro(map, home, dataUrl, paint, start) {
   if (off || !wrapEl) return;
   const el = document.createElement("div");
   el.className = "intro";
-  el.innerHTML = '<canvas></canvas><p class="intro-note">Loading the map</p>' + (start ? `<div class="intro-start"><p class="intro-line"></p><div class="intro-choices">${
-    start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}">${c.label}</button>`).join("")}</div></div>` : "");
+  el.innerHTML = '<canvas aria-hidden="true"></canvas><p class="intro-note" role="status">Preparing your view</p><button class="intro-skip" type="button">Skip to map ↗</button>' + (start ? `<div class="intro-start"><div class="intro-copy"><p class="intro-kicker">THE WATER MAP</p><h1>Follow<br>the water.</h1><p class="intro-desc">From one cup in Princeton<br>to a wider view of what changes.</p></div><div class="intro-actions"><div class="intro-choices">${
+    start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}"><span class="intro-choice-num">0${i + 1}</span><span>${c.label}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>`).join("")}</div><details class="intro-record"><summary>About the public water record <span>+</span></summary><p class="intro-line"></p></details></div><p class="intro-orbit-label" aria-hidden="true">PRINCETON, NEW JERSEY <span>40.35° N · 74.66° W</span></p></div>` : "");
   const canvas = el.querySelector("canvas"), note = el.querySelector(".intro-note"), ctx = canvas.getContext("2d");
+  if (start) {
+    if (start.description) el.querySelector(".intro-desc").textContent = start.description;
+    const label = el.querySelector('.intro-orbit-label'), coordinates = label.querySelector('span');
+    label.firstChild.textContent = (start.choices[0]?.name || 'Princeton, New Jersey').toUpperCase() + ' ';
+    const [lon, lat] = home.center;
+    coordinates.textContent = `${Math.abs(lat).toFixed(2)}° ${lat < 0 ? 'S' : 'N'} · ${Math.abs(lon).toFixed(2)}° ${lon < 0 ? 'W' : 'E'}`;
+  }
   if (!ctx) return;
   // It covers the map and the panel beside it, so the globe has the screen to itself; with a start screen
   // the toolbar steps back too (all but the search), until a choice is made.
@@ -261,15 +297,15 @@ export function runIntro(map, home, dataUrl, paint, start) {
   host.appendChild(el);
   if (start) document.body.classList.add("starting");
   const MAP = { ocean: rgb(paint.ocean), other: rgb(paint.other), us: rgb(paint.usLand), line: rgb(paint.border) };
-  let goal = home, [goalLon, goalLat] = home.center, chosen = !start, offered = false, geoRaw = null;
-  const lonStart = goalLon - 120 - SPIN * MIN_SPIN;        // if the map is ready at once, home is a third of a turn away
+  let goal = home, [goalLon, goalLat] = home.center, chosen = !start, offered = false, geoRaw = null, overviewGeometry = false;
+  const lonStart = goalLon - 42 - SPIN * MIN_SPIN;        // Princeton is already on the near hemisphere
   let land = null, noLand = false, ready = false, phase = "spin", clock = 0, last = 0, mark = 0, raf = 0, done = false;
-  let lon = lonStart, lat = TILT, plan = null, fly = null, driving = false;
+  let lon = lonStart, lat = VIEW_LAT, plan = null, fly = null, driving = false;
 
-  fetch(dataUrl + "land.json").then((r) => r.json()).then((geo) => { geoRaw = geo; land = prepare(geo, home.center); }).catch(() => { noLand = true; });
+  fetch(dataUrl + "intro-land.json").then((r) => { if (!r.ok) throw new Error("overview unavailable"); overviewGeometry = true; return r.json(); }).catch(() => fetch(dataUrl + "land.json").then(r => r.json())).then((geo) => { geoRaw = geo; land = prepare(geo, home.center, overviewGeometry); }).catch(() => { noLand = true; });
   const mapReady = () => { ready = true; };
-  if (map.loaded()) mapReady(); else map.once("load", mapReady);
-  setTimeout(mapReady, 7000);                              // a slow connection: carry on with whatever has loaded
+  if (map.loaded()) mapReady(); else { map.once("style.load", mapReady); map.once("load", mapReady); }
+  setTimeout(mapReady, 2000);                              // a slow connection: carry on with whatever has loaded
 
   function finish() {
     if (done) return;
@@ -282,15 +318,19 @@ export function runIntro(map, home, dataUrl, paint, start) {
     removeEventListener("pointerdown", onPointer, true);
     removeEventListener("wheel", onPointer, true);
     map.off("move", onMapMove);
+    removeEventListener("resize", onResize);
+    window.dispatchEvent(new Event("clarity:map-arrived"));
   }
+  el.querySelector(".intro-skip").addEventListener("click", () => { map.jumpTo(goal); finish(); });
   // The start screen: a choice sets where the globe stops and where the map lands.
   function choose(c) {
     if (chosen || done) return;
     goal = { ...c.view, name: c.name, pin: c.pin };
     [goalLon, goalLat] = goal.center;
-    if ((goalLon !== home.center[0] || goalLat !== home.center[1]) && geoRaw) land = prepare(geoRaw, goal.center);
+    if ((goalLon !== home.center[0] || goalLat !== home.center[1]) && geoRaw) land = prepare(geoRaw, goal.center, overviewGeometry);
     chosen = true;
     el.classList.remove("ask");
+    el.classList.add("departing");
     document.body.classList.remove("starting");
     start.chose?.(c);
   }
@@ -307,8 +347,8 @@ export function runIntro(map, home, dataUrl, paint, start) {
   // nothing. Once it is moving, a key goes straight to where it was heading; a click or the wheel does
   // too while the globe is all there is to see, and once the map is showing leaves it where the hand found it.
   function onKey(e) {
-    if (MODIFIERS.has(e.key) || e.metaKey || e.ctrlKey || e.target?.closest?.("input, textarea, select, [contenteditable]")) return;
-    if (!chosen) { if (offered) choose(start.choices[0]); return; }
+    if (MODIFIERS.has(e.key) || e.key === "Tab" || e.metaKey || e.ctrlKey || e.target?.closest?.("input, textarea, select, button, a, summary, [contenteditable]")) return;
+    if (!chosen) { if (offered && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); choose(start.choices[0]); } return; }
     map.jumpTo(goal); finish();
   }
   function onPointer() { if (!chosen) return; if (!driving) map.jumpTo(goal); finish(); }
@@ -316,8 +356,15 @@ export function runIntro(map, home, dataUrl, paint, start) {
   addEventListener("pointerdown", onPointer, true);
   addEventListener("wheel", onPointer, { capture: true, passive: true });
 
+  function onResize() {
+    el.style.top = Math.max(0, host.getBoundingClientRect().top) + "px";
+    // A resized map changes its projected centre and scale. Finish cleanly instead of jumping.
+    if (phase !== "spin" && !done) { map.jumpTo(goal); finish(); }
+  }
+  addEventListener("resize", onResize);
+  onResize();
   function size() {
-    const dpr = Math.min(2, devicePixelRatio || 1), w = host.clientWidth, h = host.clientHeight;
+    const dpr = Math.min(1.5, devicePixelRatio || 1), w = el.clientWidth, h = el.clientHeight;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return [w, h];
@@ -348,7 +395,7 @@ export function runIntro(map, home, dataUrl, paint, start) {
       zA += 0.4;
     }
     if (zA + 1.6 > goal.zoom) return null;                 // a view too far out to dive into: the globe just gives way to it
-    return { zG: zOf(Math.min(w, h) * SIZE), zM: zA - 0.9, zA, zB: zA + 1.1, rOf: (z) => unit * 2 ** (z - 5) };
+    return { zG: zOf(restingGlobe(w, h).r), zM: zA - 0.9, zA, zB: zA + 1.1, rOf: (z) => unit * 2 ** (z - 5) };
   }
 
   const sinkFor = (path, cx, cy, R) => ({
@@ -367,8 +414,8 @@ export function runIntro(map, home, dataUrl, paint, start) {
     const ocean = mix(GLOBE.ocean, MAP.ocean, c);
     if (whole) { ctx.fillStyle = ocean; ctx.fillRect(0, 0, w, h); }
     else {
-      const glow = ctx.createRadialGradient(cx, cy, R * 0.96, cx, cy, R * 1.32);
-      glow.addColorStop(0, `rgba(90, 155, 189, ${(0.3 * (1 - c)).toFixed(3)})`);
+      const glow = ctx.createRadialGradient(cx, cy, R * 0.96, cx, cy, R * 1.14);
+      glow.addColorStop(0, `rgba(90, 155, 189, ${(0.11 * (1 - c)).toFixed(3)})`);
       glow.addColorStop(1, "rgba(90, 155, 189, 0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, w, h);
@@ -380,15 +427,15 @@ export function runIntro(map, home, dataUrl, paint, start) {
         const grid = (lonAt, latAt, n) => {
           let pen = false;
           for (let k = 0; k <= n; k++) {
-            const lo = lonAt(k) * RAD - V.l0, la = latAt(k) * RAD, cd = Math.cos(lo), sp = Math.sin(la), cp = Math.cos(la);
-            if (V.s0 * sp + V.c0 * cp * cd <= 0) { pen = false; continue; }
-            const x = cx + R * cp * Math.sin(lo), y = cy - R * (V.c0 * sp - V.s0 * cp * cd);
+            const p = projectPoint(lonAt(k), latAt(k), V);
+            if (p.front <= 0) { pen = false; continue; }
+            const x = cx + R * p.x, y = cy - R * p.y;
             if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
           }
         };
         for (let g = -180; g < 180; g += 30) grid(() => g, (k) => -90 + k * 5, 36);
         for (let g = -60; g <= 60; g += 30) grid((k) => -180 + k * 5, () => g, 72);
-        ctx.strokeStyle = `rgba(247, 240, 240, ${(0.07 * (1 - c)).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
+        ctx.strokeStyle = `rgba(247, 240, 240, ${(0.025 * (1 - c)).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
       }
     }
     if (land) {
@@ -402,36 +449,35 @@ export function runIntro(map, home, dataUrl, paint, start) {
         if (detail > 0.01) traceLines(land.states, V, tiny, sS);
       }
       ctx.lineJoin = "round";
-      const coast = 0.55 * (1 - c);
+      const coast = 0.19 * (1 - c);
       // Coastlines of the other countries: stroked first, then the land is filled over the top, which
       // hides the half of every line that lies on land, and with it the borders between countries.
-      if (coast > 0.01) { ctx.strokeStyle = `rgba(141, 189, 216, ${coast.toFixed(3)})`; ctx.lineWidth = 1.7; ctx.stroke(A); }
+      if (coast > 0.01) { ctx.strokeStyle = `rgba(141, 189, 216, ${coast.toFixed(3)})`; ctx.lineWidth = 0.7; ctx.stroke(A); }
       ctx.fillStyle = mix(GLOBE.other, MAP.other, c); ctx.fill(A);
       ctx.fillStyle = mix(GLOBE.us, MAP.us, c); ctx.fill(B);
       const z = zoom ?? 3;
       ctx.strokeStyle = mix(GLOBE.line, MAP.line, c);
       if (detail > 0.01) { ctx.globalAlpha = detail * (0.4 + 0.6 * c); ctx.lineWidth = 0.7 + c * ((0.6 + ((z - 3) * 0.8) / 6) - 0.7); ctx.stroke(S); ctx.globalAlpha = 1; }
       ctx.lineWidth = 1.2 + c * ((1 + (z - 3) / 6) - 1.2);
-      ctx.stroke(BL);
+      ctx.globalAlpha = 0.3 + 0.7 * c; ctx.stroke(BL); ctx.globalAlpha = 1;
     }
     if (!whole) {
       if (c < 0.99) {                                      // light from the upper left, dark toward the edge
         const shade = ctx.createRadialGradient(cx - R * 0.38, cy - R * 0.42, R * 0.08, cx, cy, R * 1.02);
-        shade.addColorStop(0, `rgba(150, 205, 235, ${(0.15 * (1 - c)).toFixed(3)})`);
+        shade.addColorStop(0, `rgba(150, 205, 235, ${(0.22 * (1 - c)).toFixed(3)})`);
         shade.addColorStop(0.55, "rgba(0, 0, 0, 0)");
-        shade.addColorStop(1, `rgba(0, 4, 8, ${(0.62 * (1 - c)).toFixed(3)})`);
+        shade.addColorStop(1, `rgba(0, 4, 8, ${(0.77 * (1 - c)).toFixed(3)})`);
         ctx.fillStyle = shade;
         ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
       }
       ctx.restore();
       ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU);
-      ctx.strokeStyle = `rgba(141, 189, 216, ${(0.5 * (1 - c)).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = `rgba(141, 189, 216, ${(0.26 * (1 - c)).toFixed(3)})`; ctx.lineWidth = 1; ctx.stroke();
     }
     if (pin > 0.01) {                                      // home: a dot and a ring that breathes
-      const d = goalLon * RAD - V.l0, sp = Math.sin(goalLat * RAD), cp = Math.cos(goalLat * RAD), cd = Math.cos(d);
-      if (V.s0 * sp + V.c0 * cp * cd > 0) {
-        const ox = cp * Math.sin(d), oy = V.c0 * sp - V.s0 * cp * cd;
-        const x = cx + R * (ox + m * (wrap(d) * V.c0 - ox)), y = cy - R * (oy + m * ((mercY(goalLat) - V.m0) * V.c0 - oy));
+      const homePoint = projectPoint(goalLon, goalLat, V, m);
+      if (homePoint.front > 0) {
+        const x = cx + R * homePoint.x, y = cy - R * homePoint.y;
         const beat = ((now / 1000) % 1.6) / 1.6;
         ctx.beginPath(); ctx.arc(x, y, 3.5, 0, TAU); ctx.fillStyle = `rgba(247, 240, 240, ${pin.toFixed(3)})`; ctx.fill();
         ctx.beginPath(); ctx.arc(x, y, 6 + 18 * beat, 0, TAU);
@@ -440,20 +486,23 @@ export function runIntro(map, home, dataUrl, paint, start) {
     }
   }
 
+  let paintedAt = 0;
   function frame(now) {
     if (done) return;
     raf = requestAnimationFrame(frame);
-    // The clock moves at most a tenth of a second a frame: a machine that cannot keep up sees every
-    // part of it, slower, instead of a few frames of it at full speed.
-    clock += Math.min(0.1, (now - (last || now)) / 1000);
+    // Keep elapsed time real; a busy tile worker must not stretch a six-second move into a long wait.
+    clock += Math.min(0.5, (now - (last || now)) / 1000);
     last = now;
+    if (now - paintedAt < 1000 / 30) return;
+    paintedAt = now;
     const [w, h] = size(), since = clock - mark;
-    let R = Math.min(w, h) * SIZE, c = 0, m = 0, zoom = null, fade = 1, detail = 0, pin = 0;
+    const resting = restingGlobe(w, h);
+    let R = resting.r, c = 0, m = 0, zoom = null, fade = 1, detail = 0, pin = 0, roll = AXIAL_TILT;
 
     if (phase === "spin") {
       lon = lonStart + SPIN * clock;
       if (ready && noLand && chosen) { map.jumpTo(goal); finish(); return; }
-      if (ready && (land || noLand) && clock >= MIN_SPIN && !chosen && !offered) {     // the start screen: ready, and waiting to be told where
+      if ((land || noLand) && clock >= MIN_SPIN && !chosen && !offered) {     // the start screen: ready, and waiting to be told where
         offered = true;
         note.textContent = "";
         const line = el.querySelector(".intro-line");
@@ -468,7 +517,7 @@ export function runIntro(map, home, dataUrl, paint, start) {
       }
     } else if (phase === "settle") {
       lon = settleLon(plan, since);
-      lat = TILT + (goalLat - TILT) * smooth(since / plan.t);
+      lat = VIEW_LAT + (goalLat - VIEW_LAT) * smooth(since / plan.t);
       detail = pin = smooth(since / (plan.t * 0.7));
       if (since >= plan.t) { phase = "hold"; mark = clock; }
     } else if (phase === "hold") {
@@ -479,27 +528,26 @@ export function runIntro(map, home, dataUrl, paint, start) {
       }
     } else {
       lon = goalLon; lat = goalLat; detail = 1;
-      zoom = fly.zG + (goal.zoom - fly.zG) * smooth(since / DIVE);
+      const approach = approachState(fly, goal.zoom, since);
+      zoom = approach.zoom; roll = approach.roll;
       R = fly.rOf(zoom);
-      c = smooth((zoom - fly.zG) / (fly.zM - fly.zG));
-      m = smooth((zoom - fly.zM) / (fly.zA - fly.zM));
+      c = approach.color; m = approach.morph; fade = approach.fade;
       pin = 1 - m;
-      fade = 1 - smooth((zoom - fly.zA) / (fly.zB - fly.zA));
       if (zoom >= fly.zA) {                                // the map shows from here, and moves in step with the drawing
         if (!driving) { driving = true; el.classList.add("through"); }
         const k = smoother((zoom - fly.zB) / (goal.zoom - fly.zB));
         map.jumpTo({ center: goal.center, zoom, pitch: (goal.pitch || 0) * k, bearing: (goal.bearing || 0) * k });
       }
-      if (since >= DIVE) { map.jumpTo(goal); finish(); return; }
+      if (since >= APPROACH_SECONDS) { map.jumpTo(goal); finish(); return; }
     }
     el.dataset.phase = phase;
     if (fade <= 0) { el.style.display = "none"; return; }  // the map carries on alone
     el.style.opacity = fade < 1 ? fade.toFixed(3) : "";
-    // The globe waits in the middle of the screen, and moves over the map's own centre as it slows, since
-    // that is where the dive has to end.
+    // The resting illustration moves over the real map centre before the approach begins.
     const [mx, my] = centre(), k = phase === "spin" ? 0 : phase === "settle" ? smooth(since / plan.t) : 1;
-    const cx = w / 2 + (mx - w / 2) * k, cy = h * 0.45 + (my - h * 0.45) * k;
-    paintGlobe(w, h, cx, cy, R, view(lon, lat), c, m, zoom, detail, goal.pin === false ? 0 : pin, now);
+    const cx = resting.x + (mx - resting.x) * k, cy = resting.y + (my - resting.y) * k;
+    paintGlobe(w, h, cx, cy, R, view(lon, lat, roll), c, m, zoom, detail, goal.pin === false ? 0 : pin, now);
   }
   raf = requestAnimationFrame(frame);
+  return { dismiss: finish, get active() { return !done; } };
 }

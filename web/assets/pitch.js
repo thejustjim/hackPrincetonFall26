@@ -8,8 +8,8 @@
         adds the filter for Act, then shows the retest at Compare, a step per press. The savings
         slide shows a different, in-range cup passing through without a filter.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
-     4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
-        is removed from the page at that point, so there is no way back up to it.
+     4. Going on past the last slide opens the setup chooser, then enters the chosen prototype
+        or demo view. The fallback without setup.js retains the original transition into /demo.
 
    Wide screens show one slide at a time. Narrow ones get a scrolling column that hands over when
    its end is reached. */
@@ -62,11 +62,19 @@
     if (window.TapHero?.setSource && wide.matches && !done) SCENES[names[Math.min(sub, names.length - 1)]]?.(TapHero);
   }
 
-  function finish(instant) {
+  async function finish(instant) {
     if (done) return;
     done = true;
     doneAt = performance.now();
     clearTimeout(restTimer);
+    // Choose the source before entering the demo: a prototype must not inherit preloaded sample data.
+    // The chooser stores a browser preference only; a fresh page initializes the chosen data source.
+    if (window.ClaritySetup) {
+      removeEventListener("wheel", onWheel, true);  // the modal owns its scroll, even during the final gesture
+      const choice = await ClaritySetup.choose({ afterPitch: true });
+      location.replace(ClaritySetup.destination(choice));
+      return;
+    }
     root.classList.remove("opening", "pitching");
     try { history.replaceState(null, "", DEMO_PATH + location.search); } catch (e) { /* opened as a file */ }
     window.scrollTo(0, 0);
@@ -290,7 +298,9 @@
     const mark = document.querySelector(".bar .wordmark");
     host.innerHTML = html + `<p class="p-mark wordmark" aria-hidden="true">${mark ? mark.innerHTML : "Clarity"}</p><p class="p-count" aria-hidden="true"></p><div class="p-end" aria-hidden="true"></div>`;
     // two minutes, demo included: the short deck leaves out the slides marked data-extra. ?full keeps them.
-    if (!new URLSearchParams(location.search).has("full")) host.querySelectorAll(".slide[data-extra]").forEach((el) => el.remove());
+    if (!new URLSearchParams(location.search).has("full")) {
+      host.querySelectorAll(".slide[data-extra]").forEach((el) => el.remove());
+    }
     slides = [...host.querySelectorAll(".slide")];
     if (!slides.length) throw new Error("no slides");
     nameModel();

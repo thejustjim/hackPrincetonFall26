@@ -6,12 +6,12 @@
    They are drawn in one canvas laid over the two flat cups the page already has, which stay in
    the page (hidden) to hold the layout, and come back if WebGL or this module fails.
 
-   window.TapPlate = { set({ before, after }) } once mounted. `after` null draws an empty glass
-   (the retest has not come in), and `after` undefined draws no second glass (no filter was used).
+   window.TapPlate = { set({ before, after }) } once mounted. `after` null draws clear water (through
+   the filter, the retest not in yet), and `after` undefined draws no second glass (no filter was used).
    demo-view.js keeps the latest state in window.TapPlateState, for when this loads after it. */
 import * as THREE from "three";
 import { RoomEnvironment } from "../vendor/three/RoomEnvironment.js";
-import { C, lookFor, glassMaterial, waterMaterial } from "./glass.js";
+import { C, lookFor, glassMaterial, waterMaterial } from "./glass.js?v=20261115-clean-pitch";
 
 const H = 1.7, RT = 0.66, RB = 0.52, WALL = 0.035, BASE = 0.14, LEVEL = 1.2, INSET = 0.006, SPECKS = 200;
 const rOut = (y) => RB + (RT - RB) * (y / H);
@@ -87,10 +87,10 @@ function makeCup(dot) {
     group,
     show(reading, immediate) {
       group.visible = reading !== undefined;
-      filled = !!reading;
+      filled = reading !== undefined;                       // no reading yet (the retest is awaited): clear water, as through the filter
       body.visible = surface.visible = meniscus.visible = specks.visible = filled;
       if (!filled) return;
-      target = lookFor(reading);
+      target = lookFor(reading || null);
       if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
     },
     frame(dt, t) {

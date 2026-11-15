@@ -7,6 +7,7 @@ from typing import Literal
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
+from .intents import ph_is_estimated
 from .models import gemini, has_gemini
 from .safety import scrub
 
@@ -60,7 +61,7 @@ DECLINE = "📷 I can only check photos of your water\n\nSend a clear glass of t
 def _failing(r: dict | None) -> bool:
     if not r:
         return False
-    return float(r.get("tds", 0)) > 500 or not 6.5 <= float(r.get("ph", 7)) <= 8.5
+    return float(r.get("tds", 0)) > 500 or (not ph_is_estimated(r) and not 6.5 <= float(r.get("ph", 7)) <= 8.5)
 
 
 def reply_for(v: PhotoVerdict | None, site_name: str | None, latest: dict | None) -> str:
@@ -75,7 +76,11 @@ def reply_for(v: PhotoVerdict | None, site_name: str | None, latest: dict | None
     if v.note:
         lines.append(f"↳ {v.note.strip()}")
     if latest:
-        lines.append(f"Last sensor test: TDS {round(latest.get('tds', 0))} ppm · pH {float(latest.get('ph', 0)):.1f}{' 🚨' if _failing(latest) else ''}")
+        estimated, alarm = ph_is_estimated(latest), " 🚨" if _failing(latest) else ""
+        ph = f"pH {float(latest.get('ph', 0)):.1f}{' (estimated from TDS)' if estimated else ''}"
+        # An alarm beside a derived pH would imply that estimate triggered it. On estimated
+        # readings the alarm belongs to the independently measured TDS instead.
+        lines.append(f"Last sensor test: TDS {round(latest.get('tds', 0))} ppm{alarm if estimated else ''} · {ph}{alarm if not estimated else ''}")
     lines.append("")
     if appearance in ("discolored", "particles", "foamy", "cloudy"):
         lines.append("Don't drink it unfiltered. We'll flag it for a retest.")

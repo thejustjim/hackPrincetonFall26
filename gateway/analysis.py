@@ -20,7 +20,9 @@ database, no network), so it can be tested alone: python test_analysis.py
 """
 import math
 import os
+import random
 import statistics
+from datetime import datetime
 
 METRICS = ("ph", "tds", "clarity")
 # The tank's current sketch works pH out from dissolved solids (PH_FROM_TDS 1): it is an estimate, not a
@@ -30,6 +32,41 @@ METRICS = ("ph", "tds", "clarity")
 # again; set it only once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0.
 PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
 MEASURED = tuple(m for m in METRICS if not (PH_ESTIMATED and m == "ph"))
+
+
+def ph_is_estimated(reading=None):
+    """Per-reading provenance wins; only legacy packets use the gateway default."""
+    value = (reading or {}).get("ph_est")
+    if value is None:
+        return PH_ESTIMATED
+    if value in (False, 0, "0", "false"):
+        return False
+    if value in (True, 1, "1", "true"):
+        return True
+    return PH_ESTIMATED
+
+
+def measured_metrics(reading=None):
+    return tuple(m for m in METRICS if m != "ph" or not ph_is_estimated(reading))
+
+
+def measured_verdict(reading):
+    """Screening thresholds use measured signals, never an estimated pH value."""
+    if reading["tds"] > 300:
+        return "HIGH_TDS"
+    if reading["clarity"] < 0.7:
+        return "CLOUDY"
+    if not ph_is_estimated(reading) and not 6.5 <= reading["ph"] <= 8.5:
+        return "PH_WARN"
+    return "SAFE"
+
+
+def _case_estimated(reading_or_case=None):
+    value = reading_or_case or {}
+    if "before" in value:
+        return any(ph_is_estimated(r) for r in (value.get("before"), value.get("after")) if r)
+    return ph_is_estimated(value)
+
 LABEL = {"ph": "pH", "tds": "dissolved solids", "clarity": "transparency"}
 PHYSICAL = {"ph": (0, 14), "tds": (0, 5000), "clarity": (0, 1)}       # what each sensor can read
 # Used until a node has enough history of its own: (typical value, spread) for water around Princeton
@@ -39,6 +76,8 @@ MIN_HISTORY = 8                                   # readings before a node's own
 CLIP = 2.0                                        # the control charts count no single pour as more than this many spreads
 RECENT = 10                                       # pours the control charts look across
 STUCK_RUN = {"ph": 8, "tds": 5, "clarity": 8}     # identical readings in a row that mean "stuck"
+SAME_HOURS = 3                                    # "the same time of day": within this many hours of it, either side
+MIN_SAME = 12                                     # compare with the same time of day only once there are this many such pours
 Z_OUT = 3.0                                       # a reading this many spreads from the median is unusual
 D_OUT = 3.4                                       # Mahalanobis distance: about the 99th percentile for three readings
 KIND_WORDS = {"normal": "Nothing unusual", "sensor_fault": "The sensor needs checking",
@@ -82,36 +121,75 @@ def control_charts(series, base, lam=0.3, limit=3.5, slack=0.75, alarm=5.0):
             "direction": "up" if (ewma > 0 if abs(ewma) > 1e-9 else up >= down) else "down"}
 
 
-def _inverse3(m):
-    (a, b, c), (d, e, f), (g, h, i) = m
-    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-    if abs(det) < 1e-9:
-        return None
-    return [[(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det],
-            [(f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det],
-            [(d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det]]
+def _inverse(matrix):
+    """Small pivoted inverse, for either two or three independent measurements."""
+    size = len(matrix)
+    rows = [list(row) + [float(i == j) for j in range(size)] for i, row in enumerate(matrix)]
+    for i in range(size):
+        pivot = max(range(i, size), key=lambda j: abs(rows[j][i]))
+        if abs(rows[pivot][i]) < 1e-9:
+            return None
+        rows[i], rows[pivot] = rows[pivot], rows[i]
+        scale = rows[i][i]
+        rows[i] = [x / scale for x in rows[i]]
+        for j in range(size):
+            if j != i:
+                scale = rows[j][i]
+                rows[j] = [a - scale * b for a, b in zip(rows[j], rows[i])]
+    return [row[size:] for row in rows]
 
 
 def mahalanobis(z, past_z):
-    """How far the three readings are from normal taken together, allowing for how they usually
-    move with each other. `z` and each row of `past_z` are already in units of spread. The
-    correlations are shrunk toward none, the more so the less history there is."""
-    n = len(past_z)
-    corr = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    """Distance across only the independent measured signals; estimates are not dimensions."""
+    size, n = len(z), len(past_z)
+    corr = [[float(i == j) for j in range(size)] for i in range(size)]
     if n >= MIN_HISTORY:
-        cols = [[max(-4.0, min(4.0, row[k])) for row in past_z] for k in range(3)]
+        cols = [[max(-4.0, min(4.0, row[k])) for row in past_z] for k in range(size)]
         means = [statistics.fmean(c) for c in cols]
         sds = [statistics.pstdev(c) for c in cols]
         keep = 1 - max(0.3, MIN_HISTORY / (n + MIN_HISTORY))
-        for i in range(3):
-            for j in range(i + 1, 3):
+        for i in range(size):
+            for j in range(i + 1, size):
                 if sds[i] > 1e-9 and sds[j] > 1e-9:
                     cov = statistics.fmean((cols[i][t] - means[i]) * (cols[j][t] - means[j]) for t in range(n))
                     corr[i][j] = corr[j][i] = keep * cov / (sds[i] * sds[j])
-    inv = _inverse3(corr) or [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    inv = _inverse(corr) or [[float(i == j) for j in range(size)] for i in range(size)]
     zc = [max(-12.0, min(12.0, v)) for v in z]
-    d2 = sum(zc[i] * inv[i][j] * zc[j] for i in range(3) for j in range(3))
+    d2 = sum(zc[i] * inv[i][j] * zc[j] for i in range(size) for j in range(size))
     return round(math.sqrt(max(0.0, d2)), 2)
+
+
+def hour_of(ts):
+    """Clock hour from an ISO timestamp, or None for legacy readings without a clock."""
+    try:
+        t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return t.hour + t.minute / 60 + t.second / 3600
+    except (TypeError, ValueError):
+        return None
+
+
+def isolation_score(point, history, trees=48):
+    """Deterministic isolation-forest stretch score; diagnostic only, never a verdict."""
+    if len(history) < MIN_HISTORY:
+        return None
+    rng = random.Random(26)
+    count = min(64, len(history))
+    depth_limit = math.ceil(math.log2(count))
+    def adjustment(n):
+        return 0.0 if n < 2 else 2 * sum(1 / k for k in range(1, n)) - 2 * (n - 1) / n
+    def path(rows, depth):
+        if len(rows) < 2 or depth >= depth_limit:
+            return depth + adjustment(len(rows))
+        choices = [(k, min(r[k] for r in rows), max(r[k] for r in rows)) for k in range(len(point))]
+        choices = [c for c in choices if c[2] > c[1]]
+        if not choices:
+            return depth + adjustment(len(rows))
+        k, lo, hi = rng.choice(choices)
+        split = rng.uniform(lo, hi)
+        subset = [r for r in rows if (r[k] < split) == (point[k] < split)]
+        return path(subset, depth + 1)
+    lengths = [path(rng.sample(history, count), 0) for _ in range(trees)]
+    return round(2 ** (-statistics.fmean(lengths) / adjustment(count)), 3)
 
 
 # ---------------------------------------------------------------- layer 1: is the sensor believable?
@@ -134,13 +212,14 @@ def sensor_checks(readings, bases, quiet):
     quiet: per metric, its earlier raw-water values that were not themselves unusual."""
     latest, out = readings[-1], []
     for m in METRICS:
-        if m not in MEASURED:                              # an estimate is not a sensor: nothing to check
-            out.append({"metric": m, "status": "ok", "note": ""})
+        if m not in measured_metrics(latest):
+            out.append({"metric": m, "status": "ok", "included": False, "estimated": True,
+                        "note": "pH is estimated from dissolved solids, so it is excluded from sensor checks."})
             continue
         v, (lo, hi) = latest[m], PHYSICAL[m]
         run = 0
         for r in reversed(readings):
-            if r[m] != v:
+            if (m == "ph" and ph_is_estimated(r)) or r[m] != v:
                 break
             run += 1
         drift = trend(quiet[m], bases[m]["sigma"])
@@ -167,9 +246,9 @@ def peer_comparison(lead, direction, peers):
     them, are unusual on the same reading in the same direction."""
     rows = []
     for p in peers:
-        if not p.get("reading"):
+        if not p.get("reading") or (lead == "ph" and ph_is_estimated(p["reading"])):
             continue
-        base = baseline([h[lead] for h in p.get("history", [])], lead)
+        base = baseline([h[lead] for h in p.get("history", []) if lead != "ph" or not ph_is_estimated(h)], lead)
         z = (p["reading"][lead] - base["median"]) / base["sigma"]
         rows.append({"node": p["node"], "name": p["name"], "sim": bool(p["sim"]), "km": p["km"],
                      "value": p["reading"][lead], "z": round(z, 1), "moved": z * direction >= Z_OUT})
@@ -182,36 +261,48 @@ def peer_comparison(lead, direction, peers):
 def analyse(reading, earlier, peers=()):
     """reading: the raw-water reading under review. earlier: the same node's readings before it,
     oldest first, every phase. peers: see peer_comparison. Returns every layer and a verdict."""
-    raw = [r for r in earlier if r.get("phase") == "before"]
-    bases = {m: baseline([r[m] for r in raw], m) for m in METRICS}
-    zrow = lambda r: [(r[m] - bases[m]["median"]) / bases[m]["sigma"] for m in METRICS]
-    z = dict(zip(METRICS, zrow(reading)))
-    quiet = {m: [r[m] for r in raw if abs((r[m] - bases[m]["median"]) / bases[m]["sigma"]) < Z_OUT] for m in METRICS}
+    raw_all = [r for r in earlier if r.get("phase") == "before"]
+    hour = hour_of(reading.get("ts"))
+    same = [r for r in raw_all if hour is not None and hour_of(r.get("ts")) is not None
+            and min(abs(hour_of(r["ts"]) - hour), 24 - abs(hour_of(r["ts"]) - hour)) <= SAME_HOURS]
+    if len(same) < MIN_SAME:
+        same = []
+    raw = same or raw_all
+    metrics = measured_metrics(reading)
+    history = {m: [r for r in raw if m != "ph" or not ph_is_estimated(r)] for m in METRICS}
+    bases = {m: baseline([r[m] for r in history[m]], m) for m in METRICS}
+    zrow = lambda r: [(r[m] - bases[m]["median"]) / bases[m]["sigma"] for m in metrics]
+    z = {m: (reading[m] - bases[m]["median"]) / bases[m]["sigma"] if m in metrics else 0.0 for m in METRICS}
+    quiet = {m: [r[m] for r in history[m] if abs((r[m] - bases[m]["median"]) / bases[m]["sigma"]) < Z_OUT] for m in METRICS}
     sensor = sensor_checks(list(earlier) + [reading], bases, quiet)
 
-    # The control charts ask whether the last few pours sit away from where the node used to be,
-    # so their reference is the history before those pours (when there is enough of it).
-    older = raw[:-RECENT] if len(raw) - RECENT >= MIN_HISTORY else raw
     rows = []
     for m in METRICS:
+        past = history[m]
+        older = past[:-RECENT] if len(past) - RECENT >= MIN_HISTORY else past
         reference = baseline([r[m] for r in older], m)
-        charts = control_charts([r[m] for r in raw[-RECENT:]] + [reading[m]], reference)
-        rows.append({"metric": m, "value": reading[m], **bases[m], "z": round(z[m], 1), **charts})
-    only = lambda row: [v if m in MEASURED else 0.0 for m, v in zip(METRICS, row)]     # an estimate adds nothing
-    distance = mahalanobis(only([z[m] for m in METRICS]), [only(zrow(r)) for r in raw])
-
-    lead = max(MEASURED, key=lambda m: abs(z[m]))
+        charts = control_charts([r[m] for r in past[-RECENT:]] + [reading[m]], reference) if m in metrics else {
+            "ewma": 0.0, "ewma_limit": 0.0, "ewma_signal": False,
+            "cusum": 0.0, "cusum_limit": 0.0, "cusum_signal": False, "direction": "up"}
+        rows.append({"metric": m, "value": reading[m], **bases[m], "z": round(z[m], 1), **charts,
+                     "included": m in metrics, "estimated": m == "ph" and ph_is_estimated(reading)})
+    joint_history = [r for r in raw if "ph" not in metrics or not ph_is_estimated(r)]
+    distance = mahalanobis(zrow(reading), [zrow(r) for r in joint_history])
+    # The previous three-signal threshold is retained; for two signals use its matching 99% chi radius.
+    distance_limit = D_OUT if len(metrics) == 3 else round(math.sqrt(-2 * math.log(0.01)), 2)
+    isolation = isolation_score(zrow(reading), [zrow(r) for r in joint_history])
+    lead = max(metrics, key=lambda m: abs(z[m]))
     direction = 1 if z[lead] >= 0 else -1
     repeat = 1                                         # how many raw-water readings in a row were unusual the same way
-    for r in reversed(raw):
+    for r in reversed(history[lead]):
         if (r[lead] - bases[lead]["median"]) / bases[lead]["sigma"] * direction < Z_OUT:
             break
         repeat += 1
-    unusual = abs(z[lead]) >= Z_OUT or distance >= D_OUT
-    persisting = [r for r in rows if (r["ewma_signal"] or r["cusum_signal"]) and r["metric"] in MEASURED]
+    unusual = abs(z[lead]) >= Z_OUT or distance >= distance_limit
+    persisting = [r for r in rows if (r["ewma_signal"] or r["cusum_signal"]) and r["metric"] in metrics]
     near = peer_comparison(lead, direction, peers)
     faults = [s for s in sensor if s["status"] == "fault"]
-    out_of_range = reading.get("verdict") not in (None, "SAFE")
+    out_of_range = measured_verdict(reading) != "SAFE"
 
     if faults:
         kind, severity = "sensor_fault", 1
@@ -226,7 +317,7 @@ def analyse(reading, earlier, peers=()):
 
     # the evidence, as sentences that carry their numbers and say where each came from
     b = bases[lead]
-    where = (f"this site's own median of {fmt(lead, b['median'])} over {b['n']} earlier pours" if b["source"] == "history"
+    where = (f"this site's own median of {fmt(lead, b['median'])} over {b['n']} earlier pours{' at this time of day' if same else ''}" if b["source"] == "history"
              else f"a typical {fmt(lead, b['median'])} for water around Princeton (this site has only {b['n']} earlier pour{'' if b['n'] == 1 else 's'})")
     evidence = [s["note"] for s in sensor if s["status"] != "ok"]
     if unusual:
@@ -235,8 +326,21 @@ def analyse(reading, earlier, peers=()):
         evidence.append("Measured: it is the only unusual pour in a row, so a second pour would confirm it." if repeat < 2
                         else f"Measured: {repeat} pours in a row have been unusual the same way.")
     else:
-        evidence.append(f"Measured: {'all three' if len(MEASURED) == 3 else 'both'} readings are within {Z_OUT:.0f} spreads of normal for this site "
+        evidence.append(f"Measured: {'all three' if len(metrics) == 3 else 'both'} readings are within {Z_OUT:.0f} spreads of normal for this site "
                         f"({LABEL[lead]} is the furthest, at {abs(z[lead]):.1f}).")
+    # A spike, seen in hindsight: the pour before this one stood alone, and this one is back to normal.
+    one_off = None
+    if not unusual and raw_all:
+        last = raw_all[-1]
+        comparable = [m for m in metrics if m != "ph" or not ph_is_estimated(last)]
+        zl = {m: (last[m] - bases[m]["median"]) / bases[m]["sigma"] for m in comparable}
+        far = max(comparable, key=lambda m: abs(zl[m]))
+        alone = len(raw_all) < 2 or all(abs((raw_all[-2][m] - bases[m]["median"]) / bases[m]["sigma"]) < Z_OUT
+                                      for m in comparable if m != "ph" or not ph_is_estimated(raw_all[-2]))
+        if abs(zl[far]) >= Z_OUT and alone:
+            one_off = {"metric": far, "value": last[far], "z": round(zl[far], 1), "test": last.get("test")}
+            evidence.append(f"Measured: the pour before this one read {LABEL[far]} of {fmt(far, last[far])}, {abs(zl[far]):.1f} spreads from normal, "
+                            "and this one is back to normal, so that reading was a one-off.")
     for r in persisting:
         if abs(r["z"]) < Z_OUT:
             evidence.append(f"Measured: {LABEL[r['metric']]} has run {'high' if r['direction'] == 'up' else 'low'} for several "
@@ -248,11 +352,21 @@ def analyse(reading, earlier, peers=()):
         evidence.append(f"{'Simulated' if label else 'Measured'}: {count} {label}nodes nearby {'is' if near['moved'] == 1 else 'are'} unusual the same way, "
                         + ("so this looks regional, not local." if near["scope"] == "regional" else "so this looks local to this site."))
 
-    return {"reading": {k: reading.get(k) for k in ("id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict")},
-            "sensor": sensor, "baseline": rows, "multivariate": {"distance": distance, "limit": D_OUT, "flag": distance >= D_OUT},
+    return {"reading": {**{k: reading.get(k) for k in ("id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict")}, "ph_est": ph_is_estimated(reading)},
+            "sensor": sensor, "baseline": rows,
+            "multivariate": {"distance": distance, "limit": distance_limit, "flag": distance >= distance_limit, "isolation": isolation, "dimensions": len(metrics)},
+            "measured_metrics": list(metrics),
+            "scope": {"kind": "time_of_day", "hours": SAME_HOURS, "n": len(same)} if same else {"kind": "all", "n": len(raw)},
+            "one_off_before": one_off,
             "lead": {"metric": lead, "z": round(z[lead], 1), "direction": "up" if direction > 0 else "down"},
             "repeat": repeat, "peers": near, "kind": kind, "kind_words": KIND_WORDS[kind],
             "severity": severity, "severity_words": SEVERITY_WORDS[severity], "evidence": evidence}
+
+
+def ph_retest_unverified(case):
+    before, after = case.get("before"), case.get("after")
+    return bool(before and after and not ph_is_estimated(before) and ph_is_estimated(after)
+                and not 6.5 <= before["ph"] <= 8.5)
 
 
 # ---------------------------------------------------------------- a report from the checks alone
@@ -262,14 +376,17 @@ def rule_report(case, result, filters):
     case: {"filter", "before", "after"}. filters: the gateway's filter-life list."""
     b, a, used = case["before"], case["after"], case.get("filter")
     name = {"ZEROWATER": "ZeroWater", "BRITA": "Brita Elite"}.get(used)
-    lead = result["lead"]["metric"] if result["kind"] != "normal" else ("clarity" if b.get("verdict") == "CLOUDY" else "tds")
-    back = a.get("verdict") == "SAFE"
+    # A filter comparison concerns its targeted measured signal, never derived pH or another lead metric.
+    lead = "clarity" if used == "BRITA" else "tds"
+    unverified = ph_retest_unverified(case)
+    back = measured_verdict(a) == "SAFE" and not unverified
     if name:
         summary = (f"{name} took this cup's {LABEL[lead]} from {fmt(lead, b[lead])} to {fmt(lead, a[lead])}, "
-                   + ("and the retest is back in range." if back else "but the retest is still out of range."))
+                   + ("but pH was only estimated on the retest, so the earlier pH warning is not resolved." if unverified
+                      else "and the retest is back in range." if back else "but the retest is still out of range."))
     else:
         summary = (f"This cup was not filtered. Its retest read {fmt('tds', a['tds'])}, pH {fmt('ph', a['ph'])}"
-                   f"{' (estimated)' if PH_ESTIMATED else ''} and transparency {fmt('clarity', a['clarity'])}.")
+                   f"{' (estimated)' if ph_is_estimated(a) else ''} and transparency {fmt('clarity', a['clarity'])}.")
     findings = list(result["evidence"])
     actions = []
     for f in filters or []:
@@ -281,13 +398,14 @@ def rule_report(case, result, filters):
     elif result["kind"] == "local_event":
         actions.append("Pour a second cup from the same source to confirm the reading." if result["repeat"] < 2
                        else "Find out what changed at this source: the same unusual reading has repeated.")
-        actions.append(f"Have the source tested by a lab before relying on it: this device reads only {READS}.")
+        actions.append(f"Have the source tested by a lab before relying on it: this device reads only {measurement_words(case)}.")
     elif result["kind"] == "regional_shift":
         actions.append("Compare with the latest published samples: several nodes moved together, which points to the source, not this site.")
     elif result["kind"] == "persistent_shift":
         actions.append("Recalibrate the sensor, then watch the next few pours: a small shift has persisted.")
     if name and not back:
-        actions.insert(0, f"Do not rely on {name} for this water: the retest is still out of range.")
+        actions.insert(0, "Retest pH with a calibrated probe: an estimate cannot confirm the earlier measurement." if unverified
+                       else f"Do not rely on {name} for this water: the retest is still out of range.")
     if not actions:
         actions.append("Nothing to do. Keep measuring.")
     severity = 2 if (name and not back) else result["severity"]
@@ -298,22 +416,38 @@ def rule_report(case, result, filters):
 # A draft for the people who use this water. Nothing sends it. The required sentence is in every one.
 #
 # While pH is an estimate (PH_ESTIMATED, at the top of this file), no notice speaks of it as something Clarity read.
-READS = "dissolved solids and transparency" if PH_ESTIMATED else "pH, dissolved solids and transparency"
+def measurement_words(reading_or_case=None):
+    return "dissolved solids and transparency" if _case_estimated(reading_or_case) else "pH, dissolved solids and transparency"
+
+
+def notice_required(reading_or_case=None):
+    return f"Clarity reads only {measurement_words(reading_or_case)}. It cannot detect lead, bacteria or any specific contaminant."
+
+
+def notice_templates(reading_or_case=None):
+    reads = measurement_words(reading_or_case)
+    in_range = f"{reads} {'both' if _case_estimated(reading_or_case) else 'all'} read in range"
+    return {
+        "back_in_range": "Clarity measured a cup of water at {site}. It read {problem} and was sent through {filter}. "
+                         f"On the retest, {in_range}.",
+        "still_out_of_range": "Clarity measured a cup of water at {site}. It read {problem}, and after {filter} the retest was "
+                              "still out of range. Have this source tested by a certified lab before relying on it.",
+        "no_filter_needed": "Clarity measured a cup of water at {site}. " + in_range[0].upper() + in_range[1:]
+                            + ", so it was not filtered.",
+        "not_filtered": "Clarity measured a cup of water at {site}. It read {problem}, which neither of its filters is made "
+                        "to correct. Have this source tested by a certified lab before relying on it.",
+        "ph_unverified": "Clarity's first pH measurement at {site} was outside the usual range. The retest pH was estimated, "
+                         "so the earlier pH warning remains unverified. Retest with a calibrated probe.",
+        "sensor_fault": "A sensor on the Clarity node at {site} needs checking, so its latest readings should not be relied "
+                        "on until it has been recalibrated.",
+    }
+
+
+READS = measurement_words()
 IN_RANGE = f"{READS} {'both' if PH_ESTIMATED else 'all'} read in range"
-NOTICE_REQUIRED = f"Clarity reads only {READS}. It cannot detect lead, bacteria or any specific contaminant."
-NO_DISINFECTION = "A pitcher filter does not disinfect."       # added when the cup was cloudy: clearer is not cleaner
-NOTICE_TEMPLATES = {
-    "back_in_range": "Clarity measured a cup of water at {site}. It read {problem} and was sent through {filter}. "
-                     f"On the retest, {IN_RANGE}.",
-    "still_out_of_range": "Clarity measured a cup of water at {site}. It read {problem}, and after {filter} the retest was "
-                          "still out of range. Have this source tested by a certified lab before relying on it.",
-    "no_filter_needed": "Clarity measured a cup of water at {site}. " + IN_RANGE[0].upper() + IN_RANGE[1:]
-                        + ", so it was not filtered.",
-    "not_filtered": "Clarity measured a cup of water at {site}. It read {problem}, which neither of its filters is made "
-                    "to correct. Have this source tested by a certified lab before relying on it.",
-    "sensor_fault": "A sensor on the Clarity node at {site} needs checking, so its latest readings should not be relied "
-                    "on until it has been recalibrated.",
-}
+NOTICE_REQUIRED = notice_required()
+NO_DISINFECTION = "A pitcher filter does not disinfect."
+NOTICE_TEMPLATES = notice_templates()
 PROBLEM = {"HIGH_TDS": "high in dissolved solids ({tds} ppm)", "CLOUDY": "cloudy (transparency {clarity:.2f})",
            "PH_WARN": "outside the usual pH range (pH {ph:.1f})", "SAFE": "in range"}
 
@@ -322,24 +456,26 @@ def notice_template(case, result):
     name = {"ZEROWATER": "ZeroWater", "BRITA": "Brita Elite"}.get(case.get("filter"))
     if result["kind"] == "sensor_fault":
         return "sensor_fault"
+    if ph_retest_unverified(case):
+        return "ph_unverified"
     if not name:
-        return "no_filter_needed" if case["before"].get("verdict") == "SAFE" else "not_filtered"
-    return "back_in_range" if case["after"].get("verdict") == "SAFE" else "still_out_of_range"
+        return "no_filter_needed" if measured_verdict(case["before"]) == "SAFE" else "not_filtered"
+    return "back_in_range" if measured_verdict(case["after"]) == "SAFE" else "still_out_of_range"
 
 
 def notice_for(case, result, site):
     b = case["before"]
-    filled = NOTICE_TEMPLATES[notice_template(case, result)].format(
+    filled = notice_templates(case)[notice_template(case, result)].format(
         site=site or "this site", filter={"ZEROWATER": "ZeroWater", "BRITA": "Brita Elite"}.get(case.get("filter"), ""),
-        problem=PROBLEM.get(b.get("verdict"), "out of range").format(**b))
+        problem=PROBLEM.get(measured_verdict(b), "out of range").format(**b))
     cloudy = b.get("verdict") == "CLOUDY" and case.get("filter") in ("ZEROWATER", "BRITA")
-    return f"{filled} {NO_DISINFECTION + ' ' if cloudy else ''}{NOTICE_REQUIRED}"
+    return f"{filled} {NO_DISINFECTION + ' ' if cloudy else ''}{notice_required(case)}"
 
 
-def notice_ok(text):
+def notice_ok(text, reading_or_case=None):
     """A model-written notice is used only if it keeps the required sentence and promises nothing."""
     low = (text or "").lower()
-    return NOTICE_REQUIRED in (text or "") and not any(w in low for w in (" safe", "drink", "healthy", "clean to"))
+    return notice_required(reading_or_case) in (text or "") and not any(w in low for w in (" safe", "drink", "healthy", "clean to"))
 
 
 # ---------------------------------------------------------------- who to ask (triage)
@@ -349,7 +485,7 @@ def notice_ok(text):
 def plan(case, result):
     """-> [{"agent", "why"}] for one filter run, most important first."""
     kind, used = result["kind"], case.get("filter") in ("ZEROWATER", "BRITA")
-    after_out = bool(case.get("after")) and case["after"].get("verdict") not in (None, "SAFE")
+    after_out = bool(case.get("after")) and (measured_verdict(case["after"]) != "SAFE" or ph_retest_unverified(case))
     flagged = [s for s in result["sensor"] if s["status"] != "ok"]
     ask = []
     if kind == "sensor_fault" or flagged:

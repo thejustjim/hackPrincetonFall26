@@ -1,6 +1,7 @@
 // Overview tab: network at a glance with small visuals (stat tiles, verdict bar, per-node TDS bars with
 // sparklines, and how US water samples compare to the EPA guideline).
 import { us, TDS_BANDS } from './national.js';
+import { isSimulatedNode } from './provenance.js';
 
 const VERDICT_VAR = { SAFE: 'var(--safe)', HIGH_TDS: 'var(--high)', CLOUDY: 'var(--cloudy)', PH_WARN: 'var(--phwarn)' };
 const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };
@@ -39,6 +40,7 @@ export function tdsBar(v, color, { scale = SCALE } = {}) {
 export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
   if (!el) return;
   const nodes = [...state.nodes.values()];
+  const simulated = n => isSimulatedNode(n, state.mode);
   const views = nodes.map(n => ({ n, lb: nodeView(n).lb }));
   const counts = { SAFE: 0, HIGH_TDS: 0, CLOUDY: 0, PH_WARN: 0 };
   for (const v of views) if (v.lb) counts[v.lb.verdict] = (counts[v.lb.verdict] || 0) + 1;
@@ -62,7 +64,7 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
   el.innerHTML = `
     <div class="ov-tiles">
       <div class="tile"><div class="tk">Sites reporting</div><div class="tv">${nodes.length}</div>
-        <div class="ts">${nodes.filter(n => !n.sim).length} real, ${nodes.filter(n => n.sim).length} simulated</div></div>
+        <div class="ts">${nodes.filter(n => !simulated(n)).length} real, ${nodes.filter(simulated).length} simulated</div></div>
       <div class="tile"><div class="tk">Median source TDS</div><div class="tv">${median(latestTds)}<small> ppm</small></div>
         ${sparkline(tdsTrend, { w: 120, h: 22, color: 'var(--steel)' })}</div>
       <div class="tile ring-tile">${ring(avgDrop, { size: 58, label: `${Math.round(avgDrop * 100)}%` })}
@@ -81,7 +83,7 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
     <div class="nodes-list">${rows.map(({ n, lb }) => {
       const hist = (state.readings.get(n.node) || []).filter(r => r.phase === 'before').slice(-12).map(r => r.tds);
       return `<button class="nrow" data-node="${esc(n.node)}">
-        <span class="nn">${esc(n.name)}${n.sim ? '<em>sim</em>' : ''}</span>
+        <span class="nn">${esc(n.name)}${simulated(n) ? '<em>simulated</em>' : ''}</span>
         ${tdsBar(lb.tds, VERDICT_VAR[lb.verdict])}
         <span class="nv">${lb.tds}</span>
         ${sparkline(hist, { w: 44, h: 16, color: VERDICT_VAR[lb.verdict] })}

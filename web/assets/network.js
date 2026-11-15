@@ -69,8 +69,14 @@
     })() : "");
 
     // the sensors alert in the order they did, the gaps between them kept in proportion
-    document.querySelectorAll(".sensor").forEach((el) => el.classList.remove("alert"));
+    document.querySelectorAll(".sensor").forEach((el) => { el.classList.remove("alert"); el.style.opacity = ""; el.style.strokeDasharray = ""; });
     document.querySelectorAll(".sensor-label").forEach((el) => { el.classList.remove("on"); el.textContent = ""; });
+    (sc.unavailable || []).forEach((id) => {
+      const sensor = document.querySelector(`[data-sensor="${CSS.escape(id)}"]`);
+      if (sensor) { sensor.style.opacity = "0.35"; sensor.style.strokeDasharray = "2 3"; }
+      const label = document.querySelector(`[data-label="${CSS.escape(id)}"]`);
+      if (label) { label.textContent = "offline"; label.classList.add("on"); }
+    });
     const first = sc.alerts[0]?.minute ?? 0, span = Math.max(1, (sc.alerts.at(-1)?.minute ?? 0) - first);
     const PLAY = still ? 0 : 3200;
     sc.alerts.forEach((a, i) => {
@@ -84,13 +90,13 @@
     timers.push(setTimeout(() => layer.querySelectorAll(".cand, .cand-label").forEach((el) => el.classList.add("on")), still ? 0 : PLAY + 900));
 
     $("#timeline").innerHTML = sc.timeline.map((x, i) => `<li data-i="${i}"><span class="at">${i === 0 ? "0 min" : `+${Math.round(x.minute - first)} min`}</span><span>${esc(x.text)}</span></li>`).join("")
-      + `<li class="quiet-row"><span class="at"></span><span>${sc.quiet.length} other sensor${sc.quiet.length === 1 ? "" : "s"} stayed quiet.</span></li>`;
+      + `<li class="quiet-row"><span class="at"></span><span>${sc.quiet.length} other sensor${sc.quiet.length === 1 ? "" : "s"} stayed quiet.${sc.unavailable?.length ? ` ${sc.unavailable.length} unavailable; not counted as quiet.` : ""}</span></li>`;
     $("#cands").innerHTML = top.map((c, i) => `
       <li><div class="head"><span class="rank">${i + 1}</span><span class="name">Pipe ${esc(c.pipe)}<small>${esc(c.attributes.material)}, ${esc(c.attributes.year)}</small></span><span class="pct">${pct(c.confidence)}</span></div>
         <div class="bar-w"><span style="width:${(100 * c.confidence).toFixed(1)}%"></span></div>
         ${i === 0 ? `<div class="why">${c.rationale.map((r) => `<p>${esc(r)}</p>`).join("")}</div>` : ""}</li>`).join("")
       || `<li class="quiet">No pipe is upstream of every alerting sensor.</li>`;
-    $("#considered").innerHTML = `${sc.considered} pipes are upstream of every alerting sensor. The share is each one's weight among them, not a probability that it is the cause.
+    $("#considered").innerHTML = `${sc.stress ? `${esc(sc.description)}<br>` : ""}${sc.considered} pipes are upstream of every alerting sensor. The share is each one's weight among them, not a probability that it is the cause.
       <br><button class="reveal" type="button" id="reveal">Show where the simulation put it</button><span class="checked" id="checked" hidden></span>`;
     $("#reveal").addEventListener("click", () => {
       fig.classList.add("revealed");
@@ -119,7 +125,7 @@
       <div class="figures-row">
         <div><b>${esc(a.junctions ?? 0)}</b><span>junctions within six hours' flow</span></div>
         <div><b>${esc(Math.round(a.demand_lps ?? 0))}</b><span>litres a second of simulated demand there</span></div>
-        <div><b>${sc.alerts.length}<small style="font-size:.45em;color:var(--label2)"> of ${sc.alerts.length + sc.quiet.length}</small></b><span>sensors alerting</span></div>
+        <div><b>${sc.alerts.length}<small style="font-size:.45em;color:var(--label2)"> of ${sc.alerts.length + sc.quiet.length + (sc.unavailable?.length || 0)}</small></b><span>sensors alerting${sc.unavailable?.length ? `; ${sc.unavailable.length} unavailable` : ""}</span></div>
       </div>
 
       <h3>Draft notice</h3>
@@ -128,6 +134,10 @@
 
       <h3>How the trace works</h3>
       <p class="quiet">${esc(sc.method)}</p>
+
+      ${data.robustness ? `<details><summary>Seeded robustness check</summary>
+        <p class="quiet">${esc(data.robustness.note)} Seed ${esc(data.robustness.seed)}, ${esc(data.robustness.repeats_per_pipe)} repeats per pipe.</p>
+        <ul class="plain">${data.robustness.profiles.map((p) => `<li>${esc(p.label)}: ${p.observed} of ${p.trials} events observed; the source ranked first for ${p.top1} and in the top three for ${p.top3} of those ${p.observed}. ${p.trials - p.observed} events reached no available sensor.</li>`).join("")}</ul></details>` : ""}
 
       <h3>What this cannot tell you</h3>
       <ul class="plain">${sc.caveats.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>`;

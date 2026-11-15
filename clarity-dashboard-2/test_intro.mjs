@@ -9,27 +9,54 @@ const check = (name, cond, detail = "") => { ok &&= !!cond; console.log(cond ? "
 
 // ---------------------------------------------------------------- slowing down
 const HOME = [-74.66, 40.35];
-let worstStart = 0, worstEnd = 0, back = 0, miss = 0, peak = 0, longest = 0, shortest = 99;
+let worstStart = 0, worstEnd = 0, miss = 0, peak = 0, longest = 0;
 for (let from = -720; from < 720; from += 1.3) {
-  const p = I.settlePlan(from, HOME[0]);
-  const h = 1e-4, at = (s) => I.settleLon(p, s);
+  const p = I.settlePlan(from, HOME[0]), h = 1e-4, at = s => I.settleLon(p, s);
   worstStart = Math.max(worstStart, Math.abs((at(h) - at(0)) / h - I.SPIN));
   worstEnd = Math.max(worstEnd, Math.abs((at(p.t) - at(p.t - h)) / h));
-  let prev = at(0);
-  for (let s = 0; s <= p.t; s += p.t / 400) { const v = at(s); back = Math.min(back, v - prev); peak = Math.max(peak, (at(s + h) - v) / h); prev = v; }
+  for (let t = 0; t <= p.t; t += p.t / 400) peak = Math.max(peak, Math.abs((at(t + h) - at(t)) / h));
   miss = Math.max(miss, Math.abs(((((at(p.t) - HOME[0]) % 360) + 540) % 360) - 180));
-  longest = Math.max(longest, p.t); shortest = Math.min(shortest, p.t);
+  longest = Math.max(longest, p.t);
+  checkDistance(p);
 }
-check("the slow-down starts at the spin's own speed", worstStart < 0.5, worstStart);
-check("it ends at rest", worstEnd < 0.5, worstEnd);
-check("the globe never turns back", back > -1e-9, back);
-check("it ends with home in front", miss < 1e-6, miss);
-check("it never goes faster than twice the spin", peak < 2 * I.SPIN, peak);
-console.log("INFO slow-down takes", shortest.toFixed(2), "to", longest.toFixed(2), "s; fastest", peak.toFixed(0), "deg/s against a spin of", I.SPIN);
+function checkDistance(p) { if (Math.abs(p.d) > 180 + 1e-9) ok = false; }
+check("the destination turn starts at the idle spin's speed", worstStart < .01, worstStart);
+check("it arrives at rest", worstEnd < .01, worstEnd);
+check("it ends with the destination in front", miss < 1e-6, miss);
+check("the turn takes at most 3.2 seconds without a full extra revolution", longest <= 3.2 && peak < 90, { longest, peak });
+for (const [w,h] of [[1440,836],[886,980],[390,720],[390,550],[1280,600]]) {
+  const g = I.restingGlobe(w,h);
+  check(`the resting globe fits the visible ${w}x${h} canvas`, g.x-g.r>=0 && g.x+g.r<=w && g.y-g.r>=0 && g.y+g.r<=h);
+}
+
+// ---------------------------------------------------------------- cinematic approach and axial tilt
+const fly = { zG: 1, zM: 4, zA: 4.9, zB: 6 };
+const goalZoom = 11.75;
+let lastZoom = fly.zG, backwards = false, earlyMorph = false, earlyMap = false;
+for (let t = 0; t <= I.APPROACH_SECONDS + 0.01; t += 0.01) {
+  const a = I.approachState(fly, goalZoom, t);
+  backwards ||= a.zoom < lastZoom - 1e-9;
+  earlyMorph ||= a.morph > 0 && Math.abs(a.roll) > 1e-9;
+  earlyMap ||= a.fade < 1 && a.morph < 1;
+  lastZoom = a.zoom;
+}
+check("the scenic approach remains in progress after the previous 4.8-second dive", I.approachState(fly, goalZoom, 4.8).zoom < goalZoom - 0.5);
+check("the approach takes six to nine seconds and reaches the requested view", I.APPROACH_SECONDS >= 6 && I.APPROACH_SECONDS <= 9 && I.approachState(fly, goalZoom, I.APPROACH_SECONDS).zoom === goalZoom);
+check("zoom advances continuously without reversing or overshooting", !backwards && lastZoom <= goalZoom);
+check("the axial tilt settles to north-up before flattening", !earlyMorph);
+check("the real map only shows once the projection is fully flat", !earlyMap);
+check("the idle globe turns slowly", I.SPIN <= 18);
+const tiltedHome = I.view(HOME[0], HOME[1], I.AXIAL_TILT);
+const north = I.projectPoint(HOME[0], 90, tiltedHome);
+const tiltSeen = Math.atan2(-north.x, north.y) / RAD;
+const centre = I.projectPoint(...HOME, tiltedHome);
+check("the projected north axis has a natural visible tilt", tiltSeen >= 15 && tiltSeen <= 23.1, tiltSeen);
+check("Princeton stays centred when its globe axis is tilted", Math.hypot(centre.x, centre.y) < 1e-9);
 
 // ---------------------------------------------------------------- the land on the globe
-const geo = JSON.parse(readFileSync(`${ROOT}/public/data/land.json`, "utf8"));
-const land = I.prepare(geo, HOME);
+const overview = process.argv.includes("--overview");
+const geo = JSON.parse(readFileSync(`${ROOT}/public/data/${overview ? "intro-land.json" : "land.json"}`, "utf8"));
+const land = I.prepare(geo, HOME, overview);
 const count = (l) => l.reduce((n, r) => n + r.n, 0);
 console.log("INFO rings:", land.other.length, "other,", land.us.length, "US,", land.states.length, "state lines; points:", count(land.other), count(land.us), count(land.states));
 check("there is land to draw", land.other.length > 100 && land.us.length > 5 && land.states.length > 10);
@@ -76,11 +103,17 @@ let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fff
 for (const [name, rings] of [["other", land.other], ["us", land.us]]) {
   const edges = edgesOf(rings);
   let wrong = 0, total = 0, worstView = 0, unlinked = 0, views = 0, landSeen = 0;
-  for (const lat0 of [18, 40.35]) for (let lon0 = -180; lon0 < 180; lon0 += 9) {
-    const V = I.view(lon0, lat0), rec = recorder();
+  const viewsToCheck = [];
+  for (const lat0 of [18, 40.35]) {
+    for (let lon0 = -180; lon0 < 180; lon0 += 9) viewsToCheck.push([lon0, lat0, 0]);
+    for (let lon0 = -180; lon0 < 180; lon0 += 45) viewsToCheck.push([lon0, lat0, I.AXIAL_TILT]);
+  }
+  for (const [lon0, lat0, roll] of viewsToCheck) {
+    const V = I.view(lon0, lat0, roll), rec = recorder();
     if (!I.trace(rings, V, 0, rec)) unlinked++;
     views++;
-    const E = [-V.sl, V.cl, 0], N = [-V.s0 * V.cl, -V.s0 * V.sl, V.c0], F = [V.x, V.y, V.z];
+    const east = [-V.sl, V.cl, 0], north = [-V.s0 * V.cl, -V.s0 * V.sl, V.c0];
+    const E = east.map((x, i) => V.cr * x - V.sr * north[i]), N = east.map((x, i) => V.sr * x + V.cr * north[i]), F = [V.x, V.y, V.z];
     let bad = 0;
     for (let k = 0; k < 60; k++) {
       const r = Math.sqrt(rnd()) * 0.985, a = rnd() * TAU, x = r * Math.cos(a), y = r * Math.sin(a), z = Math.sqrt(1 - x * x - y * y);
@@ -102,7 +135,8 @@ for (const [name, rings] of [["other", land.other], ["us", land.us]]) {
   for (const [lon0, lat0] of tangled.filter((_, i) => i % Math.ceil(tangled.length / 14) === 0)) {
     const V = I.view(lon0, lat0), rec = recorder();
     I.trace(rings, V, 0, rec);
-    const E = [-V.sl, V.cl, 0], N = [-V.s0 * V.cl, -V.s0 * V.sl, V.c0], F = [V.x, V.y, V.z];
+    const east = [-V.sl, V.cl, 0], north = [-V.s0 * V.cl, -V.s0 * V.sl, V.c0];
+    const E = east.map((x, i) => V.cr * x - V.sr * north[i]), N = east.map((x, i) => V.sr * x + V.cr * north[i]), F = [V.x, V.y, V.z];
     let bad = 0;
     for (let k = 0; k < 120; k++) {
       const r = Math.sqrt(rnd()) * 0.985, a = rnd() * TAU, x = r * Math.cos(a), y = r * Math.sin(a), z = Math.sqrt(1 - x * x - y * y);
@@ -125,6 +159,13 @@ for (const [name, rings] of [["other", land.other], ["us", land.us]]) {
     const x = (r.L[k] - HOME[0] * RAD) * Math.cos(HOME[1] * RAD), y = (r.M[k] - Math.log(Math.tan(Math.PI / 4 + (HOME[1] * RAD) / 2))) * Math.cos(HOME[1] * RAD);
     worst = Math.max(worst, Math.hypot(l[k][0] - x, l[k][1] - y)); } }
   check("flattened, the US outline is exactly the Mercator map", near.length > 3 && worst < 1e-6, worst);
+  const tiltedFlat = recorder();
+  I.traceFlat(land.us, I.view(HOME[0], HOME[1], I.AXIAL_TILT), 1, true, tiltedFlat);
+  let rollGap = 0;
+  for (let a = 0; a < rec.loops.length; a++) for (let k = 0; k < rec.loops[a].length; k++) {
+    rollGap = Math.max(rollGap, Math.hypot(rec.loops[a][k][0] - tiltedFlat.loops[a][k][0], rec.loops[a][k][1] - tiltedFlat.loops[a][k][1]));
+  }
+  check("even a tilted globe ends on the exact same flat-map coordinates", rollGap < 1e-9, rollGap);
   const g = recorder(); I.traceFlat(land.us, V, 0, true, g); const o = recorder(); I.trace(near, V, 0, o);
   let gap = 0; for (let a = 0; a < o.loops.length; a++) for (let k = 0; k < o.loops[a].length; k++) gap = Math.max(gap, Math.hypot(g.loops[a][k][0] - o.loops[a][k][0], g.loops[a][k][1] - o.loops[a][k][1]));
   check("not flattened at all, it is exactly the globe", gap < 1e-9, gap);

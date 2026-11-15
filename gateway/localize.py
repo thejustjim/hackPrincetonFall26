@@ -87,6 +87,40 @@ def risk(p):
     return round(PRIOR_FLOOR + (1 - PRIOR_FLOOR) * sum(WEIGHTS[k] * parts[k] for k in WEIGHTS), 3)
 
 
+# ---------------------------------------------------------------- the prior, fitted: a break-rate model
+# The plan calls for a risk model learned from failures. This is one, as an alternative to the hand-set score:
+# breaks per pipe-year for each material, fitted to the pipes' own break history, then each pipe's rate pulled
+# toward its own record, and the risk is the chance of at least one break in the next ten years. The catch is
+# the data: this network's break history is synthetic, so the model can only learn back the rule the history
+# was drawn from. With a utility's real break records the same code would be a real prior. It is not the
+# default (localize(..., prior="fitted") uses it), and the page reports how the trace does with each.
+PRIOR_STRENGTH = 2.0   # the material's rate counts for this many breaks against a pipe's own history
+LOOK_AHEAD = 10        # years
+
+
+def fit_break_rates(pipes):
+    """Breaks per pipe-year by material: breaks counted, pipe-years counted, one divided by the other. That is
+    the maximum-likelihood fit of a Poisson model with age as the exposure. One pipe-year at the overall rate
+    is added to each, so a material with no breaks yet is not given a rate of zero."""
+    years, breaks = {}, {}
+    for p in pipes:
+        years[p["material"]] = years.get(p["material"], 0) + max(1, YEAR_NOW - p["year"])
+        breaks[p["material"]] = breaks.get(p["material"], 0) + p["breaks"]
+    overall = sum(breaks.values()) / max(1, sum(years.values()))
+    return {"overall": overall, **{m: (breaks[m] + overall) / (years[m] + 1) for m in years}}
+
+
+BREAK_RATES = fit_break_rates(NET["pipes"])
+
+
+def fitted_risk(p):
+    """A pipe's chance of at least one break in the next ten years, from 0.05 to 1: its material's fitted
+    rate, updated by its own age and breaks (a gamma prior on a Poisson rate), then 1 - exp(-rate x years)."""
+    base = BREAK_RATES.get(p["material"], BREAK_RATES["overall"]) or 1e-6
+    rate = (PRIOR_STRENGTH + p["breaks"]) / (PRIOR_STRENGTH / base + max(1, YEAR_NOW - p["year"]))
+    return round(PRIOR_FLOOR + (1 - PRIOR_FLOOR) * (1 - math.exp(-rate * LOOK_AHEAD)), 3)
+
+
 # ---------------------------------------------------------------- steps 1 and 2: travel times
 def travel(start, edges, limit=HORIZON_MIN):
     """Shortest travel time in minutes from `start` to every node within `limit`, following
@@ -125,13 +159,15 @@ def affected(p):
 # ---------------------------------------------------------------- steps 3 to 5: the ranking
 def _empty(why):
     return {"simulated": True, "candidates": [], "considered": 0,
-            "affected": {"junctions": 0, "demand_lps": 0.0, "nodes": []}, "method": METHOD, "note": why}
+            "affected": {"junctions": 0, "demand_lps": 0.0, "nodes": []}, "method": METHOD, "note": why, "fit_quality": "none"}
 
 
-def localize(alerts, quiet=(), top=5):
+def localize(alerts, quiet=(), top=5, prior="hand"):
     """alerts: [{"sensor": node id, "minute": when it alerted, on any clock}]. quiet: ids of
     sensors that did not alert. top: how many candidates to return (None for all of them).
+    prior: "hand" for the hand-set risk score, "fitted" for the break-rate model.
     Returns the ranked candidates with a confidence each, and the reasons as sentences."""
+    score = fitted_risk if prior == "fitted" else risk
     seen = {}
     try:
         for a in alerts or ():
@@ -160,10 +196,10 @@ def localize(alerts, quiet=(), top=5):
         mean_pred = sum(predicted) / n
         fit = math.sqrt(sum((o - mean_obs - t + mean_pred) ** 2 for o, t in zip(observed, predicted)) / n)
         missed = [(q, t) for q, t in ((q, arrival(p, up)) for q, up in silent.items()) if t is not None]
-        prior = risk(p)
-        log_weight = math.log(prior) - n * fit ** 2 / (2 * SPREAD_MIN ** 2) + len(missed) * math.log(QUIET_WEIGHT)
+        weight = score(p)
+        log_weight = math.log(weight) - n * fit ** 2 / (2 * SPREAD_MIN ** 2) + len(missed) * math.log(QUIET_WEIGHT)
         rows.append({"p": p, "predicted": predicted, "fit": fit, "missed": sorted(missed, key=lambda m: m[1]),
-                     "prior": prior, "log": log_weight, "entered": mean_obs - mean_pred})
+                     "prior": weight, "log": log_weight, "entered": mean_obs - mean_pred})
     if not rows:
         if n == 1:
             return _empty(f"Simulated: no pipe with flowing water lies within {HORIZON_MIN // 60} hours upstream of "
@@ -199,7 +235,7 @@ def localize(alerts, quiet=(), top=5):
         elif silent:
             why.append(f"None of the {len(silent)} quiet sensor{'s' if len(silent) != 1 else ''} is within "
                        f"{HORIZON_MIN // 60} hours downstream of it, which agrees with their staying quiet.")
-        why.append(f"Hand-set risk score {r['prior']:.2f} from synthetic attributes: {p['material']}, laid in {p['year']}, "
+        why.append(f"{'Fitted break-rate risk' if prior == 'fitted' else 'Hand-set risk score'} {r['prior']:.2f} from synthetic attributes: {p['material']}, laid in {p['year']}, "
                    f"{p['diameter_mm']:.0f} mm across, {p['breaks']} recorded break{'s' if p['breaks'] != 1 else ''}.")
         out.append({"pipe": p["id"], "from": p["from"], "to": p["to"], "confidence": round(r["confidence"], 6),
                     "fit_minutes": None if n == 1 else round(r["fit"], 1), "prior": r["prior"],
@@ -221,14 +257,15 @@ def localize(alerts, quiet=(), top=5):
         note += (f" {level} candidates explain the alerts equally well, usually because their water reaches the "
                  "sensors through the same junction, so the hand-set risk score is all that separates them.")
     return {"simulated": True, "candidates": out, "considered": len(rows), "affected": affected(best["p"]),
-            "method": METHOD, "note": note}
+            "method": METHOD, "note": note,
+            "fit_quality": "insufficient" if n == 1 else "poor" if best["fit"] > POOR_FIT_MIN else "usable"}
 
 
 # ---------------------------------------------------------------- what the web server asks for
 def summary():
     return {"simulated": True, "name": NET["name"], "source": NET["source"], "snapshot_hour": NET["snapshot_hour"],
             "note": NET["note"], "nodes": len(NET["nodes"]), "pipes": len(NET["pipes"]), "sensors": len(NET["sensors"]),
-            "scenarios": len(NET["scenarios"]), "horizon_min": HORIZON_MIN}
+            "scenarios": len(all_scenarios()), "horizon_min": HORIZON_MIN}
 
 
 def network():
@@ -239,16 +276,22 @@ def network():
             "pumps": NET.get("pumps", []), "sensors": NET["sensors"]}
 
 
+def all_scenarios():
+    """Original presenter cases plus seeded observation failures, all synthetic."""
+    import simulation
+    return NET["scenarios"] + simulation.stress_scenarios(NET)
+
+
 def scenarios():
     """The built-in scenarios, without the pipe each change really entered from."""
-    return [{k: s[k] for k in ("id", "name", "description", "hard", "alerts", "quiet")} for s in NET["scenarios"]]
+    return [{k: s[k] for k in ("id", "name", "description", "hard", "alerts", "quiet", "stress", "unavailable") if k in s} for s in all_scenarios()]
 
 
 def scenario_result(scenario_id, top=5):
     """The ranking for one scenario, with the pipe the change really entered from and where
     that pipe came in the ranking (counted over every candidate, not only the ones returned).
     None for an unknown id."""
-    s = next((s for s in NET["scenarios"] if s["id"] == scenario_id), None)
+    s = next((s for s in all_scenarios() if s["id"] == scenario_id), None)
     if s is None:
         return None
     out = localize(s["alerts"], s["quiet"], top=None)
@@ -256,7 +299,7 @@ def scenario_result(scenario_id, top=5):
     out["truth"] = {"pipe": s["truth"], "rank": None if place is None else place + 1,
                     "confidence": None if place is None else out["candidates"][place]["confidence"]}
     out["candidates"] = out["candidates"][:None if top is None else max(0, int(top))]
-    out.update({k: s[k] for k in ("id", "name", "description", "hard", "alerts", "quiet")})
+    out.update({k: s[k] for k in ("id", "name", "description", "hard", "alerts", "quiet", "stress", "unavailable") if k in s})
     return out
 
 

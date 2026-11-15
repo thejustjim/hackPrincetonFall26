@@ -1,8 +1,8 @@
 # Running the demo
 
-Two minutes of pitch, then the live demo. This is what to have ready and what a judge is likely to ask,
-with the answers the build supports. It came out of three independent reviews of the site (a judge, a
-water engineer and a design lead) the night before submission.
+Keep the five-slide pitch brief so there is time to show the prototype or a demo. This is what to have
+ready and what a judge is likely to ask, with the answers the build supports. It came out of three
+independent reviews of the site (a judge, a water engineer and a design lead) the night before submission.
 
 ## Have ready before you start
 
@@ -11,27 +11,58 @@ water engineer and a design lead) the night before submission.
   problems at once, or a sensor that looks wrong). Every other pour is settled by the tank's own rule, and
   the page says so. And one cup already filtered, to pour back at once: the retest is the payoff, and the
   report only appears after it.
-- **The gateway running with its keys** (`cd gateway && python gateway.py`) and the page showing "Live".
+- **For the physical prototype:** the gateway running with the actual receiver (`cd gateway && python
+  gateway.py`, without `MOCK=1`) and the page showing "Live". Prototype mode requires a verified physical
+  gateway; an unavailable or mock gateway stays disconnected rather than substituting sample readings.
+  If the pages are hosted separately, open `/pitch/?api=http://<pi>:8000`; the setup flow keeps that address.
 - **A phone already joined to the Photon line** (text JOIN to it beforehand; the line cannot send the first
   message). Then the alert arrives on stage.
-- **The cloud copy on.** With `TIGER_DATABASE_URL` set, the foot of the cup page says how many readings are
-  in the cloud database. That line is the only place Tiger Cloud shows, so scroll to it or say it.
-- **The map in a second tab**, waiting on its start screen. Any key starts the Princeton demo.
-- **`/pitch/` in a wide window.** Arrow keys or scroll; `/pitch/?full` has five more slides for questions.
+- **If the cloud copy is already configured:** with `TIGER_DATABASE_URL` set, the foot of the cup page says
+  how many readings are in the cloud database. Scroll to it or say it. Local rehearsal does not require
+  enabling the cloud copy or changing its schema.
+- **The map in a second tab**, waiting on its start screen. Enter or Space starts the Princeton demo; Tab navigates the two choices.
+- **`/pitch/` in a wide window.** Arrow keys or scroll advance one slide at a time: the default deck has
+  five single-step slides. `/pitch/?full` keeps the full technical deck for questions, including the
+  four-step cup loop and the hardware, AI, filter-life, sources and open-questions slides.
+- **Know the setup screen.** Advancing beyond the final slide asks where to begin. A saved choice is
+  prefilled, but the screen is shown again after each pitch. `/demo/?setup=1` opens it directly for rehearsal.
 
 ## The two minutes
 
-1. **Title.** One sentence on what it is.
-2. **The problem.** The stream's dissolved solids were last sampled in 2023; 17 sample days since 2000.
-   Then the turn: that is the stream, and at the tap the utility tests its system, not your cup.
-3. **One cup, one loop.** Four presses: measure, interpret, act (the filter snaps in and the water
-   clears), compare.
-4. **What it saves.** A cup that reads in range skips the filter.
-5. **Close.** Gemini decides the close calls, LangChain deep agents write the report, Tiger Cloud keeps
-   the history, Photon texts the alert. Then scroll on into the live cup and pour.
+The short deck introduces the demonstration; it does not walk through every technical detail.
+Each forward press advances a whole slide, including the third slide.
 
-While the filter drips, switch to the map and start the Princeton demo. "Look across the country" and the
-search show what is publicly known anywhere else.
+1. **Title.** Water monitoring that helps utilities decide where to investigate.
+2. **The problem.** Water changes between samples. The useful context is when a change began, which
+   sites moved, and where to investigate.
+3. **From one cup to a wider view.** A sensing node, a radio gateway, and an investigation view that
+   turns readings into the next place to look. The four-step filter walkthrough is in `?full`.
+4. **Where measurement helps.** Watch more places through modeled coverage, separate sensor faults
+   from unusual water readings, and avoid unnecessary filtering or follow-up work.
+5. **Close.** One prototype, one simulated network. Advance once more to choose the demonstration.
+
+## Choose the demonstration
+
+The setup screen separates a real test from an example:
+
+- **Test the prototype.** Complete “I’m testing the prototype in…” with a city or place. Autocomplete
+  searches the bundled Princeton-area places; a typed place is also accepted. “Use my current location”
+  requests browser permission only when clicked. Open the test, pour, and compare the retest. With no
+  physical gateway connected, the page explains that it is offline and shows no sample measurements.
+- **Explore a demo → Follow a cup.** Starts the clearly labelled sample-data cycle in Princeton. Use
+  this for a reliable walkthrough without hardware; it does not display a live gateway’s readings.
+- **Explore a demo → Explore the network.** Opens the map’s simulation view, with the prepared events
+  and sensor-placement budgets. Compare a few sensor counts and inspect an event; the graph and
+  locations are a modeled example, not Princeton’s actual pipe network.
+
+The choice and location stay in this browser. They do not assign a sensor, change hardware coordinates,
+or write to the cloud. The selected flow opens fresh so prototype and sample readings are kept apart.
+Use the Clarity wordmark to return to the pitch; a supplied `api` address is preserved.
+
+While a physical filter drips, switch to the map in the second tab. The normal map’s start screen still
+opens the Princeton view; “Look across the country” and search show publicly available context elsewhere.
+The full `/pitch/?full` deck is for technical questions after the short presentation and ends at the same
+setup chooser.
 
 ## What a judge will ask
 
@@ -42,8 +73,9 @@ search show what is publicly known anywhere else.
   of agents writes the report. Verdicts and numbers stay in code: every figure in a report is traced back
   to what a tool returned, and anything that cannot be traced is dropped. A rule keeps the cup moving with
   no internet.
-- **Who is it for?** The team has not settled this (towns and utilities, or households). Decide which one
-  you will say before you present.
+- **Who is it for?** The short pitch leads with utilities: monitoring that helps decide where to
+  investigate. The cup is a bench prototype, and the network view is simulated; neither demonstrates
+  an installed smart-meter integration.
 - **What is the measured impact?** There is no figure the hardware can back. The closest is the page's own
   tally of pours that needed no filter.
 - **What does "affordable" cost?** The repo states no price. If you know what the parts cost, say that;

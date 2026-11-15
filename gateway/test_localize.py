@@ -25,7 +25,7 @@ def conf(result, pipe_id):
 
 
 truth = {s["id"]: s["truth"] for s in L.NET["scenarios"]}
-listed = L.scenarios()
+listed = [s for s in L.scenarios() if not s.get("stress")]
 full = {s["id"]: L.scenario_result(s["id"], top=None) for s in listed}
 everything = [L.summary(), L.network(), listed, L.pipe(L.NET["pipes"][0]["id"])] + list(full.values())
 
@@ -34,7 +34,7 @@ s = L.summary()
 check("the summary counts the network and says it is simulated",
       s["simulated"] is True and (s["nodes"], s["pipes"], s["sensors"]) == (97, 117, 12) and s["snapshot_hour"] == 3, s)
 check("the sensors are junctions of the network", all(L.NODES[n]["kind"] == "junction" for n in L.NET["sensors"]))
-check("there are three or four scenarios, one of them hard", 3 <= len(listed) <= 4 and sum(s["hard"] for s in listed) == 1)
+check("the four presenter scenarios remain, with one hard case", len(listed) == 4 and sum(s["hard"] for s in listed) == 1)
 check("the listed scenarios do not give the answer away", not any("truth" in s for s in listed))
 check("the ordinary scenarios have 2 to 5 alerting sensors and the hard one has 1 or 2",
       all((1 <= len(s["alerts"]) <= 2) if s["hard"] else (2 <= len(s["alerts"]) <= 5) for s in listed), [len(s["alerts"]) for s in listed])
@@ -121,6 +121,30 @@ check("every pipe's risk score is between the floor and 1", all(L.PRIOR_FLOOR <=
 check("a pipe can be looked up, and an unknown one gives nothing",
       L.pipe(truth[first["id"]])["material"] in L.MATERIAL_RISK and L.pipe("no-such-pipe") is None)
 
+# ---------------------------------------------------------------- the prior, fitted
+rates = {m: round(v * 50, 2) for m, v in L.BREAK_RATES.items()}
+drawn = {"cast iron": 1.6, "asbestos cement": 1.0, "steel": 0.5, "ductile iron": 0.5, "PVC": 0.2}      # the rule in build_network.py, breaks per 50 years
+check("the fitted break rates come out near the rule the synthetic history was drawn from",
+      all(abs(rates[m] - drawn[m]) < 0.45 for m in drawn if m in rates) and rates["cast iron"] > rates["asbestos cement"] > rates["PVC"], rates)
+same = {"material": "cast iron", "year": 1950, "diameter_mm": 203}
+check("a pipe with more breaks than its like scores higher, and one that has lasted with none scores lower",
+      L.fitted_risk({**same, "breaks": 5}) > L.fitted_risk({**same, "breaks": 1}) > L.fitted_risk({**same, "breaks": 0}))
+check("old cast iron with breaks is above new plastic", L.fitted_risk(old) > L.fitted_risk(new) + 0.2, (L.fitted_risk(old), L.fitted_risk(new)))
+check("every pipe's fitted risk is between the floor and 1", all(L.PRIOR_FLOOR <= L.fitted_risk(p) <= 1 for p in L.NET["pipes"]))
+check("a material it has never seen gets the overall rate", L.PRIOR_FLOOR < L.fitted_risk({"material": "copper", "year": 1980, "diameter_mm": 100, "breaks": 0}) < 1)
+for s in listed:
+    f = L.localize(s["alerts"], s["quiet"], top=None, prior="fitted")
+    h = full[s["id"]]
+    check(f"{s['id']}: with the fitted prior the same pipes are candidates, the weights add up to 1, and the reasons say which prior",
+          {c["pipe"] for c in f["candidates"]} == {c["pipe"] for c in h["candidates"]} and abs(sum(c["confidence"] for c in f["candidates"]) - 1) < 1e-4
+          and all(any("Fitted break-rate risk" in line for line in c["rationale"]) for c in f["candidates"]))
+fit_rows = B.check_every_pipe(L.NET, lambda a, q, top=None: L.localize(a, q, top=top, prior="fitted"))
+check("with the fitted prior a change entering at any pipe a sensor can see is still among the candidates",
+      len(fit_rows) > 50 and all(place is not None for _, _, place, _ in fit_rows))
+many = lambda rows: [r for r in rows if r[1] >= 2]
+print("INFO two or more sensors alerting,", len(many(fit_rows)), "pipes: the true pipe is first for",
+      sum(r[2] == 1 for r in many(B.check_every_pipe(L.NET, L.localize))), "with the hand-set score and", sum(r[2] == 1 for r in many(fit_rows)), "with the fitted model")
+
 # ---------------------------------------------------------------- honesty
 everything += empties + [later, wrong, lone, hushed]
 check("every result says it is simulated", all(x["simulated"] is True for x in everything if isinstance(x, dict)))
@@ -130,6 +154,16 @@ check("the network file says which parts are synthetic", L.NET["simulated"] is T
 text = " ".join(strings(everything) + strings(L.NET)).lower()
 check('no output text contains the word "safe"', "safe" not in text)
 check("no output text promises anything about drinking or health", not any(w in text for w in ("drink", "healthy", "contaminat")))
+
+# ---------------------------------------------------------------- stress cases: missing is not quiet, and bad timing is not a diagnosis
+stress = {s["id"]: L.scenario_result(s["id"]) for s in L.scenarios() if s.get("stress")}
+check("three observation-failure cases are available", set(stress) == {"sensor-dropout", "delayed-sensor", "conflicting-alerts"})
+drop = stress["sensor-dropout"]
+check("offline sensors are not evidence of quiet water", len(drop["unavailable"]) == 4 and not set(drop["unavailable"]) & set(drop["quiet"]))
+check("one surviving sensor remains insufficient", drop["fit_quality"] == "insufficient" and drop["candidates"][0]["confidence"] < 0.35)
+check("a delayed sensor exposes a poor timing fit", stress["delayed-sensor"]["fit_quality"] == "poor")
+check("an unrelated alert can exclude the actual source", stress["conflicting-alerts"]["truth"]["rank"] is None)
+check("conflicting timing stays labeled weak despite concentrated weight", stress["conflicting-alerts"]["fit_quality"] == "poor")
 
 # ---------------------------------------------------------------- the whole network, not only the chosen scenarios
 rows = B.check_every_pipe(L.NET, L.localize)

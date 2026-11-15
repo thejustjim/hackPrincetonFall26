@@ -46,9 +46,12 @@ function lookFor(r) {
   if (!r) return { color: C.blue.clone(), body: 0.24, surf: 0.42, speck: 0, sink: 1 };
   const mineral = clamp((r.tds - 60) / 740, 0, 1);
   const murk = clamp(Math.pow(1 - clamp(r.clarity, 0, 1), 1.3) * 1.5, 0, 1);
+  // In range (under 300 ppm) the water stays clear and blue. Past that it takes on an amber, tea-like tint,
+  // fully by 700 ppm: water that read high should look it, not look like clean water with glitter in it.
+  const stain = clamp((r.tds - 250) / 450, 0, 1);
   return {
-    color: C.blue.clone().lerp(C.amber, mineral * 0.4).lerp(C.murk, clamp(murk * 1.4, 0, 1)),
-    body: clamp(0.24 + 0.22 * mineral + 0.5 * murk, 0, 0.82),
+    color: C.blue.clone().lerp(C.amber, 0.12 * mineral + 0.78 * stain).lerp(C.murk, clamp(murk * 1.4, 0, 1)),
+    body: clamp(0.24 + 0.1 * mineral + 0.34 * stain + 0.5 * murk, 0, 0.82),
     surf: clamp(0.42 + 0.2 * mineral + 0.4 * murk, 0, 0.88),
     speck: 0.9 * mineral,
     sink: 1 - mineral,
@@ -534,6 +537,8 @@ function mount(host) {
 
   // ---------------------------------------------------------------- frame
   function frame() {
+    // The pitch uses an unbranded glass; the demo keeps its etched wordmark.
+    wordmark.visible = !document.documentElement.classList.contains("pitching");
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -796,7 +801,7 @@ function mount(host) {
 export { C, lookFor, glassMaterial, waterMaterial };   // the before and after glasses (plate3d.js) are made the same way
 
 const host = document.querySelector("[data-hero3d]");
-if (host) {
+if (host && !window.TapHero) {
   try {
     window.TapHero = mount(host);
     host.classList.add("has-3d");

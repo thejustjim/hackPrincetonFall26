@@ -289,7 +289,7 @@ async def main():
     await gateway.handle_line(json.dumps({**line, "test": 32, "ask": 1}))
     await asyncio.sleep(0.2)
     made = [m for m in sent if m["type"] == "decision"]
-    check("an unsure reading still gets the model's decision, sent to the tank", radio == [{"cmd": "filter", "test": 32, "filter": "ZEROWATER"}]
+    check("an unsure reading still gets the model's decision, sent to the tank", radio == [{"cmd": "filter", "node": "tank-01", "test": 32, "filter": "ZEROWATER"}]
           and made and made[-1]["source"] == "gemini", (radio, made))
     radio.clear()
     await gateway.handle_line(json.dumps({**line, "test": 33}))

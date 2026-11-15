@@ -75,13 +75,16 @@ RULES = """Rules, which have no exceptions:
 - Write for someone who is not an expert: one plain sentence per point, with the numbers that
   matter."""
 
-# While the tank only estimates pH (analysis.PH_ESTIMATED: the sketch works it out from dissolved solids), the
-# agents are told so, in place of being told that pH is one of the things the sensors measure.
-if analysis.PH_ESTIMATED:
-    RULES = RULES.replace("- The sensors measure only pH, TDS (dissolved solids) and clarity", "- The sensors measure only TDS (dissolved solids) and clarity", 1) + """
-- pH on this tank is not measured. It is estimated from dissolved solids, because the probe is not
-  calibrated. Do not report pH as a reading, do not count it among the readings that are in or out
-  of range, and if you mention it at all, call it an estimate."""
+# Provenance belongs to a reading, not to the process-wide default or the identity of a node.
+RULES += """
+- Check each reading's ph_est and the case's measured_metrics. If ph_est is true, pH is estimated
+  from dissolved solids: label it estimated, never count it as an independent measurement or
+  use it as evidence of corrosion, sensor failure or filter performance. Explicit packet flags
+  take precedence over the gateway's default; missing flags use the case's conservative default.
+- Never compare a measured pH with an estimated pH as a before/after improvement. Neither filter
+  is intended to correct pH. An estimated retest cannot resolve an earlier measured pH warning.
+- Use the case-specific notice templates and required sentence returned by the tools.
+"""
 
 LEAD = """You lead the investigation inside Clarity, a low-cost water tester near Princeton, NJ.
 A cup of water was measured (the "before" test), tipped through a filter (ZEROWATER removes

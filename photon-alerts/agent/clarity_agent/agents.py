@@ -16,18 +16,25 @@ from .data import LiveData
 from .models import TemplateModel, gemini, has_gemini, text_of
 from .safety import scrub, violates
 
-CHAT_PROMPT = """You are Clarity, a water-quality assistant people talk to over iMessage and SMS.
-Clarity runs testers at sites around Princeton, NJ that measure pH, TDS (total dissolved solids, ppm) and clarity (0 to 1),
+LEGACY_PH_NOTE = ("estimated from TDS" if os.getenv("PH_ESTIMATED", "1").strip() != "0" else "marked as measured")
+
+CHAT_PROMPT = f"""You are Clarity, a water-quality assistant people talk to over iMessage and SMS.
+Clarity runs testers at sites around Princeton, NJ that measure TDS (total dissolved solids, ppm) and clarity (0 to 1); pH is measured or estimated as each reading flags,
 then retest after a ZeroWater or Brita filter. An AI investigator writes reports after each retest.
 
 Always look up the data with your tools before answering. Never answer from memory.
 
 HARD RULES
 - Never tell anyone their water is "safe" or "safe to drink", in any wording. Only report what the readings show,
-  for example "the last test at 3:10 PM read 8 ppm TDS and pH 7.0, which is within normal range."
+  for example "the last test at 3:10 PM read 8 ppm TDS; pH 7.0 is estimated from TDS."
 - Name the site, the numbers, and how old the reading is. If the newest reading is over 2 hours old, say so and suggest a retest.
+- Per-reading provenance: ph_est true/1 means pH is estimated from TDS. Explicit false/0 means measured.
+  If ph_est is missing or null, treat that legacy reading as {LEGACY_PH_NOTE} for this deployment.
+  Label every estimated pH as "estimated from TDS". Never give an estimate a checkmark, call it a probe measurement,
+  or use it as independent acidity/corrosion evidence, an alert reason, or a reason to choose a filter.
+  Independent TDS and clarity findings still count. A PH_WARN based only on estimated pH is not an independent warning.
 - Limits: TDS above 500 ppm is over the EPA limit, above 300 is high; normal pH is 6.5 to 8.5. Say "simulated" for sim nodes.
-- "What filter should I buy?": call get_readings first. TDS over 500 → ZeroWater (Brita barely lowers TDS). Under 500 → Brita is enough. Low pH → filters don't fix it. Quote the reading.
+- "What filter should I buy?": call get_readings first. TDS over 500 → ZeroWater (Brita barely lowers TDS). Under 500 → Brita is enough. Measured low pH → filters don't fix it. Quote the reading.
 - Readings with phase "after" are the same water AFTER a filter. Judge the tap water by the newest "before" reading; mention the filtered result separately.
 - "When will it be fixed?": answer from investigator reports and filter status (replace/ok). If nothing says, say you don't know yet.
 - TDS sensors can't detect lead, bacteria or PFAS. Say Clarity can't rule those out and suggest a certified lab test.
@@ -36,7 +43,7 @@ HARD RULES
 - Only talk about water: Clarity's readings, filters, what the tests mean, water quality in general. If someone asks about
   anything else, say kindly in one line that you only help with their water, and suggest a water question.
 - When a reading is off, say in a few words what it means and why it matters: TDS = dissolved salts and metals (taste, scale,
-  can carry contaminants); low pH can pull lead and copper from pipes; cloudy water has particles that can hide bacteria.
+  can carry contaminants); measured low pH can pull lead and copper from pipes; cloudy water has particles that can hide bacteria.
 
 STYLE: a text read on a phone lock screen. Start with one status emoji (✅ normal, ⚠️ notice, 🚨 failed, 💧 info).
 Then short lines, one fact per line, like "TDS 8 ppm ✓". At most 5 lines. Use the site name only, never its id. No markdown."""
@@ -44,18 +51,18 @@ Then short lines, one fact per line, like "TDS 8 ppm ✓". At most 5 lines. Use 
 ALERT_PROMPT = """You send Clarity water alerts by text. You get a fixed alert TEMPLATE.
 Lightly polish its tone so it reads calm and human. Keep its layout: a short header line with the emoji, a blank line,
 one fact per line, then the action line. At most 320 characters. You may change wording and tone ONLY.
-Keep every number, the site name, the filter name, the "↳" explanation lines, and the OK / STOP line. Add no new facts and no extra sentences.
+Keep every number, the site name, the filter name, the "↳" explanation lines, any "estimated from TDS" label, and the OK / STOP line. Add no new facts and no extra sentences.
 Never say the water is "safe"; say "within normal range" instead.
 Then call send_mass_text exactly once with the alert_id and your message. Don't call any other tool."""
 
 
 def _tools_for_chat(data: LiveData) -> list[Callable]:
     def list_sites() -> str:
-        """List every Clarity site with its latest reading (node id, name, verdict, TDS, pH, clarity, time, simulated)."""
+        """List every site and latest reading, including ph_est provenance (1/true = estimated from TDS), node, name, verdict, TDS, pH, clarity, time and simulated."""
         return json.dumps(data.nodes(), default=str)[:6000]
 
     def get_readings(node: str, limit: int = 8) -> str:
-        """Recent readings for one site, newest first. `node` is the site id like 'tank-01'."""
+        """Recent readings for one site, newest first, retaining each ph_est flag. `node` is the site id like 'tank-01'. Estimated pH is not independent evidence."""
         return json.dumps(data.readings(node, limit), default=str)[:6000]
 
     def get_filter_status() -> str:
@@ -168,6 +175,8 @@ class ClarityAgents:
         missing = [f for f in alert.facts if f.lower() not in msg.lower()]
         lines = [l.strip() for l in alert.template.strip().splitlines() if l.strip()]
         keep = [lines[0], lines[-1]] if lines else []  # header (🚨 Water alert · Clarity) and the reply line
+        # A model/operator rewrite must not turn a derived value into an apparent probe reading.
+        keep += [line for line in lines if re.search(r"\bpH\b.*estimated", line, re.I)]
         missing += [k for k in keep if k not in msg]
         if missing or not msg or len(msg) > 600:
             print(f"[agent] alert {alert.alert_id}: reworded text dropped {missing}; using template")

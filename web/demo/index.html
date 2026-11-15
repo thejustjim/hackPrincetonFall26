@@ -12,9 +12,11 @@
   <link rel="stylesheet" href="../assets/base.css">
   <link rel="stylesheet" href="../assets/demo.css">
   <link rel="stylesheet" href="../assets/pitch.css">
+  <link rel="stylesheet" href="../assets/setup.css">
   <script>
     // Arriving from /pitch: start in the pitch, on black, with the demo hidden until the pitch ends.
     // The address bar shows /pitch until then. (Same folder depth, so relative links still resolve.)
+    if (new URLSearchParams(location.search).get("setup") === "1" && location.hash !== "#pitch") document.documentElement.classList.add("setup-pending");
     if (location.hash === "#pitch") {
       document.documentElement.classList.add("pitching", "opening");
       try { history.replaceState(null, "", "../pitch/" + location.search); } catch (e) { /* opened as a file */ }
@@ -129,6 +131,7 @@
   <div class="tip" id="tip" hidden></div>
   <div id="pitch" hidden></div>
 
+  <script src="../assets/setup.js"></script>
   <script src="../assets/cup.js"></script>
   <script src="../assets/sample.js"></script>
   <script src="../assets/data.js"></script>
@@ -137,7 +140,7 @@
   <script src="../assets/app.js"></script>
   <script src="../assets/pitch.js"></script>
   <script src="../assets/onward.js"></script>
-  <script type="module" src="../assets/glass.js"></script>
-  <script type="module" src="../assets/plate3d.js"></script>
+  <script type="module" src="../assets/glass.js?v=20261115-clean-pitch"></script>
+  <script type="module" src="../assets/plate3d.js?v=20261115-clean-pitch"></script>
 </body>
 </html>

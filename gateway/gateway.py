@@ -15,6 +15,7 @@ Env vars (also read from ../.env or ./.env; see .env.example):
     SERIAL_PORT         default: first /dev/ttyUSB* or /dev/ttyACM*
     MOCK=1              use mock.py instead of a serial port
     SIM_NODES=12        number of simulated Princeton nodes (0 to turn off)
+    SIM_FAULT_RATE=0    optional synthetic background spikes; explicit scenarios exercise failures
     AI_TIMEOUT=6        seconds to wait for Claude before the tank uses its own rule
     LITERS_PER_TIP=0.1  water through a filter each time the cup tips
     INVESTIGATOR=0      turn off the deepagents report after each "after" test
@@ -44,11 +45,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-import analysis
-import cloud
-import guidance
-import mock
-
 try:  # secrets live in .env (git-ignored), never in the code
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -56,10 +52,20 @@ try:  # secrets live in .env (git-ignored), never in the code
 except ImportError:
     pass
 
+import analysis
+import cloud
+import guidance
+import ingest
+import mock
+
 MOCK = os.getenv("MOCK") == "1"
 SIM_NODES = int(os.getenv("SIM_NODES", "12"))
+SIM_FAULT_RATE = float(os.getenv("SIM_FAULT_RATE", "0"))
+if not 0 <= SIM_FAULT_RATE <= 1:
+    raise ValueError("SIM_FAULT_RATE must be between 0 and 1")
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "6"))
-DB_PATH = os.getenv("DB_PATH", "taptest.db")
+# Mock rehearsals get their own default file; never mix fresh synthetic rows into physical history.
+DB_PATH = os.getenv("DB_PATH", "taptest-mock.db" if MOCK else "taptest.db")
 MODEL = "claude-opus-5-5"
 
 # ---------------------------------------------------------------- nodes
@@ -100,6 +106,10 @@ if "source" not in [c[1] for c in db.execute("PRAGMA table_info(readings)")]:
 if "extra" not in [c[1] for c in db.execute("PRAGMA table_info(investigations)")]:
     # the verdict of the checks, the checks themselves, what each agent said, and the notice (JSON)
     db.execute("ALTER TABLE investigations ADD COLUMN extra TEXT")
+ingest.prepare_local(db)     # additive local metadata/identity only; no cloud migration
+for name, kind in (("before_id", "INTEGER"), ("session", "TEXT")):
+    if name not in {c[1] for c in db.execute("PRAGMA table_info(tips)")}:
+        db.execute(f"ALTER TABLE tips ADD COLUMN {name} {kind}")
 db.commit()
 db_lock = threading.Lock()
 
@@ -109,12 +119,15 @@ cloud_sync = cloud.CloudSync(DB_PATH, mock=MOCK, nodes=NODES)
 cloud_sync.prepare_local(db)
 
 COLS = ["id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict", "filter",
-        "ai_filter", "rssi", "lat", "lon", "sim", "anomaly", "explanation"]
+        "ai_filter", "rssi", "lat", "lon", "sim", "anomaly", "explanation", *ingest.EXTRA_COLUMNS]
 
 
 def row_to_dict(r):
     d = dict(r)
     d["sim"] = bool(d["sim"])
+    if d.get("ph_est") is not None:
+        d["ph_est"] = bool(d["ph_est"])
+    d.pop("ingest_key", None)       # local uniqueness key, not a sensor field
     return d
 
 
@@ -132,15 +145,16 @@ def anomaly_score(node, reading):
     """0 = normal for this node, 1 = very unusual. Robust z-score against the node's own history."""
     past = [h for h in history(node, 50) if h["phase"] == "before"]
     zs = []
-    for k in ("ph", "tds", "clarity"):
-        vals = [h[k] for h in past if h[k] is not None]
+    for k in analysis.measured_metrics(reading):
+        vals = [h[k] for h in past if h[k] is not None
+                and not (k == "ph" and analysis.ph_is_estimated(h))]
         if len(vals) >= 5:
             med = statistics.median(vals)
             mad = statistics.median([abs(v - med) for v in vals]) * 1.4826 or TYPICAL[k][1] / 3
         else:
             med, mad = TYPICAL[k]
         zs.append(abs(reading[k] - med) / mad)
-    return round(min(1.0, max(zs) / 6), 2)
+    return round(min(1.0, max(zs, default=0.0) / 6), 2)
 
 
 # ---------------------------------------------------------------- filter life
@@ -159,16 +173,17 @@ def now_iso():
 
 def record_tip(reading, filt, source):
     with db_lock:
-        db.execute("INSERT INTO tips (ts, node, test, filter, liters, source) VALUES (?,?,?,?,?,?)",
-                   (now_iso(), reading["node"], reading["test"], filt, LITERS_PER_TIP, source))
+        db.execute("INSERT INTO tips (ts, node, test, filter, liters, source, before_id, session) VALUES (?,?,?,?,?,?,?,?)",
+                   (now_iso(), reading["node"], reading["test"], filt, LITERS_PER_TIP, source,
+                    reading["id"], reading.get("session")))
         db.commit()
 
 
 def attach_after(reading):
     """Link an "after" retest to the tip it followed. Returns the filter used, or None."""
     with db_lock:
-        tip = db.execute("SELECT id, filter FROM tips WHERE node=? AND test=? AND after_id IS NULL "
-                         "ORDER BY id DESC LIMIT 1", (reading["node"], reading["test"])).fetchone()
+        tip = db.execute("SELECT id, filter FROM tips WHERE node=? AND test=? AND session IS ? AND after_id IS NULL "
+                         "ORDER BY id DESC LIMIT 1", (reading["node"], reading["test"], reading.get("session"))).fetchone()
         if tip:
             db.execute("UPDATE tips SET after_id=?, after_tds=? WHERE id=?",
                        (reading["id"], reading["tds"], tip["id"]))
@@ -232,7 +247,9 @@ SYSTEM = (
     "certified for chlorine taste and fine particles; this device also sends cloudy or coloured "
     "water to it, which is the team's rule rather than a certified claim). You get one water test "
     "plus that site's recent history. Choose the filter the cup should be tipped into, or NONE if "
-    "all three readings are in range or no filter helps (neither filter corrects pH). Then explain "
+    "the measured readings are in range or no filter helps (neither filter corrects pH). The per-reading "
+    "ph_est flag/provenance says whether pH is measured or derived from TDS: never count a derived pH as "
+    "an independent signal. Then explain "
     "the result to a non-expert in at most three short sentences, mentioning the numbers that "
     "mattered and one practical next step. Guidance: TDS above 300 ppm is high (EPA secondary "
     "standard 500), pH should be 6.5 to 8.5, clarity is 0 to 1 where 1 is as clear as clean water. "
@@ -300,9 +317,11 @@ def ai_name(model=None):
 
 
 def decision_prompt(reading, past):
-    recent = [{k: h[k] for k in ("ts", "phase", "ph", "tds", "clarity", "verdict")} for h in past[:8]]
+    recent = [{k: h.get(k) for k in ("ts", "phase", "ph", "tds", "clarity", "verdict", "ph_est")} for h in past[:8]]
+    provenance = "pH is estimated from TDS: exclude it as independent evidence and do not use it to choose a filter." if analysis.ph_is_estimated(reading) else "pH is marked as measured for this reading."
     return (f"Site: {NODES.get(reading['node'], {}).get('name', reading['node'])}\n"
-            f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter')})}\n"
+            f"Measurement provenance: {provenance}\n"
+            f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter', 'ph_est')})}\n"
             f"Anomaly score vs this site's history (0-1): {reading['anomaly']}\n"
             f"Recent history (newest first): {json.dumps(recent)}")
 
@@ -404,21 +423,21 @@ device = None  # serial port or MockDevice
 
 def send_to_tank(obj):
     if device is None:
-        return
+        return False
     try:
         device.write((json.dumps(obj, separators=(",", ":")) + "\n").encode())
+        return True
     except Exception as e:
-        print("send to tank failed:", e)
+        print("send to tank failed:", type(e).__name__)
+        return False
 
 
 def store(reading):
+    """Store one original sample. A duplicate never updates history or creates side effects."""
     with db_lock:
-        cur = db.execute(
-            f"INSERT INTO readings ({','.join(COLS[1:])}) VALUES ({','.join('?' * (len(COLS) - 1))})",
-            [reading.get(c) for c in COLS[1:]])
+        result = ingest.insert(db, reading, COLS[1:])
         db.commit()
-        reading["id"] = cur.lastrowid
-    return reading
+    return result
 
 
 VERDICTS = ("SAFE", "HIGH_TDS", "CLOUDY", "PH_WARN")
@@ -430,10 +449,11 @@ def clean_reading(msg):
     The radio link is open, so anything can arrive on it."""
     try:
         node, phase = str(msg["node"]), msg["phase"]
-        test = int(msg["test"])
+        test = ingest.uint(msg["test"], "test", 65535)
         ph, tds, clarity = float(msg["ph"]), float(msg["tds"]), float(msg["clarity"])
-    except (KeyError, TypeError, ValueError):
-        return None, "missing or non-numeric field"
+        extra = ingest.metadata(msg)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None, "missing, non-numeric or invalid identity/provenance field"
     if node not in NODES and not ALLOW_UNKNOWN_NODES:
         return None, f"unknown node {node!r} (add it to NODES or set ALLOW_UNKNOWN_NODES=1)"
     if phase not in ("before", "after") or test < 0:
@@ -446,10 +466,13 @@ def clean_reading(msg):
     # "ask":0 from the tank means the reading was clear-cut and it has already acted on its own rule.
     # Older firmware and the simulator send no "ask": they always wait for an answer.
     ask = msg.get("ask", 1) not in (0, False, "0")
-    return {"ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
+    reading = {**extra, "ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
             "clarity": round(min(1.0, max(0.0, clarity)), 2), "verdict": msg["verdict"],
             "filter": msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE",
-            "rssi": int(rssi) if isinstance(rssi, (int, float)) else None}, None
+            "rssi": int(rssi) if isinstance(rssi, (int, float)) and math.isfinite(rssi) else None}
+    reading["device_verdict"] = msg["verdict"]
+    reading["verdict"] = analysis.measured_verdict(reading)
+    return reading, None
 
 
 async def handle_line(raw: str):
@@ -466,15 +489,18 @@ async def handle_line(raw: str):
         print("dropped reading:", problem, "|", raw[:140])
         return
     node = NODES.get(msg["node"], {"lat": None, "lon": None, "sim": False})
+    received = now_iso()
     reading = {
         **msg,
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts": msg.get("measured_ts") or received, "received_ts": received,
         "lat": node["lat"], "lon": node["lon"], "sim": node["sim"],
         "ai_filter": None, "explanation": None,
     }
     reading["anomaly"] = anomaly_score(msg["node"], reading)
     past = history(msg["node"], 8)
-    store(reading)
+    if store(reading) is None:
+        print("duplicate ignored:", reading["node"], reading["test"], reading["phase"])
+        return
     await broadcast({"type": "reading", **reading})
     print("reading:", {k: reading[k] for k in ("node", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")})
 
@@ -496,7 +522,7 @@ async def decide(reading, past):
         print("AI decision skipped:", type(e).__name__, e)
         result = None
     if result:
-        send_to_tank({"cmd": "filter", "test": reading["test"], "filter": result["filter"]})
+        send_to_tank(ingest.command(reading, result["filter"]))
         source = ai_name().lower()
         await save_explanation(reading, result["filter"], result["explanation"], source=source)
         used = result["filter"]
@@ -547,7 +573,14 @@ async def save_explanation(reading, ai_filter, explanation, source):
 
 # ---------------------------------------------------------------- deepagents investigator
 # Tools the investigator can call. Docstrings are what the agent reads.
-READING_KEYS = ("ts", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")
+CORE_READING_KEYS = ("ts", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")
+READING_KEYS = (*CORE_READING_KEYS,
+                "ph_est", "session", "seq", "sender_ms", "measured_ts", "received_ts", "temp", "fault", "odd")
+
+
+def case_reading_fields(reading):
+    """Core measurements remain required; pre-provenance firmware may omit optional metadata."""
+    return {k: reading[k] if k in CORE_READING_KEYS else reading.get(k) for k in READING_KEYS}
 
 
 def km_between(lat1, lon1, lat2, lon2):
@@ -617,13 +650,18 @@ def peers_for(node, radius_km=8.0):
     return out
 
 
-def raw_reading(node, test=None, before_id=None):
+_ANY_SESSION = object()
+
+
+def raw_reading(node, test=None, before_id=None, session=_ANY_SESSION):
     """The raw-water ("before") reading of one test at a node, or the node's latest one."""
     q, args = "SELECT * FROM readings WHERE node=? AND phase='before'", [node]
     if test is not None:
         q, args = q + " AND test=?", args + [int(test)]
     if before_id is not None:
         q, args = q + " AND id<?", args + [before_id]
+    if session is not _ANY_SESSION:
+        q, args = q + " AND session IS ?", args + [session]
     with db_lock:
         row = db.execute(q + " ORDER BY id DESC LIMIT 1", args).fetchone()
     return row_to_dict(row) if row else None
@@ -639,20 +677,21 @@ def analyse_reading(reading):
 
 def case_for(node, test, after=None, filter_used=None):
     """One filter run: its before and after readings, the filter used and the checks' verdict."""
-    before = raw_reading(node, test, after["id"] if after else None)
+    before = raw_reading(node, test, after["id"] if after else None,
+                         session=after.get("session") if after else _ANY_SESSION)
     if before is None:
         return None, None
     with db_lock:
         if after is None:
-            row = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
-                             "ORDER BY id LIMIT 1", (node, before["test"], before["id"])).fetchone()
+            row = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? AND session IS ? "
+                             "ORDER BY id LIMIT 1", (node, before["test"], before["id"], before.get("session"))).fetchone()
             after = row_to_dict(row) if row else None
         if filter_used is None and after is not None:
             tip = db.execute("SELECT filter FROM tips WHERE after_id=?", (after["id"],)).fetchone()
             filter_used = tip["filter"] if tip else None
     result = analyse_reading(before)
     case = {"node": node, "site": NODES.get(node, {}).get("name"), "test": before["test"], "filter": filter_used,
-            "before": {k: before[k] for k in READING_KEYS}, "after": {k: after[k] for k in READING_KEYS} if after else None,
+            "before": case_reading_fields(before), "after": case_reading_fields(after) if after else None,
             "checks": {"kind": result["kind"], "verdict": result["kind_words"], "severity": result["severity_words"],
                        "evidence": result["evidence"]}}
     return case, result
@@ -668,6 +707,8 @@ def get_case(node: str, test: int) -> dict:
         return {"error": f"no reading for node {node} test {test}"}
     if case["after"]:
         case["notice_template"] = analysis.notice_template(case, result)
+    case["notice_required"] = analysis.notice_required(case)
+    case["notice_templates"] = analysis.notice_templates(case)
     return case
 
 
@@ -709,7 +750,9 @@ def query_readings(sql: str) -> list[dict] | dict:
     """Run one read-only SQL SELECT over the `readings` table; up to 200 rows come back.
     Columns: id, ts (UTC), node, test, phase ('before' = raw water, 'after' = retest), ph,
     tds (ppm), clarity (0-1), verdict ('SAFE' means in range; 'HIGH_TDS', 'CLOUDY', 'PH_WARN'),
-    filter, ai_filter, sim (1 = simulated node), anomaly (0-1).
+    filter, ai_filter, sim (1 = simulated node), anomaly (0-1), ph_est (1 = derived from TDS,
+    0 = measured; NULL = legacy deployment default), session and seq (radio sample identity).
+    Estimated pH is not an independent sensor signal; do not treat it as one in analysis.
     Example: SELECT phase, count(*), round(avg(tds)) FROM readings WHERE node='tank-01' GROUP BY phase"""
     text = (sql or "").strip().rstrip(";")
     if ";" in text or not re.match(r"(?is)^(select|with)\b", text):
@@ -743,10 +786,16 @@ def search_guidance(query: str) -> list[dict]:
     return [{**hit, "text": hit["text"][:600]} for hit in guidance.search(query, 3)]
 
 
-def get_notice_templates() -> dict:
-    """The fixed notice templates, by outcome, and the sentence every notice must end with,
-    word for word. Blanks: {site}, {problem}, {filter}."""
-    return {"templates": analysis.NOTICE_TEMPLATES, "required_last_sentence": analysis.NOTICE_REQUIRED}
+def get_notice_templates(node: str | None = None, test: int | None = None) -> dict:
+    """Notice templates and the exact required ending. Supply the case's node/test to respect
+    that reading's measured-versus-estimated pH; otherwise use the deployment's legacy default.
+    Blanks: {site}, {problem}, {filter}."""
+    case = None
+    if node is not None:
+        case, _ = case_for(node, test)
+        if case is None:
+            return {"error": "no reading for that node/test"}
+    return {"templates": analysis.notice_templates(case), "required_last_sentence": analysis.notice_required(case)}
 
 
 # Tools for the incident team, which works on the simulated network (localize.py). The scenario's
@@ -762,7 +811,9 @@ def trace_scenario(scenario_id: str) -> dict:
         return {"error": f"no scenario {scenario_id!r}", "scenarios": [x["id"] for x in localize.scenarios()]}
     traced = localize.localize(sc["alerts"], sc["quiet"])
     traced["affected"] = {k: v for k, v in traced["affected"].items() if k != "nodes"}
-    return {"scenario": sc["id"], "name": sc["name"], "alerts": sc["alerts"], "quiet": sc["quiet"], **traced}
+    return {"scenario": sc["id"], "name": sc["name"], "alerts": sc["alerts"], "quiet": sc["quiet"],
+            "stress": bool(sc.get("stress")), "unavailable": sc.get("unavailable", []),
+            "description": sc.get("description", ""), **traced}
 
 
 def get_pipe(pipe_id: str) -> dict:
@@ -864,7 +915,7 @@ async def report_on(after, filter_used):
         if not check["summary_ok"]:
             report["summary"] = rules["summary"]
         await broadcast({**who, "event": "check", "agent": None, "t": round(time.time() - t0, 1), "check": check})
-        notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else extra["notice"]
+        notice = report.get("notice") if analysis.notice_ok(report.get("notice"), case) else extra["notice"]
         print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s from {len(report['sections'])} "
               f"specialists; {check['traced']} of {check['figures']} figures traced, {check['dropped']} dropped")
         await save_report(after, filter_used, report,
@@ -934,20 +985,22 @@ def reader_thread(loop):
 
 async def simulate_nodes():
     """Simulated network around Princeton, one reading per node about every 20 s."""
-    sims = [(k, v) for k, v in NODES.items() if v["sim"]]
+    reserved = {"sim-01", "sim-02"} if MOCK and os.getenv("MOCK_SCENARIO") == "regional" else set()
+    sims = [(k, v) for k, v in NODES.items() if v["sim"] and k not in reserved]
+    session = f"sim-{random.getrandbits(64):016x}"
     tests = {k: 0 for k, _ in sims}
     while sims:
         for key, n in sims:
             tests[key] += 1
             t = time.time() / 600 + hash(key) % 10
             tds = max(20, int(n["base_tds"] * (1 + 0.15 * math.sin(t)) + random.gauss(0, 12)))
-            if random.random() < 0.03:           # rare contamination event
+            if SIM_FAULT_RATE and random.random() < SIM_FAULT_RATE:  # explicit synthetic spike; quiet by default
                 tds = int(tds * random.uniform(1.8, 2.6))
             ph = round(random.gauss(7.5 if "well" not in n["name"] else 7.0, 0.15), 2)
             clr = round(min(1.0, random.gauss(0.95, 0.03)), 2)
             v, f = mock.verdict_for(ph, tds, clr)
             await handle_line(mock.line(key, tests[key], "before", ph, tds, clr, v, f,
-                                        rssi=random.randint(-95, -60)))
+                                        rssi=random.randint(-95, -60), session=session, seq=tests[key], ph_est=False))
             await asyncio.sleep(20 / max(1, len(sims)))
 
 
@@ -990,6 +1043,13 @@ async def startup():
     loop = asyncio.get_running_loop()
     threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
     asyncio.create_task(simulate_nodes())
+    if cloud_sync.enabled:                               # the simulated network and its incidents go to the cloud too, marked as simulated
+        try:
+            import incident
+            import localize
+            cloud_sync.simulated = {"network": localize.NET, "incidents": [incident.report(s["id"]) for s in localize.scenarios()]}
+        except Exception as e:
+            print(f"[cloud] the simulated network was not loaded ({type(e).__name__})")
     cloud_sync.start()
 
 
@@ -1026,19 +1086,27 @@ def test_pair(node: str, test: int):
                             "ORDER BY id DESC LIMIT 1", (node, test)).fetchone()
         if before is None:
             return []
-        after = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
-                           "ORDER BY id LIMIT 1", (node, test, before["id"])).fetchone()
+        after = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? AND session IS ? "
+                           "ORDER BY id LIMIT 1", (node, test, before["id"], before["session"])).fetchone()
     return [row_to_dict(r) for r in (before, after) if r is not None]
 
 
 @app.post("/api/cmd", dependencies=[Depends(require_control)])
-def manual_cmd(test: int, filter: str):
-    """Manual override from the dashboard: tip the cup for this test."""
+def manual_cmd(test: int, filter: str, node: str = "tank-01"):
+    """Address the latest raw-water test on one real node; stale/unknown targets fail closed."""
     choice = filter.upper()
-    if choice not in ("ZEROWATER", "BRITA", "NONE") or test < 0:
+    if choice not in ("ZEROWATER", "BRITA", "NONE") or not 0 <= test <= 65535:
         raise HTTPException(422, "filter must be ZEROWATER, BRITA or NONE, and test a pour number")
-    send_to_tank({"cmd": "filter", "test": test, "filter": choice})
-    return {"ok": True}
+    if node not in NODES or NODES[node]["sim"]:
+        raise HTTPException(404, "unknown real node")
+    with db_lock:
+        row = db.execute("SELECT * FROM readings WHERE node=? ORDER BY id DESC LIMIT 1", (node,)).fetchone()
+    if row is None or row["test"] != test or row["phase"] != "before":
+        raise HTTPException(409, "that node is no longer awaiting this test; use its latest raw-water reading")
+    obj = ingest.command(row_to_dict(row), choice)
+    if not send_to_tank(obj):
+        raise HTTPException(503, "the receiver is not connected")
+    return {"ok": True, "node": node, "test": test}
 
 
 @app.get("/api/filters")
@@ -1127,6 +1195,30 @@ def network():
         raise HTTPException(503, f"the simulated network is not available: {type(e).__name__}")
 
 
+@app.get("/api/network/placement")
+def network_placement(budget: int = 12):
+    """Read-only simulated sensor placement. The algorithm is cached, deterministic and local;
+    this route never rebuilds files, calls a model, changes a database, or operates hardware."""
+    try:
+        import placement
+        result = placement.payload()
+    except (ImportError, OSError, ValueError):
+        # Keep a prepared static example usable when this development-time module is absent.
+        try:
+            path = Path(__file__).parent.parent / "web" / "network" / "placement.json"
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(503, "the simulated placement example is not available")
+    if not isinstance(result, dict) or result.get("simulated") is not True or not isinstance(result.get("budgets"), list):
+        raise HTTPException(503, "the simulated placement example is not valid")
+    selected = next((row for row in result["budgets"] if row.get("budget") == budget), None)
+    if selected is None:
+        supported = ", ".join(str(row.get("budget")) for row in result["budgets"])
+        raise HTTPException(422, f"budget must be one of {supported}")
+    # Copy the outer dictionary: choosing a view must not mutate the algorithm's cached payload.
+    return {**result, "selected_budget": budget, "selected": selected}
+
+
 @app.post("/api/network/investigate", dependencies=[Depends(require_control)])
 async def network_investigate(scenario: str):
     """Hand one simulated event to the incident team (a lead agent and three specialists). It is
@@ -1153,7 +1245,7 @@ async def network_investigate(scenario: str):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
+    state = {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
             "agent_name": ai_name(AGENT_MODEL) if investigator_agent is not None else None, "agent_model": AGENT_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
             "ph_estimated": PH_ESTIMATED,
@@ -1161,6 +1253,11 @@ def health():
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},
             "clients": len(clients),
             "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
+    if MOCK:
+        state["simulation"] = {"scenario": getattr(device, "scenario", os.getenv("MOCK_SCENARIO", "cycle")),
+                               "seed": int(os.getenv("MOCK_SEED", "26")),
+                               "background_fault_rate": SIM_FAULT_RATE}
+    return state
 
 
 @app.get("/api/cloud")

@@ -1,10 +1,17 @@
 // Data layer: talks to the Clarity gateway.
 // URL options:  ?api=http://192.168.1.20:8000  (gateway elsewhere)   ?mock=1  (force mock data)
 import { mockApi, mockSocket } from './mock.js';
+import { readMapMode } from './map-settings.js';
+import { prototypeHealth, prototypeNodes, demoReturnURL } from './prototype-api.js';
 
 const params = new URLSearchParams(location.search);
 const API = (params.get('api') || import.meta.env.VITE_API || '').replace(/\/$/, '');
-const FORCE_MOCK = params.get('mock') === '1' || !!import.meta.env.VITE_ARTIFACT;
+let selectedMode = 'prototype';
+try { selectedMode = readMapMode(localStorage, params); } catch { selectedMode = readMapMode(null, params); }
+const FORCE_MOCK = selectedMode === 'demo' || !!import.meta.env.VITE_ARTIFACT;
+// Keep an explicit base-station address when returning to the cup. Demo is deliberately standalone.
+const returnURL = demoReturnURL(location.href, FORCE_MOCK ? 'demo' : 'prototype', API);
+document.querySelectorAll('a.brand-word, a.brand-link').forEach(a => { a.href = returnURL; });
 
 async function getJSON(path, timeout = 3000) {
   const ctrl = new AbortController();
@@ -28,15 +35,21 @@ const liveApi = {
 function liveSocket(onMessage, onStatus) {
   let ws, closed = false, retry = 1000;
   const url = (API ? API.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`) + '/ws';
-  const open = () => {
-    ws = new WebSocket(url);
-    ws.onopen = () => { retry = 1000; onStatus('live'); };
-    ws.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch { /* ignore non-JSON */ } };
-    ws.onclose = () => {
+  const retryOpen = status => {
+    if (closed) return;
+    onStatus(status);
+    setTimeout(open, retry); retry = Math.min(retry * 2, 15000);
+  };
+  const open = async () => {
+    try {
+      // A gateway may restart in MOCK mode while this page reconnects.
+      await prototypeHealth(getJSON);
       if (closed) return;
-      onStatus('reconnecting');
-      setTimeout(open, retry); retry = Math.min(retry * 2, 15000);
-    };
+      ws = new WebSocket(url);
+      ws.onopen = () => { retry = 1000; onStatus('live'); };
+      ws.onmessage = e => { try { onMessage(JSON.parse(e.data)); } catch { /* ignore non-JSON */ } };
+      ws.onclose = () => retryOpen('reconnecting');
+    } catch { retryOpen('offline'); }
   };
   open();
   return { close() { closed = true; ws && ws.close(); } };
@@ -52,7 +65,7 @@ export async function connect(onMessage, onStatus) {
   }
   for (let wait = 2000; ; wait = Math.min(wait * 2, 15000)) {
     try {
-      await liveApi.nodes();
+      await prototypeNodes(getJSON);
       const sock = liveSocket(onMessage, onStatus);
       return { api: liveApi, mode: 'live', sock };
     } catch {

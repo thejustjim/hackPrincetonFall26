@@ -86,8 +86,9 @@
     if (!c.connected) return `The copy to ${where} is paused: ${n(c.pending)} readings are kept here until the link is back.`;
     return `Every reading is also copied to ${where}: ${n(c.cloud_rows)} there, ${n(c.pending)} waiting.`;
   }
+  const phEstimated = (r, health = {}) => r?.ph_est == null ? health.ph_estimated !== false : r.ph_est === true || r.ph_est === 1;
   const AI = { gemma: "Gemma", gemini: "Gemini", claude: "Claude" };   // a decision's source -> the model's name
-  window.TapUI = { AI, $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
+  window.TapUI = { AI, phEstimated, $, esc, t, typo, clamp, fmt, clock, ago, pct, ring, filterLife, swapText, cloudLine, FILTER_NAME, VERDICT, STATUS };
 
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
@@ -116,10 +117,11 @@
      tone "good" marks the payoff: a cup that was out of range and came back in range. */
   function verdict(store) {
     const p = store.pour, b = p?.before, a = p?.after, f = usedFilter(store);
-    const site = b ? store.nodeName(b.node) : "Clarity";
+    const place = window.ClaritySetup?.read?.()?.location?.name;
+    const site = b ? store.nodeName(b.node) : store.kind === "offline" && place ? `Prototype in ${place}` : "Clarity";
     const when = b ? `Pour ${b.test}, ${ago((a || b).ts)}` : "";
     const name = SHORT[f] || "the filter";
-    if (!b) return { title: "Waiting for a pour", sub: "", tone: null, site, when };
+    if (!b) return { title: store.kind === "offline" ? "Connect your prototype" : "Waiting for a pour", sub: "", tone: null, site, when };
     if (a) {
       return a.verdict === "SAFE"
         ? { title: "Back in range", sub: `after ${name}`, tone: "good", site, when }
@@ -141,9 +143,9 @@
     if (r) {
       // "back in range" marks a reading the filter fixed; "warn" one that is out of range now
       const state = (bad, wasBad, why) => bad ? { flag: why, tone: "warn" } : a && wasBad ? { flag: "back in range", tone: "good" } : { flag: null, tone: null };
-      const phBad = (x) => x.ph < 6.5 || x.ph > 8.5;
+      const phBad = (x) => !phEstimated(x, store.health) && (x.ph < 6.5 || x.ph > 8.5);
       // The current tank sketch works pH out from dissolved solids (its probe is not calibrated), so the note says so.
-      const est = store.health?.ph_estimated !== false;
+      const est = phEstimated(r, store.health);
       out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${est ? ", estimated" : ""}${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
         detail: est ? `Estimated from dissolved solids: the pH probe is not calibrated yet. Usual range 6.5 to 8.5.` : `Usual range 6.5 to 8.5. Neither filter corrects pH.` });
       out.push({ id: "clarity", group: "cup", icon: "eye", label: `Transparency${phase}`, value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
@@ -162,7 +164,7 @@
       // (kept short: the note has to fit between the glass and the page margin)
       out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: forClarity ? "Retest, transparency" : "Retest",
         value: forClarity ? `${fmt(b.clarity, 2)} → ${fmt(a.clarity, 2)}` : drop >= 0 ? `Solids down ${drop}%` : `Solids up ${-drop}%`,
-        detail: `After ${FILTER_NAME[f] || "filtering"}: dissolved solids ${b.tds} to ${a.tds} ppm, transparency ${fmt(b.clarity, 2)} to ${fmt(a.clarity, 2)}, pH ${fmt(b.ph, 1)} to ${fmt(a.ph, 1)}.` });
+        detail: `After ${FILTER_NAME[f] || "filtering"}: dissolved solids ${b.tds} to ${a.tds} ppm, transparency ${fmt(b.clarity, 2)} to ${fmt(a.clarity, 2)}, pH ${fmt(b.ph, 1)}${phEstimated(b, store.health) ? " (estimated)" : ""} to ${fmt(a.ph, 1)}${phEstimated(a, store.health) ? " (estimated)" : ""}.` });
     } else if (d && f !== "NONE") {
       out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: "Retest", value: "Awaited",
         detail: `Pour the filtered water back and press the button.` });

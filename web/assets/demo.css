@@ -307,3 +307,6 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   #history { overflow-x: auto; }
   #history svg { min-width: 880px; }
 }
+
+.prototype-help { margin-top: 14px; font: 13px/1.5 var(--sans); color: var(--label2); }
+.prototype-help a { color: var(--accent); }

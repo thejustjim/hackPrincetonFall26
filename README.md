@@ -37,28 +37,23 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     The dropper over the glass holds the latest pour as it read before filtering. If that pour was
     sent through a filter, a funnel swings in, catches the drop and lets a clear one through; water
     that read in range falls straight in.
-  - `/pitch/` - the pitch. It opens on black with one dirty drop caught by the filter, runs through the slides (scroll, swipe or
-    arrow keys; `End` jumps to the last one), and scrolling past the last slide lands on `/demo/`.
-    The judged presentation is two minutes including the demo, so the deck is five slides (title, the
-    problem, the loop, what measuring first saves, close); `/pitch/?full` adds five more for questions
-    (hardware, AI, filter life, sources, open questions).
-    In a wide window the 3D glass stays on stage beside every slide and follows the demo's rule: with
-    no filter the water is what was poured, and it is nasty; with the filter in place it is clear. The
-    title and the problem show brown water with dirty drops falling straight in. The "One cup, one loop"
-    slide has four steps, a press each, one for each line on the slide: the cup as poured (Measure),
-    the untreated drop held while a filter is chosen (Interpret), the filter snapping into place and
-    the water clearing (Act), and the retested water with the clear drop falling (Compare). The
-    savings slide shows a different, in-range cup with no filter at all.
-    When the pitch ends the glass glides to its place in the demo.
-    There is no way back up from the demo; reload `/pitch/` to start again.
-  - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up
-    events, the trace back to the pipe each most likely entered from, and an incident report that can
+  - `/pitch/` - the pitch. It opens on black and runs through five single-step slides (scroll, swipe or
+    arrow keys; `End` jumps to the last one): title, problem, system overview, value, and close.
+    The short deck introduces the demonstration; `/pitch/?full` retains the ten-slide technical deck
+    and its four-step Measure / Interpret / Act / Compare walkthrough for questions.
+    In a wide window an unbranded 3D glass stays on stage beside the slides. Untreated water is shown
+    as poured; the savings slide shows an in-range cup without a filter.
+    Advancing past the close opens a setup screen: enter a prototype testing location, explore a sample
+    cup, or explore the simulated network. Prototype mode waits for a physical gateway and never falls
+    back to sample readings. The setup screen's return link or `/pitch/` starts the pitch again.
+  - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, seven scripted
+    scenarios, the trace back to the pipe each most likely entered from, and an incident report that can
     be printed or saved as a PDF. See "Simulated network" below.
   - `/map/` - the 3D map dashboard: every node on a map of Princeton and the US, with its latest test.
     Its source is `clarity-dashboard-2/`; `web/map/` is the committed build (see below).
   - Slides are in `web/pitch/slides.html`. The pitch is drawn over the demo page, so both are one document.
-  - With no gateway reachable (static hosting, or `?demo`) the pages run on built-in sample data in the
-    same shapes, labelled as sample data; `?api=http://<pi>:8000` points them at another gateway.
+  - The labeled demo uses built-in sample data. A prototype selection stays offline until a physical
+    gateway is reachable; `?api=http://<pi>:8000` points it at another gateway.
 
 ## How the parts fit together
 One gateway, and everything else reads from it:
@@ -113,7 +108,9 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   instead of sending them. It is not needed for the pages.
 - **One Google key** (`GOOGLE_API_KEY`) serves the gateway's filter decisions, the investigator's
   agents and the Photon agent. All three default to a Gemini Flash model; `GEMINI_MODEL` sets it.
-- **Tests:** `gateway/test_*.py` (run each with `python`), `cd photon-alerts && npm test`.
+- **Offline tests:** use the named commands under "Local measurement integrity and simulation checks"
+  below, plus `cd photon-alerts && npm test`. `gateway/test_cloud.py` is separate and changes the configured
+  cloud database; do not include it in a local test sweep.
 
 Wording is the same everywhere: a `SAFE` verdict is shown as "In range", simulated nodes and demo
 data are labelled, and nothing calls water safe.
@@ -496,3 +493,103 @@ Together, these form one intended experience: **measure → interpret → choose
 Show one complete, understandable sequence: test a sample, display its readings, explain the supported finding, select a filter path, and compare the subsequent measurement. Use the map to show how that same process could extend across locations.
 
 Keep affordable monitoring and informed action at the center. Let autonomous treatment and wider deployment remain the longer-term vision.
+
+
+## Local measurement integrity and simulation checks
+
+New firmware readings carry `ph_est`, a boot `session`, a `seq` and `sender_ms`. The gateway keeps
+these in SQLite; an explicit per-reading pH flag overrides the deployment default. Estimates are
+shown as estimates and excluded from independent sensor checks, baselines, control charts, joint
+scores and pH alerts. A measured probe's history is not mixed with derived pH. Reports compare the
+filter's targeted measurement, and an estimated retest cannot resolve an earlier measured pH warning.
+Legacy packets without the flag use `PH_ESTIMATED` from the environment or local `.env`.
+
+Duplicate radio packets and repeated UART readings of the same node/session/test/phase create no
+new reading, tip, report, decision or broadcast. New readings are also keyed by node/session/seq.
+Legacy packets use node/test/phase because they do not identify a boot; after resetting or wrapping
+a test counter, start a new Feather session. Existing history is preserved by additive local migrations.
+Before/after displays and accounting do not pair different boots that reuse a test number.
+
+Commands carry an exact node, test and (for current firmware) session/sequence. The receiver learns
+node MACs and unicasts; the Feather and Uno validate the target independently. All relevant sketches
+and the gateway need updating together. See `firmware/PROTOCOL.md` for packet bounds and host tests.
+Nothing here flashes hardware. New metadata is local-only for now: the cloud schema/mapping migration
+is deferred, and these changes do not deploy or initialize a cloud database.
+
+The four original network scenarios remain; three explicit stress cases add offline sensors, delayed
+readings and conflicting alerts. An unavailable sensor is not evidence of quiet water. Poor timing fits
+remain uncertain even if one pipe has most of the normalized ranking weight. Open `/network/` and
+choose the labeled stress buttons, or use `#sensor-dropout`, `#delayed-sensor`, `#conflicting-alerts`.
+
+The backend mock is reproducible with `MOCK_SEED` (default 26) and `MOCK_SCENARIO`:
+`cycle`, `duplicate`, `sensor-fault`, `drift`, `regional`, or `close-call`. Default background simulated
+sensor faults are off (`SIM_FAULT_RATE=0`); explicit stress scenarios do not weaken detection rules.
+`MOCK_PERIOD` controls pace. Static cup data also uses a reproducible seed (`/demo/?demo&seed=26`).
+All of these are generated examples, not field-performance evidence.
+
+Run local checks without keys, hardware or cloud writes:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 gateway/test_analysis.py
+PYTHONDONTWRITEBYTECODE=1 gateway/.venv/bin/python gateway/test_ingest.py
+PYTHONDONTWRITEBYTECODE=1 python3 gateway/test_simulation.py
+PYTHONDONTWRITEBYTECODE=1 python3 gateway/test_localize.py
+PYTHONDONTWRITEBYTECODE=1 python3 gateway/test_incident.py
+PYTHONDONTWRITEBYTECODE=1 python3 gateway/test_placement.py
+node --test web/test_sample.cjs
+python3 gateway/benchmark_simulations.py --json
+```
+
+`test_ingest.py` explicitly disables saved cloud/model credentials and uses a disposable database.
+Do not include `test_cloud.py` in an offline run: that separate script initializes the configured
+cloud schema. To rehearse a gateway scenario, use a temporary `DB_PATH` and explicitly blank
+`TIGER_DATABASE_URL`, `DATABASE_URL`, `GOOGLE_API_KEY`, `GEMINI_API_KEY` and `ANTHROPIC_API_KEY`
+before starting it; leave `INVESTIGATOR=0`. Merely setting `MOCK=1` does not disable cloud sync.
+
+
+### Map simulation workspace and setup
+
+The map's **Simulations** button overlays the modeled Net3 network on the Princeton demo map:
+`/map/?mock=1&simulation=1&nointro`. The projection preserves all 97 nodes and 117 pipe connections,
+but their geographic positions are illustrative, not actual Princeton pipe routes or installed sensors.
+A schematic remains available. Replay runs in 24 seconds with pause/resume and a timeline; rankings
+are withheld until the observation window finishes, including minute 385 in the late-report case.
+Bundled examples render immediately while optional data refreshes happen in the background.
+Incident replay offers the seven labeled scenarios; sensor
+placement compares budgets of 4/8/12/16/20 against the existing 12-site layout. The recommendation
+uses directed flow/travel times and a deterministic greedy objective: first coverage, a second
+observation, then earlier alerts. All 117 modeled pipe-source events remain in the denominator.
+It is a model-based heuristic with equal assumed costs, not actual Princeton installation sites
+or a guarantee of optimality. More coverage can include distant events and raise the observed-only
+median; the comparison also reports mean delay with unseen events counted at six hours.
+`GET /api/network/placement?budget=12` is read-only, with a prepared static fixture for offline use.
+
+The normal map background starts healthy. Outages and probe faults are deliberate stress cases,
+not frequent background animations. Cloudy/salty cup examples represent water readings rather
+than a broken sensor. The globe now has a responsive composition with 23° axial tilt, takes the nearest orientation
+in at most 3.2 seconds, then approaches over 6.2 seconds. The close arrival frames the Princeton Ridge
+water tower and town at zoom 14.2. It returns north-up before joining the map; reduced motion and
+skip controls are retained.
+
+After the pitch, a setup screen offers prototype testing at an entered location or a labeled demo.
+Open it directly at `/demo/?setup=1`. Suggestions use bundled place data; current location is
+requested only when the person presses its button. Setup is saved only in that browser. It does
+not update device coordinates or the cloud database. In prototype mode a missing or simulated
+gateway shows a disconnected state with no sample readings. Demo mode explicitly chooses sample
+data; it can open the cup or the map simulation workspace.
+
+
+Mock gateways now default to `taptest-mock.db`; physical gateways retain `taptest.db`. An explicit
+`DB_PATH` still wins. Existing files are never deleted or relabeled. Older databases may already
+contain unlabelled mock history: keep a separate local file for hardware rehearsals when the
+origin of that history is unknown. The prototype connection guard checks the active gateway; it
+cannot infer the origin of old rows that never recorded it.
+
+The local demo's 180–220 ppm ambient TDS values are illustrative assumptions, not values reported
+by the utility. Public Princeton/NJ American Water sources establish supply context, while historical
+stream samples remain a separate published-data layer. Normal background sensors and lightly used
+cartridges remain healthy; scripted cloudy/salty cup examples deliberately exercise decisions/retests.
+
+For startup, `scripts/compact_assets.py` in `clarity-dashboard-2/` generates a 62 KB named-building
+point index and a compact globe outline; full source geometry is retained. Infrastructure loads
+independently, while decorative trees wait until arrival and use a stable one-third sample.

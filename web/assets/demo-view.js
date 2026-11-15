@@ -9,8 +9,9 @@
   function account(store) {
     const { FILTER_NAME } = TapUI;
     const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
+    if (store.kind === "offline") return store.health.prototype_reason;
     if (!b) return "No cup has been poured yet. Pour one into the tank and press its button.";
-    const what = { SAFE: "All three readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
+    const what = { SAFE: "The measured readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
                    CLOUDY: "This cup is cloudy.", PH_WARN: "This cup's pH is outside the usual range." }[b.verdict];
     // The headline has the verdict and the line under it the filter and the reading, so this says only
     // what they do not: who chose, and what to do next.
@@ -74,7 +75,8 @@
   const shown = (m, v) => (m === "tds" ? `${Math.round(v)} ppm` : Number(v).toFixed(m === "clarity" ? 2 : 1));
   function checkRows(c, estimated) {
     // while the tank only estimates pH, it is not one of the sensors that get checked
-    const real = (x) => !(estimated && x.metric === "ph");
+    estimated = c.measured_metrics ? !c.measured_metrics.includes("ph") : (c.reading?.ph_est == null ? estimated : TapUI.phEstimated(c.reading));
+    const real = (x) => x.included !== false && !(estimated && x.metric === "ph");
     const faults = c.sensor.filter((x) => x.status !== "ok" && real(x));
     const lead = c.baseline.find((x) => x.metric === c.lead.metric);
     const drift = c.baseline.filter((x) => (x.ewma_signal || x.cusum_signal) && real(x));
@@ -84,10 +86,11 @@
         : estimated ? "Dissolved solids and transparency read plausibly: neither is stuck, out of range or trending. pH is an estimate, so it is not checked."
         : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
       ["This site", `${NAMES[lead.metric]} read ${shown(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} ${
-        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
+        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours${c.scope?.kind === "time_of_day" ? " at this time of day" : ""}` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
         far ? (c.repeat > 1 ? `${c.repeat} pours in a row have been unusual the same way.` : "Three or more is unusual; this is the only one in a row.") : "Three or more would be unusual."}`, far],
       ["Trend", drift.length ? `${drift.map((x) => NAMES[x.metric]).join(" and ")} ${drift.length > 1 ? "have" : "has"} run ${drift[0].direction === "up" ? "high" : "low"} for several pours: a small shift that persists.`
         : "No small shift has persisted across recent pours.", drift.length > 0],
+      ...(c.multivariate?.isolation != null ? [["Isolation forest", `An experiment that decides nothing: ${Number(c.multivariate.isolation).toFixed(2)}, where about 0.5 is ordinary and toward 1 is isolated.`, false]] : []),
       ["Neighbours", !p.n ? "No nodes nearby to compare with." : !far ? "Not needed: this pour was ordinary for the site."
         : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
     ];
@@ -235,6 +238,18 @@
       const now = `${v?.title}|${v?.sub}|${text}`, moved = heroWas != null && now !== heroWas;
       heroWas = now;
       TapUI.swapText(document.getElementById("standfirst"), text);
+      let help = document.getElementById("prototype-help");
+      if (store.kind === "offline" && !help) {
+        help = document.createElement("p"); help.id = "prototype-help";
+        help.className = "prototype-help";
+        const retry = document.createElement("a"); retry.href = location.href; retry.textContent = "Retry connection";
+        const setup = document.createElement("a"), setupUrl = new URL(location.href);
+        setupUrl.searchParams.set("setup", "1"); setupUrl.hash = "";
+        setup.href = setupUrl.pathname + setupUrl.search; setup.textContent = "Change setup";
+        help.append(retry, document.createTextNode(" · "), setup);
+        document.getElementById("standfirst").after(help);
+      }
+      if (help) help.hidden = store.kind !== "offline";
       const result = proof(store), resultEl = document.getElementById("proof");
       if (resultEl) {
         resultEl.hidden = !result.text;
@@ -256,7 +271,7 @@
     cloud(store) {
       const box = document.getElementById("cloud"), c = store.health?.cloud;
       if (!box) return;
-      if (store.kind !== "live" || !c?.enabled || !c.connected || !store.get) { box.hidden = true; return; }
+      if (store.kind !== "live" || store.conn !== "live" || !c?.enabled || !c.connected || !store.get) { box.hidden = true; return; }
       if (performance.now() - this.cloudAt < 20000 && this.cloudAt) return;
       this.cloudAt = performance.now();
       const { esc, fmt } = TapUI, n = (v) => Number(v || 0).toLocaleString();
@@ -266,7 +281,8 @@
         if (!rows.length) return;
         document.getElementById("cloud-about").textContent = `${n(c.cloud_rows)} readings are kept in ${c.timescale ? "Tiger Cloud (TimescaleDB)" : "a cloud database"}${
           c.pending ? `, with ${n(c.pending)} waiting to go` : ""}. This is the last day by the hour, read back from ${
-          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.`;
+          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.${
+          r.mock ? " The base station is running on the mock tank, so these are the mock's readings, not measurements; the database keeps the two apart." : ""}`;
         document.getElementById("cloud-table").innerHTML = `<table class="ledger"><thead><tr><th>Hour</th><th class="n">Readings</th><th class="n">Solids, average</th><th class="n">Solids, highest</th><th class="n">Transparency</th></tr></thead><tbody>${
           rows.map((b) => `<tr><td>${esc(new Date(b.bucket).toLocaleString(undefined, { weekday: "short", hour: "numeric" }))}</td><td class="n">${n(b.readings)}</td><td class="n">${
             b.tds_avg == null ? "" : `${Math.round(b.tds_avg)} ppm`}</td><td class="n">${b.tds_max == null ? "" : `${Math.round(b.tds_max)} ppm`}</td><td class="n">${
@@ -280,24 +296,34 @@
 
       if (what === "all" || what === "conn") {
         const phFine = $("#ph-fine");
-        if (phFine && store.health?.ph_estimated === false) phFine.textContent = " and pH";
+        if (phFine) phFine.textContent = TapUI.phEstimated(a || b, store.health) ? " (pH is estimated)" : " and pH";
         const line = cloudLine(store), el = $("#cloud-line");
         if (el) { el.hidden = !line; el.textContent = line ? `Readings are stored on the base station first. ${line}` : ""; }
       }
 
       if (what === "all") {
-        $("#dateline").textContent = `Princeton, ${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
+        const setup = window.ClaritySetup?.read?.();
+        const place = store.kind !== "demo" && setup?.mode === "prototype" ? setup.location.name : "Princeton";
+        $("#dateline").textContent = `${place}, ${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
         if (store.kind === "live") { const api = $("#api-link"); api.hidden = false; }
       }
       if (what === "all" || what === "conn") {
         const [short, long] = {
           live: store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} picks filters`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
           down: ["Reconnecting", "Lost the gateway; reconnecting"],
+          offline: ["Prototype offline", "No live measurements are available; sample readings are not shown in prototype mode"],
           demo: ["Demo data", "No gateway reachable, so this is demo data"],
         }[store.conn] || ["Connecting", ""];
         $("#conn").dataset.state = store.conn;
         // the map dashboard shows only what a gateway sends; with none, open it on its own labelled demo data
-        document.querySelector("a[data-map]")?.setAttribute("href", store.kind === "demo" ? "../map/?mock=1" : "../map/");
+        const mapUrl = new URL("../map/", location.href);
+        if (store.kind === "demo") mapUrl.searchParams.set("mock", "1");
+        else {
+          mapUrl.searchParams.set("mode", "prototype");
+          const api = new URLSearchParams(location.search).get("api");
+          if (api) mapUrl.searchParams.set("api", api);
+        }
+        document.querySelector("a[data-map]")?.setAttribute("href", mapUrl.pathname + mapUrl.search);
         warmMap();
         $("#conn").title = long;
         $("#conn-text").textContent = short;
@@ -324,16 +350,16 @@
         $("#why").innerHTML = !b
           ? `<p class="lede">No cup has been poured yet.</p>`
           : `<p class="lede">${t(!d ? (b.verdict === "SAFE" ? "Whether it needs a filter is being decided." : "A filter is being chosen.") : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "No filter would help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
-             <p>${t(!d ? `The tank waits a few seconds for ${store.health.ai_name || "the AI model"}, then falls back on its own thresholds.` : d.explanation || "There is no AI explanation for this pour: the tank used its built-in thresholds, ZeroWater above 300 ppm and Brita below 0.70 transparency.")}</p>
+             <p>${t(!d ? `The tank waits a few seconds for ${store.health.ai_name || "the AI model"}, then falls back on its own thresholds.` : d.explanation || (f === "BRITA" ? `Transparency read ${fmt(b.clarity, 2)}. Under 0.70 counts as cloudy, and cloudy water goes to Brita.` : f === "ZEROWATER" ? `Dissolved solids read ${b.tds} ppm. Over 300 counts as high, and ZeroWater takes dissolved solids out.` : b.verdict === "SAFE" ? "Every reading was in range, so the cup was left alone." : "Neither filter corrects pH, so the cup was left alone."))}</p>
              ${d?.source === "sample" ? '<p class="sample-note">Sample explanation written for the demo data, not by a model.</p>' : ""}`;
 
-        const warn = { tds: (r) => r && r.tds > 300, ph: (r) => r && (r.ph < 6.5 || r.ph > 8.5), clarity: (r) => r && r.clarity < 0.7 };
+        const warn = { tds: (r) => r && r.tds > 300, ph: (r) => r && !TapUI.phEstimated(r, store.health) && (r.ph < 6.5 || r.ph > 8.5), clarity: (r) => r && r.clarity < 0.7 };
         const cell = (r, key, digits) => `<td class="n${warn[key](r) ? " warn" : ""}">${r ? (digits == null ? esc(r[key]) : fmt(r[key], digits)) : "–"}</td>`;
         $("#figures").innerHTML = !b ? "" : `<table class="figures">
           <thead><tr><th></th><th class="n">Before</th><th class="n">After</th></tr></thead>
           <tbody>
             <tr><td>Dissolved solids <span class="unit">ppm</span></td>${cell(b, "tds")}${cell(a, "tds")}</tr>
-            <tr><td>Acidity <span class="unit">pH</span></td>${cell(b, "ph", 1)}${cell(a, "ph", 1)}</tr>
+            <tr><td>Acidity <span class="unit">pH${TapUI.phEstimated(b, store.health) ? ", estimated" : ""}</span></td>${cell(b, "ph", 1)}${cell(a, "ph", 1)}</tr>
             <tr><td>Transparency <span class="unit">0 to 1</span></td>${cell(b, "clarity", 2)}${cell(a, "clarity", 2)}</tr>
             <tr><td>Verdict</td><td class="n word${b.verdict !== "SAFE" ? " warn" : ""}">${esc(VERDICT[b.verdict] || b.verdict)}</td><td class="n word${a && a.verdict !== "SAFE" ? " warn" : ""}">${a ? esc(VERDICT[a.verdict] || a.verdict) : "–"}</td></tr>
           </tbody></table>`;
@@ -389,7 +415,7 @@
             <td class="t">${esc(clock(x.ts))}</td>
             <td class="site">${esc(store.nodeName(x.node))}${store.isSim(x) ? ' <span class="sim">simulated</span>' : ""}</td>
             <td class="hide-s">${esc(x.test)}${x.phase === "after" ? ' <span class="sim">retest</span>' : ""}</td>
-            <td class="n">${fmt(x.ph, 1)}</td>
+            <td class="n">${fmt(x.ph, 1)}${TapUI.phEstimated(x, store.health) ? ' <span class="unit">est.</span>' : ""}</td>
             <td class="n hide-s">${fmt(x.clarity, 2)}</td>
             <td class="n">${esc(x.tds)}</td>
             <td class="n">${x.anomaly >= 0.6 ? '<span class="note-odd">unusual here</span>' : x.verdict !== "SAFE" ? `<span class="note-warn">${esc((VERDICT[x.verdict] || x.verdict).toLowerCase())}</span>` : ""}</td></tr>`).join("")}</tbody></table>`;

@@ -19,6 +19,12 @@ import { installFacades } from './facades.js';
 import { renderOverview, ring, tdsBar } from './overview.js';
 import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us, TDS_BANDS, tdsColor } from './national.js';
 import { runIntro } from './intro.js';
+import { installSimulation } from './simulation.js';
+import { createSimulationOverlay, simulationTooltip } from './sim-overlay.js';
+import { readPrototypeLocation, readMapMode } from './map-settings.js';
+import { isSimulatedNode } from './provenance.js';
+import simulationNetwork from '../../web/network/data.json';
+import simulationPlacement from '../../web/network/placement.json';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
 // Building fields differ between the bundled Princeton GeoJSON (h, n, c) and Overture tiles (height, @name, class).
@@ -76,8 +82,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // Who wrote a filter decision: the gateway sends source "gemini" (AI) or "local_rule" (no AI used).
 const AI_NAME = 'Gemini';
-const sourceLabel = src => (src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
+const sourceLabel = src => (src === 'sample' ? 'Demo example' : src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
 const nodeName = id => state.nodes.get(id)?.name || id;
+const simulatedNode = n => isSimulatedNode(n, state.mode);
+// Missing provenance is conservative for legacy hardware; new readings carry the flag themselves.
+const phEstimated = r => r?.ph_est == null || r.ph_est === true || r.ph_est === 1;
 
 // ---------- data ingest ----------
 function addReading(r) {
@@ -107,39 +116,45 @@ function applyDecision(d) {
   if (r) { r.ai_filter = d.ai_filter; r.explanation = d.explanation; }
 }
 
-function testPair(node, test) {
+function testPair(node, test, session) {
   const list = state.readings.get(node) || [];
-  return {
-    before: list.find(r => r.test === test && r.phase === 'before') || null,
-    after: list.find(r => r.test === test && r.phase === 'after') || null,
-  };
+  const before = [...list].reverse().find(r => r.test === test && r.phase === 'before'
+    && (session === undefined || (r.session ?? null) === session)) || null;
+  const after = before ? list.find(r => r.test === test && r.phase === 'after' && r.id > before.id
+    && (r.session ?? null) === (before.session ?? null)) || null : null;
+  return { before, after };
 }
 
 // ---------- map ----------
-const HOME = { center: [-74.66, 40.35], zoom: 11.75, pitch: 55, bearing: -20 };
+const HOME = { center: [-74.658, 40.3615], zoom: 14.2, pitch: 50, bearing: -18 };
+let prototypeLocation = null, mapDemoMode = ARTIFACT;
+try { mapDemoMode ||= readMapMode(localStorage, params) === 'demo'; prototypeLocation = readPrototypeLocation(localStorage, mapDemoMode); } catch { mapDemoMode ||= readMapMode(null, params) === 'demo'; }
+const START = prototypeLocation ? { ...HOME, center: [prototypeLocation.lon, prototypeLocation.lat] } : HOME;
+if (prototypeLocation) document.getElementById('btn-reset')?.classList.remove('on');
 const map = new maplibregl.Map({
   container: 'map',
   style: BASE_STYLE ? BASE_STYLE : buildStyle(THEMES.dark),
-  ...HOME,
+  ...START,
   maxPitch: 75,
   // Opens on Princeton; you can zoom out past the whole country.
-  maxBounds: [[-180, 5], [-40, 75]],
+  ...(prototypeLocation ? {} : { maxBounds: [[-180, 5], [-40, 75]] }),
   antialias: true,
   attributionControl: { compact: true },
 });
 // The start screen: a globe, one line about the country's water worked out from the public samples the map
 // carries, and two ways in. The demo goes to Princeton, where the one real tank is; the other shows the country.
-runIntro(map, HOME, import.meta.env.BASE_URL + 'data/', THEMES.dark, {
+const intro = runIntro(map, START, import.meta.env.BASE_URL + 'data/', THEMES.dark, {
+  description: prototypeLocation ? 'From your prototype to a wider view of what changes.' : null,
   line: () => {
-    if (!us.sites.length) return 'Affordable water monitoring that leads to action.';
+    if (!us.sites.length) return 'Published samples of rivers, lakes and wells provide historical context, separate from the simulated tap readings.';
     const days = us.sites.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((a, b) => a - b);
     return `Half of the ${us.sites.length.toLocaleString()} public sites sampled for dissolved solids since 2024 have gone ${Math.round(days[Math.floor(days.length / 2)] / 30.4)} months or more without a new sample.`;
   },
   choices: [
-    { label: 'Start the Princeton demo', name: 'Princeton, New Jersey', view: HOME },
+    { label: prototypeLocation ? 'Open the prototype map' : 'Start the Princeton demo', name: prototypeLocation?.name || 'Princeton, New Jersey', view: START },
     { label: 'Look across the country', name: 'United States', view: US_VIEW, pin: false },
   ],
-  chose: c => { const usa = c.view === US_VIEW; document.getElementById('btn-usa')?.classList.toggle('on', usa); document.getElementById('btn-reset')?.classList.toggle('on', !usa); },
+  chose: c => { const usa = c.view === US_VIEW; document.getElementById('btn-usa')?.classList.toggle('on', usa); document.getElementById('btn-reset')?.classList.toggle('on', !usa && !prototypeLocation); },
 });
 const desktop = () => window.innerWidth > 1100;
 // Start the before/after card folded on short screens and phones, so it doesn't cover the map.
@@ -169,6 +184,10 @@ map.on('error', e => console.debug('[map]', String(e?.error?.message || e?.error
 
 const overlay = new MapboxOverlay({ interleaved: true, layers: [], getTooltip: tooltip });
 map.addControl(overlay);
+let simulationMapActive = false;
+const simulationOverlay = createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer }, {
+  onPick: (kind, id) => simulation.pick(kind, id),
+});
 
 // Which deck.gl layers are on (toggled from the Layers menu).
 const show = { ustds: true, columns: true, links: false, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
@@ -227,6 +246,8 @@ function nodeView(n) {
 
 function tooltip({ object, layer }) {
   if (!object) return null;
+  const simulated = simulationTooltip(object);
+  if (simulated) return { text: simulated };
   if (layer.id === 'reference') {
     return { html: `<b>${esc(object.site)}</b> · USGS<br/>Est. TDS ${object.tds_est} ppm<br/><span style="opacity:.7">${esc(object.date)} · TDS ≈ 0.65 × conductance</span>` };
   }
@@ -247,12 +268,12 @@ function tooltip({ object, layer }) {
   const n = object.node ? state.nodes.get(object.node) : null;
   if (!n) return null;
   const r = nodeView(n).lb || nodeView(n).lt;
-  const what = n.sim ? 'Simulated test site: made up by the gateway to<br/>show how a bigger network would look. Not real hardware.'
+  const what = simulatedNode(n) ? 'Simulated test site: generated demo readings.<br/>Not a hardware measurement.'
     : 'Clarity test station: real hardware that tests tap water<br/>before and after a filter and radios the results here.';
   if (!r) return { html: `<b>${esc(n.name)}</b><br/>${what}` };
   return {
-    html: `<b>${esc(n.name)}</b>${n.sim ? ' <span style="opacity:.7">· simulated</span>' : ''}<br/>` +
-      `TDS ${r.tds} ppm · pH ${r.ph} · clarity ${r.clarity}<br/>` +
+    html: `<b>${esc(n.name)}</b>${simulatedNode(n) ? ' <span style="opacity:.7">· simulated</span>' : ''}<br/>` +
+      `TDS ${r.tds} ppm · pH ${r.ph}${phEstimated(r) ? ' (estimated)' : ''} · clarity ${r.clarity}<br/>` +
       `${VERDICT_LABEL[r.verdict] || r.verdict} · RSSI ${r.rssi} dBm<br/>` +
       `<span style="opacity:.75">${what}<br/>Water height inside the tank = TDS (full at 1,000 ppm).<br/>Water color = verdict.</span><br/><span style="opacity:.7">Click for history</span>`,
   };
@@ -274,6 +295,20 @@ map.on('zoom', scheduleRender);
 map.on('moveend', scheduleRender);
 
 function renderMap(fromAnim = false) {
+  if (simulationMapActive) {
+    const zoom = map.getZoom(), now = performance.now();
+    const light = ['light', 'game'].includes(document.body.dataset.theme);
+    const place = makePlacer(map);
+    const plantLabels = show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }) : [];
+    // Keep actual geographic scenery; the illustrative route and the separate
+    // cup-test tanks would describe a different network, so omit them here.
+    const context = extraLayers({ zoom, light, now, place, plantLabels })
+      .filter(layer => layer && !layer.id.startsWith('route-') && layer.id !== 'flow');
+    const layers = [...context, ...simulationOverlay.layers(light)];
+    layers.sort((a, b) => (a instanceof TextLayer) - (b instanceof TextLayer));
+    overlay.setProps({ layers });
+    return;
+  }
   const nodes = [...state.nodes.values()].filter(n => n.lat != null && n.lon != null);
   const now = performance.now();
   const views = new Map(nodes.map(n => [n.node, nodeView(n)]));
@@ -296,9 +331,9 @@ function renderMap(fromAnim = false) {
   const place = makePlacer(map);
   const pitchK = Math.sin((map.getPitch() * Math.PI) / 180);
   const tankTopPx = (elev() / metersPerPixel(zoom, 40.35)) * pitchK;
-  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${n.sim ? ', simulated' : ''}`;
-  const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (n.sim ? 11 : 13),
-    priority: n => (n.sim ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
+  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${simulatedNode(n) ? ', simulated' : ''}`;
+  const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (simulatedNode(n) ? 11 : 13),
+    priority: n => (simulatedNode(n) ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
   const miscLabels = [
     ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'BASE STATION' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
     ...(show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }).map(d => ({ ...d, plant: true })) : []),
@@ -317,9 +352,9 @@ function renderMap(fromAnim = false) {
       data: nodes.filter(n => Math.abs(n.lat - BASE[0]) < 0.5 && Math.abs(n.lon - BASE[1]) < 0.5),
       getSourcePosition: n => [n.lon, n.lat],
       getTargetPosition: [BASE[1], BASE[0]],
-      getSourceColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, n.sim ? 90 : 220),
-      getTargetColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, n.sim ? 60 : 200),
-      getWidth: n => (n.sim ? 1.5 : 3),
+      getSourceColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, simulatedNode(n) ? 90 : 220),
+      getTargetColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, simulatedNode(n) ? 60 : 200),
+      getWidth: n => (simulatedNode(n) ? 1.5 : 3),
       getHeight: 0.6,
       greatCircle: false,
       pickable: true,
@@ -361,7 +396,7 @@ function renderMap(fromAnim = false) {
       pickable: true,
       getPosition: n => [n.lon, n.lat, wallBase],
       getElevation: n => fill(n) * wallH,
-      getFillColor: n => [...colRGB(n), n.sim ? 150 : 255],
+      getFillColor: n => [...colRGB(n), simulatedNode(n) ? 150 : 255],
       material: { ambient: 0.55, diffuse: 0.55, shininess: 60 },
       updateTriggers: { getElevation: key, getFillColor: key, getPosition: key },
       onClick: ({ object }) => object && openDrawer(object.node),
@@ -372,7 +407,7 @@ function renderMap(fromAnim = false) {
       mesh: tankSolid,
       getPosition: n => [n.lon, n.lat, 0],
       getScale: [ts, ts, ts],
-      getColor: n => (n.sim ? [113, 117, 128, 255] : light ? [90, 96, 108, 255] : [222, 216, 216, 255]),
+      getColor: n => (simulatedNode(n) ? [113, 117, 128, 255] : light ? [90, 96, 108, 255] : [222, 216, 216, 255]),
       material: { ambient: 0.45, diffuse: 0.65, shininess: 24, specularColor: [40, 40, 40] },
       pickable: true,
       autoHighlight: true,
@@ -386,7 +421,7 @@ function renderMap(fromAnim = false) {
       mesh: tankGlass,
       getPosition: n => [n.lon, n.lat, 0],
       getScale: [ts, ts, ts],
-      getColor: n => (light ? [11, 32, 39, 60] : [247, 240, 240, n.sim ? 40 : 70]),
+      getColor: n => (light ? [11, 32, 39, 60] : [247, 240, 240, simulatedNode(n) ? 40 : 70]),
       material: { ambient: 0.8, diffuse: 0.3, shininess: 80 },
       parameters: { depthMask: false, depthWriteEnabled: false },
       updateTriggers: { getScale: key, getColor: key },
@@ -406,8 +441,8 @@ function renderMap(fromAnim = false) {
       data: nodeLabels,
       getPosition: n => [n.lon, n.lat, elev(n)],
       getText: nodeText,
-      getSize: n => (n.sim ? 11 : 13),
-      getColor: n => (light ? (n.sim ? [113, 117, 128, 240] : [11, 32, 39, 255]) : (n.sim ? [150, 154, 163, 230] : [247, 240, 240, 255])),
+      getSize: n => (simulatedNode(n) ? 11 : 13),
+      getColor: n => (light ? (simulatedNode(n) ? [113, 117, 128, 240] : [11, 32, 39, 255]) : (simulatedNode(n) ? [150, 154, 163, 230] : [247, 240, 240, 255])),
       fontFamily: 'Inter, system-ui, sans-serif',
       fontWeight: 600,
       outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230],
@@ -676,7 +711,7 @@ function startTour() {
     if (!on) return;
     const n = stops[i % stops.length];
     i += 1;
-    map.flyTo({ center: [n.lon, n.lat], zoom: n.sim ? 14.6 : 15.6, pitch: 64, bearing: (i * 47) % 360 - 180, duration: 3500, essential: true });
+    map.flyTo({ center: [n.lon, n.lat], zoom: simulatedNode(n) ? 14.6 : 15.6, pitch: 64, bearing: (i * 47) % 360 - 180, duration: 3500, essential: true });
     map.once('moveend', () => { if (on) timer = setTimeout(next, 2200); });
   };
   next();
@@ -784,33 +819,47 @@ function refreshTimeRange() {
 }
 
 async function loadExtras() {
-  const get = async (f, dflt) => { try { return await (await fetch(`./data/${f}`)).json(); } catch { return dflt; } };
-  const [trees, roadLabels, infra] = await Promise.all([get('trees.json', []), get('road_labels.json', []), get('water_infra.json', [])]);
-  state.trees = trees; state.roadLabels = roadLabels; state.infra = infra;
+  const get = async (f, dflt) => {
+    try { const r = await fetch(`./data/${f}`); return r.ok ? await r.json() : dflt; } catch { return dflt; }
+  };
+  let detailStarted = false;
+  const loadDetail = () => {
+    if (detailStarted) return;
+    detailStarted = true;
+    const idle = fn => window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 0);
+    idle(async () => {
+      const [trees, roadLabels] = await Promise.all([get('trees.json', []), get('road_labels.json', [])]);
+      // The source is already shuffled deterministically: keep a stable third for
+      // the decorative canopy without constructing 60,000 mesh instances.
+      state.trees = trees.filter((_, i) => i % 3 === 0);
+      state.roadLabels = roadLabels;
+      renderMap();
+    });
+  };
+  if (intro?.active) window.addEventListener('clarity:map-arrived', loadDetail, { once: true });
+  else loadDetail(); // ?nointro and reduced-motion: decorate once startup is idle.
+  // Infrastructure is useful immediately and must not wait for decorative trees.
+  state.infra = await get('water_infra.json', []);
   renderSourcePanel();
   renderMap();
 }
 
 async function loadPlaces() {
-  try {
-    const fc = await (await fetch('./data/places.json')).json();
-    state.places = fc.features.map(f => ({ pos: f.geometry.coordinates, n: f.properties.n, c: f.properties.c }));
-  } catch { state.places = []; }
-  try {
-    const b = await (await fetch('./data/buildings.json')).json();
-    state.namedBuildings = b.features.filter(f => f.properties.n).map(f => {
-      const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
-      const c = ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
-      return { label: f.properties.n, pos: c, zoom: 17, h: (f.properties.h || 8) + (f.properties.b ? 0 : 0) };
-    });
-  } catch { state.namedBuildings = []; }
+  const get = async f => {
+    try { const r = await fetch(`./data/${f}`); return r.ok ? await r.json() : null; } catch { return null; }
+  };
+  const [places, labels] = await Promise.all([get('places.json'), get('building-labels.json')]);
+  state.places = places?.features?.map(f => ({ pos: f.geometry.coordinates, n: f.properties.n, c: f.properties.c })) || [];
+  // The generator keeps only named points; full building polygons are fetched
+  // separately by the map when their geometry is actually needed.
+  state.namedBuildings = Array.isArray(labels) ? labels : [];
   buildSearchIndex();
   renderMap();
 }
 
 function buildSearchIndex() {
   const idx = [
-    ...[...state.nodes.values()].filter(n => n.lat != null).map(n => ({ label: `${n.name}${n.sim ? ' (simulated node)' : ' (Clarity node)'}`, pos: [n.lon, n.lat], zoom: 15.5, node: n.node })),
+    ...[...state.nodes.values()].filter(n => n.lat != null).map(n => ({ label: `${n.name}${simulatedNode(n) ? ' (simulated node)' : ' (Clarity node)'}`, pos: [n.lon, n.lat], zoom: 15.5, node: n.node })),
     ...state.reference.map(r => ({ label: `${r.site} (USGS)`, pos: [r.lon, r.lat], zoom: 15 })),
     ...(state.namedBuildings || []),
     ...(state.places || []).map(p => ({ label: p.n, pos: p.pos, zoom: 17.5 })),
@@ -827,7 +876,7 @@ function heroTest() {
   const all = [...state.byId.values()].sort((a, b) => b.id - a.id);
   const real = all.find(r => !r.sim);
   const r = real || all[0];
-  return r ? { node: r.node, test: r.test } : null;
+  return r ? { node: r.node, test: r.test, session: r.session ?? null } : null;
 }
 
 /* Away from Princeton there is no Clarity site, so the card says what is publicly known about the water in
@@ -884,34 +933,35 @@ function renderHero() {
   if (areaShown) { renderArea(el); return; }
   const h = heroTest();
   if (!h) { el.innerHTML = '<div class="hero-title">Waiting for the first test…</div>'; return; }
-  const { before, after } = testPair(h.node, h.test);
+  const { before, after } = testPair(h.node, h.test, h.session ?? null);
   const n = state.nodes.get(h.node);
   const filter = (after || before)?.ai_filter || (after || before)?.filter;
   const src = state.sources.get(after?.id) || state.sources.get(before?.id) || after?.source || before?.source;   // the gateway also stores who chose
   const pct = before && after && before.tds ? Math.round((1 - after.tds / before.tds) * 100) : null;
   const color = r => `rgb(${(VERDICT_RGB[r?.verdict] || [113, 117, 128]).join(',')})`;
-  const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}</div></div>`;
+  const noFilter = !!before && !after && before.ai_filter === 'NONE';
+  const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}${noFilter ? '' : `<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}`}</div></div>`;
   const expl = [before?.explanation, after?.explanation].filter(Boolean);
   el.innerHTML = `
     <div class="hero-head">
-      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Before and after, test ${h.test}</div>
-      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${n?.sim ? '<span class="chip sim">simulated</span>' : ''}</div>
+      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>${noFilter ? 'As poured' : 'Before and after'}, test ${h.test}</div>
+      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${simulatedNode(n) ? '<span class="chip sim">simulated</span>' : ''}</div>
     </div>
     <div class="hero-big">
       <div><span class="num" style="color:${color(before)}">${before ? before.tds : '–'}</span><span class="unit">ppm</span></div>
-      <div class="arrow">→</div>
+      ${noFilter ? '' : '<div class="arrow">→</div>'}
       ${after
         ? `<div><span class="num" style="color:${color(after)}">${after.tds}</span><span class="unit">ppm</span></div>
            <div class="pct">${ring(pct / 100, { size: 62, label: `${pct}%` })}<span>TDS removed</span></div>`
-        : '<div class="pending">Retest pending…<br/><span class="muted small">Pour the filtered water</span></div>'}
+        : noFilter ? '<div class="pending">No filter needed<br/><span class="muted small">No retest required</span></div>' : '<div class="pending">Retest pending…<br/><span class="muted small">Pour the filtered water</span></div>'}
     </div>
     ${before ? `<div class="hero-bars">
       <div class="hb"><span>Before</span>${tdsBar(before.tds, color(before))}<b>${before.tds}</b></div>
-      <div class="hb"><span>After</span>${after ? tdsBar(after.tds, color(after)) : tdsBar(0, 'transparent')}<b>${after ? after.tds : '…'}</b></div>
+      ${noFilter ? '' : `<div class="hb"><span>After</span>${after ? tdsBar(after.tds, color(after)) : tdsBar(0, 'transparent')}<b>${after ? after.tds : '…'}</b></div>`}
       <div class="hb-scale"><span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span></div>
     </div>` : ''}
-    ${filter ? `<div class="filter-tag">Filter used: ${FILTER_LABEL[filter] || filter}</div>` : ''}
-    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric(n?.sim ? 'pH' : 'pH, estimated', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
+    ${filter ? `<div class="filter-tag">${noFilter ? 'Filter skipped' : filter === 'NONE' ? 'Choosing whether to filter' : `Filter chosen: ${FILTER_LABEL[filter] || filter}`}</div>` : ''}
+    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric([before, after].filter(Boolean).some(phEstimated) ? 'pH, estimated values included' : 'pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
     ${expl.length ? `<div class="explain">
         <div class="who ${src === 'local_rule' ? 'rule' : ''}">${sourceLabel(src)}</div>
         ${expl.map(t => `<p>${esc(t)}</p>`).join('')}
@@ -936,9 +986,9 @@ function feedItem(html, cls, node) {
 function feedReading(r) {
   const n = state.nodes.get(r.node);
   feedItem(`<div class="item-top"><span class="nodename">${esc(nodeName(r.node))}</span>
-      ${n?.sim ? '<span class="chip sim">sim</span>' : ''}<span class="chip ${r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
+      ${simulatedNode(n) ? '<span class="chip sim">sim</span>' : ''}<span class="chip ${r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
       <span class="t">${fmtTime(r.ts)}</span></div>
-    <div class="body">Test #${r.test} ${r.phase === 'after' ? 'retest (after filter)' : 'first pour'}: TDS <b>${r.tds}</b> ppm · pH ${r.ph} · clarity ${r.clarity}</div>
+    <div class="body">Test #${r.test} ${r.phase === 'after' ? 'retest (after filter)' : 'first pour'}: TDS <b>${r.tds}</b> ppm · pH ${r.ph}${phEstimated(r) ? ' (estimated)' : ''} · clarity ${r.clarity}</div>
     ${tdsBar(r.tds, `rgb(${(VERDICT_RGB[r.verdict] || [113, 117, 128]).join(',')})`)}`, `reading v-${r.verdict}`, r.node);
 }
 
@@ -949,7 +999,7 @@ function feedDecision(d) {
 }
 
 function reportHTML(rep) {
-  return `<div class="item-top"><span class="chip PH_WARN">Investigator</span><span class="nodename">${esc(nodeName(rep.node))}</span><span class="t">test #${rep.test}</span></div>
+  return `<div class="item-top"><span class="chip PH_WARN">${rep.source === 'sample' ? 'Demo report' : 'Investigator'}</span><span class="nodename">${esc(nodeName(rep.node))}</span><span class="t">test #${rep.test}</span></div>
     <div class="body">${esc(rep.summary)}</div>
     ${rep.findings?.length ? `<div class="lbl">Findings</div><ul>${rep.findings.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
     ${rep.actions?.length ? `<div class="lbl">Actions</div><ul>${rep.actions.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}`;
@@ -1020,10 +1070,10 @@ function renderKpis() {
   const befores = all.filter(r => r.phase === 'before');
   const afters = all.filter(r => r.phase === 'after');
   const safeAfter = afters.length ? Math.round((afters.filter(r => r.verdict === 'SAFE').length / afters.length) * 100) : 0;
-  const drops = afters.map(a => { const b = testPair(a.node, a.test).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
+  const drops = afters.map(a => { const b = testPair(a.node, a.test, a.session ?? null).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
   const avgDrop = drops.length ? Math.round((drops.reduce((s, x) => s + x, 0) / drops.length) * 100) : 0;
   const liters = state.filters.reduce((s, f) => s + (f.liters || 0), 0);
-  const real = [...state.nodes.values()].filter(n => !n.sim).length;
+  const real = [...state.nodes.values()].filter(n => !simulatedNode(n)).length;
   $('#kpis').innerHTML = [
     [befores.length, 'water tests run'],
     [`${safeAfter}%`, 'in range after filtering'],
@@ -1047,10 +1097,10 @@ async function exportCSV() {
     rows = [...state.byId.values()];
   } catch { /* export what we have */ }
   rows.sort((a, b) => a.id - b.id);
-  const cols = ['id', 'ts', 'node', 'name', 'sim', 'test', 'phase', 'ph', 'tds', 'clarity', 'verdict', 'filter', 'ai_filter', 'ai_source', 'anomaly', 'rssi', 'lat', 'lon', 'explanation'];
+  const cols = ['id', 'ts', 'node', 'name', 'sim', 'mock', 'test', 'phase', 'ph', 'ph_est', 'tds', 'clarity', 'verdict', 'filter', 'ai_filter', 'ai_source', 'anomaly', 'rssi', 'lat', 'lon', 'explanation'];
   const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [cols.join(',')].concat(rows.map(r => cols.map(c =>
-    cell(c === 'name' ? nodeName(r.node) : c === 'ai_source' ? (state.sources.get(r.id) || r.source) : r[c])).join(','))).join('\n');
+    cell(c === 'name' ? nodeName(r.node) : c === 'sim' ? isSimulatedNode(r, state.mode) : c === 'mock' ? (state.mode === 'mock' || !!r.mock) : c === 'ai_source' ? (state.sources.get(r.id) || r.source) : r[c])).join(','))).join('\n');
   const filename = `clarity-water-log-${new Date().toISOString().slice(0, 10)}.csv`;
   // Inside a claude.ai artifact, files are handed over through the viewer's downloads capability.
   if (ARTIFACT && window.claude?.use) {
@@ -1145,14 +1195,14 @@ function renderDrawer() {
     <div class="meta"><span>${esc(node)}</span>
       ${n.lastBefore ? `<span>Source water</span><span class="chip ${n.lastBefore.verdict}">${VERDICT_LABEL[n.lastBefore.verdict] || n.lastBefore.verdict}</span>` : ''}
       ${latest ? `<span>RSSI ${latest.rssi} dBm</span><span>Last ${fmtTime(latest.ts)}</span>` : ''}</div>
-    ${n.sim ? '<div class="sim-banner">Simulated node. Readings are generated, not measured.</div>' : ''}
+    ${simulatedNode(n) ? '<div class="sim-banner">Simulated node. Readings are generated, not measured.</div>' : ''}
     <div class="anomaly">
       <div><div class="lbl">Anomaly score</div><div class="score" style="color:${anomaly > 0.66 ? 'var(--high)' : anomaly > 0.33 ? 'var(--cloudy)' : 'var(--safe)'}">${anomaly.toFixed(2)}</div></div>
       <div style="flex:1"><div class="bar"><i style="left:${anomaly * 100}%"></i></div>
         <div class="small muted" style="margin-top:8px">${anomaly > 0.66 ? 'Very unusual for this site' : anomaly > 0.33 ? 'Somewhat unusual for this site' : 'Normal for this site'}</div></div>
     </div>
     <h3>Dissolved solids in ppm, first pour and after the filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
-    <h3>${n.sim ? 'pH' : 'pH, estimated'}, usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
+    <h3>${rs.some(phEstimated) ? 'pH, estimated values shown separately' : 'pH'}, usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
     <h3>Clarity, where 1 is clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
     <h3>Anomaly score over time</h3><div class="chart" style="height:90px"><canvas id="c-an"></canvas></div>
     ${reps.length ? `<h3>Investigator</h3>${reps.map(r => `<div class="report-card" style="margin-bottom:8px">${reportHTML(r)}</div>`).join('')}` : ''}
@@ -1165,7 +1215,7 @@ function renderDrawer() {
     { label: 'First pour', data: pick('before', 'tds'), color: '#D9667E' },
     { label: 'After filter', data: pick('after', 'tds'), color: '#5A9BBD' },
   ], { min: 0, band: { min: 0, max: 300, line: 500 } }));
-  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH', data: rs.map(r => r.ph), color: '#A892C8' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
+  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH measured', data: rs.map(r => phEstimated(r) ? null : r.ph), color: '#A892C8' }, { label: 'pH estimated', data: rs.map(r => phEstimated(r) ? r.ph : null), color: '#717580' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
   charts.push(lineChart($('#c-cl'), labels, [{ label: 'Clarity', data: rs.map(r => r.clarity), color: '#F7F0F0' }], { min: 0, max: 1, band: { min: 0.6, max: 1 } }));
   charts.push(lineChart($('#c-an'), labels, [{ label: 'Anomaly', data: rs.map(r => r.anomaly), color: 'rgba(113,117,128,.9)' }], { type: 'bar', min: 0, max: 1 }));
 }
@@ -1197,10 +1247,33 @@ function setStatus(s) {
   el.title = s === 'offline' ? 'Retrying the gateway. Add ?api=http://host:8000 if it runs on another machine.' : '';
 }
 
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
-  for (const k of ['ov', 'live', 'src', 'biz']) $(`#tab-${k}`).classList.toggle('hidden', t.dataset.tab !== k);
-}));
+const simulation = installSimulation({
+  apiBase: (params.get('api') || import.meta.env.VITE_API || '').replace(/\/$/, ''),
+  mock: mapDemoMode,
+  fallbackNetwork: simulationNetwork, fallbackPlacement: simulationPlacement,
+  chooseTab: key => selectTab(key),
+  onOpen: () => { stopMotion(); closeDrawer(); exitCutaway(); intro?.dismiss(); },
+  onChange: snapshot => {
+    const wasActive = simulationMapActive;
+    simulationMapActive = Boolean(snapshot.overlayActive && snapshot.view === 'map' && snapshot.network);
+    simulationOverlay.update(snapshot);
+    if (simulationMapActive && snapshot.open && !wasActive) {
+      const bounds = simulationOverlay.bounds();
+      if (bounds) {
+        map.fitBounds(bounds, { padding: { top: 110, bottom: 70, left: 55, right: 55 },
+          maxZoom: 14.1, pitch: 40, bearing: -18, duration: 1600 });
+      }
+    }
+    scheduleRender();
+  },
+});
+function selectTab(key) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === key));
+  document.querySelectorAll('#panel > .tab-body').forEach(b => b.classList.toggle('hidden', b.id !== `tab-${key}`));
+  if (key === 'sim') simulation.open(); else simulation.close();
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => selectTab(t.dataset.tab)));
+if (params.has('simulation')) selectTab('sim');
 $('#drawer-close').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); exitCutaway(); } });
 $('#export').addEventListener('click', exportCSV);
