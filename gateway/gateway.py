@@ -962,9 +962,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "P
 
 CONTROL_TOKEN = os.getenv("CONTROL_TOKEN", "").strip()
 # The Uno sketch ships with PH_FROM_TDS 1: its pH is worked out from dissolved solids, not read from the probe.
-# The pages label it as an estimate unless this is set to 0 (do that once the probe is calibrated and the
-# sketch is flashed with PH_FROM_TDS 0).
-PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
+# The pages label it as an estimate and the notices leave it out unless PH_ESTIMATED=0 is set in the environment
+# (do that once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0). See analysis.py.
+PH_ESTIMATED = analysis.PH_ESTIMATED
 
 
 def require_control(request: Request):

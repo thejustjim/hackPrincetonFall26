@@ -2,8 +2,11 @@
 
 *What you deserve.*
 
-Pour water into one cup. Clarity measures pH, dissolved solids (TDS) and clarity (shown as transparency on the dashboard), an AI agent
-on the base station picks a filter, and the cup tips itself into ZeroWater or Brita. Pour the
+Presenting it? `DEMO.md` is the run-sheet: what to have ready, the two minutes, and what a judge will ask.
+
+Pour water into one cup. Clarity measures dissolved solids (TDS) and clarity (shown as transparency on the dashboard), and for now
+estimates pH from them. The tank's own rule picks a filter, or for close calls an AI model on the base station does, and the cup
+tips itself into ZeroWater or Brita. Pour the
 clean water back in to retest. Results travel over a direct radio link (no WiFi or cell) to a
 Raspberry Pi base station that stores every node's readings and serves the dashboard.
 
@@ -91,6 +94,13 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   waits (a search or the USA button takes over), and `?nointro` leaves it out. The home view is `HOME` in
   `src/main.js`. `node test_intro.mjs` checks the slow-down and the land it draws.
   While the start screen waits it covers the panel too and the toolbar steps back, all but the search.
+  The Water source tab has a section "On the public record": what EPA's own records say about the system
+  that serves Princeton (who it serves, violations by quarter and on record, lead at the tap, its wells and
+  intakes, PFAS from the UCMR 5 survey), each with its source, and the day it was fetched. It is collected
+  ahead of time by `python3 scripts/public_record.py` and stored in `public/data/public_record.json`, not
+  looked up by the page. It never says the water is safe or unsafe, and it says a detection is not a violation.
+  The basemap, 2D, orbit and tour controls are in the "View and layers" menu, so the bar is the logo, the
+  search and one button.
   Away from Princeton there is no Clarity site, so the card at the bottom left says what is publicly known
   about the water there instead: how many Water Quality Portal sites in view (or within 25 km, when zoomed
   in) were sampled for dissolved solids since 2024, their median, the share over the EPA's 500 ppm

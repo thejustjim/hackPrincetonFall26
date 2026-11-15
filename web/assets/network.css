@@ -6,7 +6,7 @@ body.network .ruled { scroll-margin-top: 70px; }
 .intro { max-width: 46em; }
 .kicker { font-family: var(--sans); font-size: 14px; color: var(--warn); }
 .intro h1 { margin: 10px 0 18px; font-weight: 400; font-size: clamp(40px, 4.6vw, 72px); line-height: 1.04; letter-spacing: -0.02em; text-wrap: balance; }
-.intro .about { margin-top: 14px; font-size: 16px; max-width: 44em; }
+#net-note { font-size: 16px; max-width: 44em; }      /* what the network is, after the report: the drawing comes first */
 
 .scenarios { display: flex; flex-wrap: wrap; gap: 6px 30px; margin: 40px 0 0; padding: 14px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
 .scenarios button { padding: 4px 0; border: 0; border-bottom: 1px solid transparent; background: none; color: var(--label2); font: italic 19px var(--serif); cursor: pointer; }

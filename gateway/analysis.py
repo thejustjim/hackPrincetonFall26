@@ -18,6 +18,7 @@ do next; they do not compute. Everything here is a pure function of lists of rea
 database, no network), so it can be tested alone: python test_analysis.py
 """
 import math
+import os
 import statistics
 
 METRICS = ("ph", "tds", "clarity")
@@ -255,7 +256,8 @@ def rule_report(case, result, filters):
         summary = (f"{name} took this cup's {LABEL[lead]} from {fmt(lead, b[lead])} to {fmt(lead, a[lead])}, "
                    + ("and the retest is back in range." if back else "but the retest is still out of range."))
     else:
-        summary = f"This cup was not filtered. Its retest read {fmt('tds', a['tds'])}, pH {fmt('ph', a['ph'])} and transparency {fmt('clarity', a['clarity'])}."
+        summary = (f"This cup was not filtered. Its retest read {fmt('tds', a['tds'])}, pH {fmt('ph', a['ph'])}"
+                   f"{' (estimated)' if PH_ESTIMATED else ''} and transparency {fmt('clarity', a['clarity'])}.")
     findings = list(result["evidence"])
     actions = []
     for f in filters or []:
@@ -267,7 +269,7 @@ def rule_report(case, result, filters):
     elif result["kind"] == "local_event":
         actions.append("Pour a second cup from the same source to confirm the reading." if result["repeat"] < 2
                        else "Find out what changed at this source: the same unusual reading has repeated.")
-        actions.append("Have the source tested by a lab before relying on it: this device reads only pH, dissolved solids and transparency.")
+        actions.append(f"Have the source tested by a lab before relying on it: this device reads only {READS}.")
     elif result["kind"] == "regional_shift":
         actions.append("Compare with the latest published samples: several nodes moved together, which points to the source, not this site.")
     elif result["kind"] == "persistent_shift":
@@ -282,14 +284,22 @@ def rule_report(case, result, filters):
 
 # ---------------------------------------------------------------- a notice, from fixed templates
 # A draft for the people who use this water. Nothing sends it. The required sentence is in every one.
-NOTICE_REQUIRED = "Clarity reads only pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant."
+#
+# The tank's current sketch works pH out from dissolved solids (PH_FROM_TDS 1): it is an estimate, not a
+# reading. So by default no notice speaks of pH as something Clarity read. PH_ESTIMATED=0 in the environment
+# puts it back; set it only once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0.
+PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
+READS = "dissolved solids and transparency" if PH_ESTIMATED else "pH, dissolved solids and transparency"
+IN_RANGE = f"{READS} {'both' if PH_ESTIMATED else 'all'} read in range"
+NOTICE_REQUIRED = f"Clarity reads only {READS}. It cannot detect lead, bacteria or any specific contaminant."
+NO_DISINFECTION = "A pitcher filter does not disinfect."       # added when the cup was cloudy: clearer is not cleaner
 NOTICE_TEMPLATES = {
     "back_in_range": "Clarity measured a cup of water at {site}. It read {problem} and was sent through {filter}. "
-                     "On the retest, pH, dissolved solids and transparency all read in range.",
+                     f"On the retest, {IN_RANGE}.",
     "still_out_of_range": "Clarity measured a cup of water at {site}. It read {problem}, and after {filter} the retest was "
                           "still out of range. Have this source tested by a certified lab before relying on it.",
-    "no_filter_needed": "Clarity measured a cup of water at {site}. pH, dissolved solids and transparency all read in "
-                        "range, so it was not filtered.",
+    "no_filter_needed": "Clarity measured a cup of water at {site}. " + IN_RANGE[0].upper() + IN_RANGE[1:]
+                        + ", so it was not filtered.",
     "not_filtered": "Clarity measured a cup of water at {site}. It read {problem}, which neither of its filters is made "
                     "to correct. Have this source tested by a certified lab before relying on it.",
     "sensor_fault": "A sensor on the Clarity node at {site} needs checking, so its latest readings should not be relied "
@@ -313,7 +323,8 @@ def notice_for(case, result, site):
     filled = NOTICE_TEMPLATES[notice_template(case, result)].format(
         site=site or "this site", filter={"ZEROWATER": "ZeroWater", "BRITA": "Brita Elite"}.get(case.get("filter"), ""),
         problem=PROBLEM.get(b.get("verdict"), "out of range").format(**b))
-    return f"{filled} {NOTICE_REQUIRED}"
+    cloudy = b.get("verdict") == "CLOUDY" and case.get("filter") in ("ZEROWATER", "BRITA")
+    return f"{filled} {NO_DISINFECTION + ' ' if cloudy else ''}{NOTICE_REQUIRED}"
 
 
 def notice_ok(text):

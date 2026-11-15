@@ -534,3 +534,13 @@ body.starting .mapbar > :not(#search):not(datalist), body.starting #topstats { o
 .hero .explain { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .area-home { background: none; border: 0; padding: 0; font: inherit; color: var(--sky); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .area-home:hover { color: var(--paper); }
+
+/* the basemap, 2D, orbit and tour controls live in the menu with the layers, so the bar is the logo, the search and one button */
+.lm-view { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.lm-view .tool { padding: 5px 9px; font-size: 12.5px; }
+
+/* the public record on the Water source tab: a label, the fact, and where it came from */
+.facts.record td:first-child { width: 8.5em; color: var(--muted); vertical-align: top; }
+.facts.record td { line-height: 1.5; }
+.facts.record td:nth-child(2) { white-space: normal; font-family: inherit; padding-left: 10px; }
+.facts.record a { color: var(--sky); white-space: nowrap; text-underline-offset: 3px; }

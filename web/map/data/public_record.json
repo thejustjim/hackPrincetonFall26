@@ -1,0 +1,48 @@
+{
+ "fetched": "2026-11-15",
+ "place": "Princeton, New Jersey",
+ "system": {
+  "pwsid": "NJ2004002",
+  "name": "NJ AMERICAN WATER - RARITAN",
+  "population": 615430,
+  "connections": 205035,
+  "source": "EPA water system service areas",
+  "url": "https://www.epa.gov/ground-water-and-drinking-water/community-water-system-service-area-boundaries"
+ },
+ "wells_active": 54,
+ "wells_on_record": 134,
+ "intakes_active": 4,
+ "facts": [
+  {
+   "label": "Recent violations",
+   "text": "None in the 12 quarters from July 2023 to June 2026.",
+   "source": "EPA ECHO",
+   "url": "https://echo.epa.gov/detailed-facility-report?fid=NJ2004002&sys=SDWIS"
+  },
+  {
+   "label": "Violations on record",
+   "text": "3, from 2011 and 2017. None was health-based, and all are marked as returned to compliance.",
+   "source": "EPA SDWIS",
+   "url": "https://data.epa.gov/efservice/VIOLATION/PWSID/NJ2004002/JSON"
+  },
+  {
+   "label": "Lead at the tap",
+   "text": "0.002 mg/L at the 90th percentile of the homes sampled in 2025. EPA's action level is 0.015 mg/L.",
+   "source": "EPA SDWIS",
+   "url": "https://data.epa.gov/efservice/LCR_SAMPLE_RESULT/PWSID/NJ2004002/JSON"
+  },
+  {
+   "label": "Sources",
+   "text": "4 active surface-water intakes and 54 active wells (134 wells on record, 80 of them inactive).",
+   "source": "EPA SDWIS",
+   "url": "https://data.epa.gov/efservice/WATER_SYSTEM_FACILITY/PWSID/NJ2004002/JSON"
+  },
+  {
+   "label": "PFAS",
+   "text": "Detected in 19 of 522 results from the system's plants in 2024. The highest were PFOA at 7.5 ng/L and PFOS at 6.8 ng/L, both at the Stony Brook Plant. New Jersey's limits are 14 and 13 ng/L. EPA's 2024 rule sets 4.0 ng/L for each, with compliance required at a later date (2029 in the rule as issued). A detection is not a violation.",
+   "source": "EPA UCMR 5",
+   "url": "https://www.epa.gov/dwucmr/occurrence-data-unregulated-contaminant-monitoring-rule"
+  }
+ ],
+ "caveat": "These are records for the whole system, which serves many towns. They are not a test of any one tap, and they do not say the water is safe or unsafe."
+}

@@ -41,6 +41,8 @@
 #pitch .p-title h1 { font-size: clamp(96px, 11vw, 216px); line-height: 0.92; letter-spacing: -0.04em; margin-left: -0.04em; }
 #pitch .tagline { margin: 0; font-style: italic; color: var(--accent); }
 #pitch .p-title .tagline { margin-top: 0.5em; font-size: clamp(28px, 2.9vw, 54px); line-height: 1.1; }
+#pitch .p-turn { margin: -8px 0 0; max-width: 30em; font-style: italic; font-size: clamp(19px, 1.7vw, 30px); line-height: 1.35; color: var(--label2); }
+#pitch.stacked .p-turn { font-size: 18px; margin-top: 0; }
 #pitch .p-lede { margin: 1.5em 0 0; max-width: 19em; font-size: clamp(18px, 1.5vw, 27px); line-height: 1.45; color: var(--label2); }
 #pitch .s-title { --after: 900ms; }
 #pitch .s-title .p-hint { position: absolute; left: var(--page-x); bottom: 30px; }
@@ -213,7 +215,8 @@
   #pitch .says li { padding: 16px 0 18px; font-size: 23px; }
 
   /* the problem */
-  #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 176px; gap: 34px; align-items: end; }
+  #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 260px; gap: 34px; align-items: end; }
+  #pitch .p-turn { font-size: 24px; }
   #pitch #sample-chart text { font-size: 25px; }
   #pitch #sample-chart .note { font-size: 29px; }
   #pitch .src { font-size: 13px; }

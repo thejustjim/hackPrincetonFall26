@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-  <script type="module" crossorigin src="./assets/index-BUglNjNh.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BR4uVjY2.css">
+  <script type="module" crossorigin src="./assets/index-C17WzMbQ.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-dplJT-ZZ.css">
 </head>
 <body>
   <header class="appbar">
@@ -22,15 +22,18 @@
     <div class="mapbar">
     <input id="search" list="search-list" placeholder="Search any US city, address or Princeton site" autocomplete="off" />
     <datalist id="search-list"></datalist>
-    <div id="theme" class="seg" title="Basemap">
-      <button data-theme="dark" class="on">Dark</button><button data-theme="light">Light</button><button data-theme="satellite">Satellite</button>
-    </div>
-    <button id="btn-3d" class="tool" title="Switch between 2D and 3D">2D</button>
-    <button id="btn-rotate" class="tool" title="Slowly orbit the camera">Orbit</button>
-    <button id="btn-tour" class="tool" title="Fly between every site (good for the demo video)">Tour sites</button>
     <details id="layers" class="layers">
-      <summary class="tool">Layers</summary>
+      <summary class="tool">View and layers</summary>
       <div class="layers-menu glass">
+        <div class="lm-title">View</div>
+        <div class="lm-view">
+        <div id="theme" class="seg" title="Basemap">
+        <button data-theme="dark" class="on">Dark</button><button data-theme="light">Light</button><button data-theme="satellite">Satellite</button>
+        </div>
+        <button id="btn-3d" class="tool" title="Switch between 2D and 3D">2D</button>
+        <button id="btn-rotate" class="tool" title="Slowly orbit the camera">Orbit</button>
+        <button id="btn-tour" class="tool" title="Fly between every site (good for the demo video)">Tour sites</button>
+        </div>
         <div class="lm-title">Readings</div>
         <label><input type="checkbox" data-layer="columns" checked /> Clarity sites (tanks)</label>
         <label><input type="checkbox" data-layer="ustds" checked /> US water samples (TDS)</label>

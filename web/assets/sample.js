@@ -125,7 +125,7 @@
       const actions = zw
         ? (after.tds >= 6
             ? ["Replace the ZeroWater cartridge: the retest read 6 ppm or more.", "Keep high-TDS water out of the tank until the new cartridge is in."]
-            : ["Find out where the salty sample came from.", "Have that source tested by a lab before relying on it: this device reads only pH, dissolved solids and transparency."])
+            : ["Find out where the salty sample came from.", "Have that source tested by a lab before relying on it: this device reads only dissolved solids and transparency."])
         : (f.status === "OK"
             ? ["Retest the source tomorrow to see if the cloudiness persists.", "If it does, have it tested by a lab: cloudiness has many causes this device cannot tell apart."]
             : ["Order a replacement Brita Elite cartridge; this one is past 90% of its rating.", "Retest the source tomorrow to see if the cloudiness persists."]);
@@ -137,10 +137,10 @@
       const val = (k, v) => (k === "tds" ? `${Math.round(v)} ppm` : v.toFixed(k === "clarity" ? 2 : 1));
       const far = Math.abs(lead.z) >= 3, name = zw ? "ZeroWater" : "Brita Elite", back = after.verdict === "SAFE";
       const problem = { HIGH_TDS: `high in dissolved solids (${before.tds} ppm)`, CLOUDY: `cloudy (transparency ${before.clarity.toFixed(2)})`, PH_WARN: `outside the usual pH range (pH ${before.ph.toFixed(1)})` }[before.verdict];
-      const notice = `Clarity measured a cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, pH, dissolved solids and transparency all read in range.`
-        : `, and after ${name} the retest was still out of range. Have this source tested by a certified lab before relying on it.`} Clarity reads only pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant.`;
+      const notice = `Clarity measured a cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, dissolved solids and transparency both read in range.`
+        : `, and after ${name} the retest was still out of range. Have this source tested by a certified lab before relying on it.`}${before.verdict === "CLOUDY" ? " A pitcher filter does not disinfect." : ""} Clarity reads only dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant.`;
       const sections = [
-        { agent: "sensor-health", title: "Sensor health", text: "Measured: pH, dissolved solids and transparency all read plausibly. None is stuck, out of range or trending, so this is a water event, not a sensor fault." },
+        { agent: "sensor-health", title: "Sensor health", text: "Measured: dissolved solids and transparency both read plausibly, and the pH estimated from them is in its usual range. Nothing is stuck, out of range or trending, so this is a water event, not a sensor fault." },
         { agent: "analyst", title: "This site's history", text: `Measured: ${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
         { agent: "network", title: "Nearby and published", text: `Simulated: none of the ${checks.peers.n} simulated nodes nearby moved the same way, so this looks local to this site. ${findings[1]}` },
         { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Measured: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },

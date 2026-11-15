@@ -219,7 +219,6 @@
     }
     s += `<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>`;
     [1960, 1970, 1980, 1990, 2000, 2010, 2020].forEach((yr) => { s += `<text x="${(x(yr) + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle">${yr}</text>`; });
-    s += `<text class="note" x="${(x(1996) + bw / 2).toFixed(1)}" y="${(y(19) - 12).toFixed(1)}" text-anchor="middle">19 days in 1996</text>`;
     const bx0 = x(2000) + 2, bx1 = x(y1) + bw - 2, by = y(7.5);
     s += `<path class="bracket" d="M${bx0.toFixed(1)} ${by + 8} V${by} H${bx1.toFixed(1)} V${by + 8}"/><text class="note" x="${((bx0 + bx1) / 2).toFixed(1)}" y="${by - 12}" text-anchor="middle">2000 to today</text>`;
     s += `</svg>`;

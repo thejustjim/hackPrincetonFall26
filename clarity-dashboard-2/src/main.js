@@ -569,18 +569,36 @@ async function followTheWater() {
   motion = null;
 }
 
+/* What EPA's public records say about the system that serves Princeton: collected ahead of time by
+   scripts/public_record.py and stored, so nothing is looked up while the page is being shown. */
+let publicRecord = null;
+fetch(import.meta.env.BASE_URL + 'data/public_record.json').then(r => (r.ok ? r.json() : null)).then(j => { publicRecord = j; renderSourcePanel(); }).catch(() => {});
+function recordHTML() {
+  const r = publicRecord;
+  if (!r) return '';
+  const day = new Date(r.fetched + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return `<h3>On the public record <span class="h3note">EPA, fetched ${day}</span></h3>
+    <table class="facts record">
+      <tr><td>Who it serves</td><td>${Number(r.system.population).toLocaleString()} people through ${Number(r.system.connections).toLocaleString()} connections, Princeton among many towns.
+        <a href="${esc(r.system.url)}" target="_blank" rel="noopener">${esc(r.system.source)}</a></td></tr>
+      ${r.facts.map(f => `<tr><td>${esc(f.label)}</td><td>${esc(f.text)} <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.source)}</a></td></tr>`).join('')}
+    </table>
+    <p class="muted small">${esc(r.caveat)}</p>`;
+}
 function renderSourcePanel() {
+  const wells = publicRecord ? `wells: ${SYSTEM.wells} by the utility's report, ${publicRecord.wells_active} active on EPA's record` : `${SYSTEM.wells} wells`;
   const ref = state.reference.map(r => `<tr><td>${esc(r.site)}</td><td>${r.tds_est} ppm</td><td class="muted">${esc(String(r.date).slice(0, 4))}</td></tr>`).join('');
   $('#tab-src').innerHTML = `
-    <p class="lede">Princeton's tap water comes from <b>${SYSTEM.utility}</b>, ${SYSTEM.system}. About ${SYSTEM.surfacePct}% is river and canal water and ${SYSTEM.groundPct}% comes from ${SYSTEM.wells} wells.</p>
+    <p class="lede">Princeton's tap water comes from <b>${SYSTEM.utility}</b>, ${SYSTEM.system}. About ${SYSTEM.surfacePct}% is river and canal water and ${SYSTEM.groundPct}% comes from wells.</p>
     <button id="btn-follow" class="btn">Follow the water</button>
     <ol class="journey">
-      <li data-fly="-74.5700,40.5480,13.2"><b>Sources</b><span>${SYSTEM.sources.join(', ')}, plus ${SYSTEM.wells} wells</span></li>
+      <li data-fly="-74.5700,40.5480,13.2"><b>Sources</b><span>${SYSTEM.sources.join(', ')}, plus ${wells}</span></li>
       <li data-fly="${PLANTS[0].pos.join(',')},14.6"><b>${PLANTS[0].short}</b><span>${esc(PLANTS[0].note)}</span></li>
       <li data-fly="${PLANTS[1].pos.join(',')},14.4"><b>${PLANTS[1].short}</b><span>${esc(PLANTS[1].note)}</span></li>
       <li data-fly="${RIDGE_TOWER.join(',')},16"><b>Storage towers</b><span>${state.infra.filter(d => d.k === 'water_tower').length} mapped water towers in the area keep pressure up by gravity.</span></li>
       <li data-fly="-74.6555,40.347,17"><b>Your tap</b><span>Clarity tests it before and after the filter.</span></li>
     </ol>
+    ${recordHTML()}
     <h3>From the utility's ${SYSTEM.report}</h3>
     <table class="facts">${SYSTEM.results.map(r => `<tr><td>${r.k}</td><td>${r.v}</td><td class="muted">${r.note}</td></tr>`).join('')}</table>
     <p class="muted small">Average supply ${SYSTEM.supplyMgd} million gallons a day (2023 report). ${SYSTEM.treatment} The report does not list TDS. PWSID ${SYSTEM.pwsid}. <a href="${SYSTEM.reportUrl}" target="_blank" rel="noopener">Read the report</a></p>

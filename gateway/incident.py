@@ -15,10 +15,11 @@ document and page, when the guidance index has been built on this machine.
 import json
 from pathlib import Path
 
+import analysis
 import guidance
 import localize
 
-NOTICE_REQUIRED = "Clarity reads only pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant."
+NOTICE_REQUIRED = analysis.NOTICE_REQUIRED        # the same closing sentence as every other notice (it leaves pH out while pH is an estimate)
 SEVERITY_WORDS = ["No action needed", "Worth a second look", "Act on it"]
 CAVEATS = [
     "This is a simulation. The network is WNTR's Net3 example (EPANET example network 3), the event was injected by the simulation, and no real sensor or pipe is involved.",
