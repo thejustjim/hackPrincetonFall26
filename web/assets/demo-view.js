@@ -5,7 +5,7 @@
   "use strict";
 
   /* A short account of the pour: what was wrong, what was done, how it turned out.
-     The numbers themselves are in the notes around the glass, so they aren't repeated here. */
+     One key reading is repeated beneath it, so the result needs no hover or scroll. */
   function account(store) {
     const { FILTER_NAME } = TapUI;
     const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
@@ -23,6 +23,23 @@
     const did = `${who} sent it through ${FILTER_NAME[f] || f}`;
     if (!a) return `${what} ${did}. Pour it back to see whether that helped.`;
     return a.verdict === "SAFE" ? `${what} ${did}, and the retest came back in range.` : `${what} ${did}, but the retest is still out of range.`;
+  }
+
+  /* Use the reading the chosen filter addresses. Until the retest, this is explicitly the
+     before-reading; only a measured after-reading earns a before/after comparison. */
+  function proof(store) {
+    const { FILTER_NAME, fmt } = TapUI;
+    const p = store.pour, b = p?.before, a = p?.after, f = p?.decision?.ai_filter;
+    if (!b) return { text: "", state: "waiting" };
+    const clarity = f === "BRITA" || (!f && b.verdict === "CLOUDY");
+    const ph = b.verdict === "PH_WARN" && (!f || f === "NONE");
+    const value = (r) => clarity ? fmt(r.clarity, 2) : ph ? fmt(r.ph, 1) : fmt(r.tds, 0);
+    const pair = a ? `${value(b)} → ${value(a)}` : value(b);
+    const reading = clarity ? `Transparency ${pair}` : ph ? `pH ${pair}` : `${pair} ppm`;
+    if (a) return { text: `${reading} · ${FILTER_NAME[f] || "filtered"} · retested`, state: a.verdict === "SAFE" ? "retested" : "out-of-range" };
+    if (f === "NONE") return { text: `${reading} · no filter used`, state: b.verdict === "SAFE" ? "bypass" : "out-of-range" };
+    if (f) return { text: `${reading} before · ${FILTER_NAME[f] || f} · retest awaited`, state: "awaiting" };
+    return { text: `${reading} · first reading`, state: "before" };
   }
 
   /* What the pours in the history chart add up to: how many were left alone because they read in
@@ -222,6 +239,12 @@
       const now = `${v?.title}|${v?.sub}|${text}`, moved = heroWas != null && now !== heroWas;
       heroWas = now;
       TapUI.swapText(document.getElementById("standfirst"), text);
+      const result = proof(store), resultEl = document.getElementById("proof");
+      if (resultEl) {
+        resultEl.hidden = !result.text;
+        resultEl.textContent = TapUI.typo(result.text);
+        resultEl.dataset.state = result.state;
+      }
       // the headline and account above can change height: what sits under them steps out while they do
       const when = document.getElementById("when"), about = document.getElementById("about");
       if (moved && when && when.dataset.text === when.textContent) dip(when);   // unless its own text is already fading over

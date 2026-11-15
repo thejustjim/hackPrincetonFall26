@@ -1,8 +1,8 @@
 <!-- The pitch. Loaded by assets/pitch.js and laid over the /demo page when you arrive at /pitch.
      In a wide window the 3D glass stays on stage beside every slide, and `data-scene` says what it
-     is doing there: `raw` is no filter and nasty water; `filter catch release` snap the filter in,
-     put a dirty drop through it and let a clear one fall, a step per name (`data-step` marks the
-     item each step lights); `run` keeps the filter and lets that happen by itself. Scrolling past the last slide hands over to
+     is doing there: `raw hang catch release` measure, interpret, filter, then show the retest,
+     a step per name (`data-step` marks the item each step lights); `bypass` shows an in-range cup
+     with no filter, and `run` repeats the filtered example. Scrolling past the last slide hands over to
      /demo. `data-rise` marks what floats in, in order.
      The judged presentation is two minutes, demo included, so the deck is five slides. The ones
      marked `data-extra` (hardware, AI, filter life, sources, open questions) are left out unless
@@ -34,21 +34,23 @@
   </div>
 </section>
 
-<section class="slide s-loop" aria-label="How Clarity works" data-scene="raw filter catch release">
+<section class="slide s-loop" aria-label="How Clarity works" data-scene="raw hang catch release">
   <div class="frame">
     <h2>One cup, one loop</h2>
     <ol class="loop">
       <li data-rise data-step><span class="n">1</span><h3>Measure</h3><p>pH, dissolved solids and transparency, from one pour.</p></li>
-      <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p><span data-ai>Gemini</span> reads it against this site's history, and a team of agents writes what to do next.</p></li>
+      <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p><span data-ai>Gemini</span> reads it against this site's history and chooses a filter, or none.</p></li>
       <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits.</p></li>
-      <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows whether it worked.</p></li>
+      <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows what changed; the agents write the report.</p></li>
     </ol>
+    <p class="p-scene-note" data-rise>Tip into filter → pour back → measure again.</p>
   </div>
 </section>
 
-<section class="slide s-why" aria-label="What it saves" data-scene="run">
+<section class="slide s-why" aria-label="What it saves" data-scene="bypass">
   <div class="frame">
     <h2>Measure first, and less is wasted</h2>
+    <p class="p-scene-note" data-rise>In range → filter skipped.</p>
     <ul class="why">
       <li data-rise><h3>Water left alone</h3><p>A cup that reads in range skips the filter. Nothing is spent on water that didn't need it.</p></li>
       <li data-rise><h3>Filters used to the end</h3><p>The page says when a cartridge is spent, from its retest or its litre count, so it isn't binned early or kept too long.</p></li>

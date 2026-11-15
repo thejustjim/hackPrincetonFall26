@@ -4,8 +4,9 @@
      1. The page opens on black, on a glass of clear water. One dirty drop gathers and falls in.
      2. On impact the page colour comes up, the title rises beside the glass, and the water turns
         brown. In a wide window the glass then stays on stage for the whole deck. With no filter it
-        stays nasty. On the "One cup, one loop" slide the filter snaps into place and the water
-        clears, a step per press, and it stays clear from there on.
+        stays as measured. "One cup, one loop" keeps the original water while it is interpreted,
+        adds the filter for Act, then shows the retest at Compare, a step per press. The savings
+        slide shows a different, in-range cup passing through without a filter.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
      4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
         is removed from the page at that point, so there is no way back up to it.
@@ -30,19 +31,26 @@
   let holdUntil = 0, armed = true, lastWheel = 0, pile = 0, restTimer = 0;
 
   // ---------------------------------------------------------------- handing over to the demo
-  /* The glass stays on stage through the whole deck (in a wide window), and it follows one rule, the
-     same as the demo's: with no filter the water is what was poured, and what was poured is nasty;
-     with the filter in place the water is clear. Each slide names its scene in data-scene:
-       raw      no filter. Dirty drops fall straight in, and the glass is brown.
-       filter   the filter snaps into place under the dropper, and the water clears.
-       catch    the dirty drop goes into the filter, and a clear one forms beneath and waits.
-       release  the clear drop falls into the clear water.
-       run      the filter stays, and dirty-in, clear-out happens by itself, over and over.
+  /* The wide-screen glass follows the loop's four steps. Keep the measured water until Compare:
+       raw      the cup as poured, with no filter.
+       hang     Interpret: hold the untreated drop while a filter is chosen.
+       catch    Act: bring in the filter and hold its output; the retest is still awaited.
+       release  Compare: show the retested water and release the filtered drop.
+       bypass   a separate, in-range cup: no filter is needed.
+       run      the filtered example repeats on the optional detail slides.
      A slide that names several scenes has that many steps: each press moves on one. */
-  const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };     // what the dropper holds
+  const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };
+  const RETEST = { ph: 7.1, tds: 8, clarity: 0.98, verdict: "SAFE" };
+  const IN_RANGE = { ph: 7.2, tds: 136, clarity: 0.96, verdict: "SAFE" };
   const raw = (g) => { g.setSource(DIRTY, false); g.setWater(DIRTY, false, true); g.step?.(null); };
-  const scene = (phase) => (g) => { g.setSource(DIRTY, true); g.setWater(null); g.step?.(phase); };
-  const SCENES = { raw, run: scene(null), filter: scene("filter"), catch: scene("catch"), release: scene("release") };
+  const scene = (phase, water, filtered = true) => (g) => {
+    g.setSource(DIRTY, filtered); g.setWater(water); g.step?.(phase);
+  };
+  const SCENES = {
+    raw, hang: scene("hang", DIRTY, false), catch: scene("catch", DIRTY),
+    release: scene("release", RETEST), run: scene(null, RETEST),
+    bypass: (g) => { g.setSource(IN_RANGE, false); g.setWater(IN_RANGE); g.step?.(null); },
+  };
   let sub = 0;                                                  // which step of the current slide
   const stepsOf = (s) => (s.dataset.scene || "").split(" ").filter(Boolean);
   function stage() {

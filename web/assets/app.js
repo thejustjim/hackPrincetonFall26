@@ -92,10 +92,8 @@
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
   const usedFilter = (store) => store.pour?.decision?.ai_filter || null;
-  /* What the glass holds is what has reached the cup. No filter: the water as it was poured, brown
-     or amber if that is how it read. A filter in use: what came through it, drawn clear until the
-     retest arrives, and from then on as the retest actually read (clear again if it worked). The
-     dirty water stays up in the dropper, above the filter. */
+  /* Keep the measured before-reading in the glass until a retest arrives. The filter and drops
+     illustrate the chosen action; their appearance is not evidence that the action worked. */
   const HOLD_MS = 2600;        // the tank decides clear-cut pours at once; the page still shows the cup as poured for this long
   let heldPour = null, heldAt = 0;
   const justPoured = (store) => {
@@ -108,8 +106,7 @@
   const inGlass = (store) => {
     const p = store.pour;
     if (!p?.before) return null;
-    if (p.after) return p.after;
-    return filtering(store) ? null : p.before;
+    return p.after || p.before;
   };
 
   /* The hero's words: a short verdict, and under it what is being done about it.
@@ -137,15 +134,16 @@
   function items(store) {
     const p = store.pour, b = p?.before, a = p?.after, r = a || b, d = p?.decision, f = d?.ai_filter;
     const out = [];
+    const phase = !a && d && f && f !== "NONE" ? " · before" : "";
     if (r) {
       // "back in range" marks a reading the filter fixed; "warn" one that is out of range now
       const state = (bad, wasBad, why) => bad ? { flag: why, tone: "warn" } : a && wasBad ? { flag: "back in range", tone: "good" } : { flag: null, tone: null };
       const phBad = (x) => x.ph < 6.5 || x.ph > 8.5;
-      out.push({ id: "ph", group: "cup", icon: "gauge", label: "Acidity", value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
+      out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
         detail: `Drinking water is normally between 6.5 and 8.5. Neither filter here corrects pH.` });
-      out.push({ id: "clarity", group: "cup", icon: "eye", label: "Transparency", value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
+      out.push({ id: "clarity", group: "cup", icon: "eye", label: `Transparency${phase}`, value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
         detail: `How clear the water looks, from 0 (opaque) to 1 (clear). Below 0.70 counts as cloudy, and this device sends cloudy water to Brita.` });
-      out.push({ id: "tds", group: "cup", icon: "drop", label: "Dissolved solids", value: `${r.tds} ppm`, ...state(r.tds > 300, b.tds > 300, r.tds > 500 ? "over the EPA guideline of 500" : "high: above 300"),
+      out.push({ id: "tds", group: "cup", icon: "drop", label: `Dissolved solids${phase}`, value: `${r.tds} ppm`, ...state(r.tds > 300, b.tds > 300, r.tds > 500 ? "over the EPA guideline of 500" : "high: above 300"),
         detail: `Minerals and salts in the water${a ? `. This cup went from ${b.tds} to ${a.tds} ppm` : ""}. Above 300 is high; the EPA guideline is 500.` });
     }
     if (d) {
@@ -268,7 +266,7 @@
       $("#verdict").classList.toggle("good", v.tone === "good");
       const r = current(store);
       if (window.TapHero) { if (!pitching()) { const w = inGlass(store); TapHero.setWater(w, false, !!w && w === store.pour?.before); pipette(); } }
-      clearTimeout(holdTimer);                                 // when the hold ends, the filter comes in and the water clears
+      clearTimeout(holdTimer);                                 // when the hold ends, the chosen filter comes in; the retest determines the water
       if (justPoured(store) && !store.pour?.after) holdTimer = setTimeout(renderHero, HOLD_MS - (performance.now() - heldAt) + 40);   // a cup as poured shows at once
       else $("#cup-fallback").innerHTML = TapCup.svg(r);
       renderNotes();                                           // after the glass is told, so the notes are measured with the Retest note's hint in place

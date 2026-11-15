@@ -23,10 +23,13 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 #verdict.good { color: var(--accent); }
 #sub { margin-top: 10px; min-height: 1.25em; font-style: italic; font-size: clamp(24px, 2.3vw, 40px); line-height: 1.2; letter-spacing: -0.01em; color: var(--label2); }
 #standfirst { margin-top: 26px; max-width: 25em; color: var(--label2); font-size: clamp(17px, 1.35vw, 21px); line-height: 1.5; text-wrap: pretty; }
+#proof { margin-top: 14px; color: var(--label2); font-size: clamp(17px, 1.35vw, 21px); line-height: 1.4; font-variant-numeric: lining-nums tabular-nums; text-wrap: pretty; }
+#proof[data-state="retested"], #proof[data-state="bypass"] { color: var(--accent); }
+#proof[data-state="out-of-range"] { color: var(--warn); }
 #when { margin-top: 18px; font-family: var(--sans); color: var(--label3); font-size: 13px; }
 /* what Clarity is for, in one sentence, ending on a live count: the page's argument, under the account of this cup */
 #about { margin-top: 24px; max-width: 25em; font-style: italic; color: var(--label2); font-size: clamp(15px, 1.12vw, 17.5px); line-height: 1.45; text-wrap: balance; }
-#about::before { content: ""; display: block; margin-bottom: 16px; border-top: 1px solid var(--hair); }   /* its rule is inside it, so the two hide together */
+#about::before { content: ""; display: block; margin-bottom: 16px; border-top: 1px solid var(--hair); }
 #about-tally { display: block; color: var(--text); }   /* the count is a line of its own, so the sentence before it never leaves one word beside it */
 
 /* entrance (.live): the copy rises line by line, the cup fades up, then the notes (base.css) */
@@ -269,11 +272,14 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .page { padding: 36px var(--page-x) 56px; }
   .section-head { flex-wrap: wrap; gap: 4px 24px; }
 }
-/* The pinned hero only has room for the sentence about Clarity when the window is tall for its width
-   (the words above it grow with the width, up to their largest size). Shorter windows leave it out,
-   and the full account's tally says the same thing. */
-@media (min-width: 1181px) {
-  #about { overflow: hidden; max-height: clamp(0px, (100vh - min(34.2vw, 568px) - 300px) * 100, 30em); }
+/* Keep the measure-first argument on short presentation screens. Only the supplementary
+   history tally gives way; the cup, palette and editorial hierarchy stay the same. */
+@media (min-width: 1181px) and (max-height: 800px) {
+  .hero-copy { top: 18vh; }
+  #standfirst { margin-top: 18px; }
+  #about { margin-top: 18px; }
+  #about::before { margin-bottom: 12px; }
+  #about-tally { display: none; }
 }
 /* small laptop windows: the notes' explanations are set narrower, so an open one stays clear of the headline column */
 @media (min-width: 1181px) and (max-width: 1320px) {

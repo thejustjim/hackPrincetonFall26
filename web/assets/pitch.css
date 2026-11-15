@@ -63,6 +63,7 @@
 #pitch #sample-chart .note { font: italic 21px var(--serif); fill: var(--text); }
 #pitch #sample-chart .bracket { stroke: var(--text); stroke-opacity: 0.7; stroke-width: 1; fill: none; }
 #pitch .src { margin: 14px 0 0; font: 15px var(--sans); color: var(--label3); }
+#pitch .p-scene-note { margin: 18px 0 0; font-style: italic; font-size: 22px; line-height: 1.35; color: var(--accent); }
 #pitch .p-stat .num { margin: 0; font-size: 300px; line-height: 0.8; letter-spacing: -0.04em; color: var(--accent); font-variant-numeric: lining-nums; }
 #pitch .p-stat .what { margin: 26px 0 0; font-style: italic; font-size: 36px; line-height: 1.15; }
 
@@ -147,6 +148,7 @@
 #pitch.stacked .p-title h1 { font-size: clamp(64px, 19vw, 132px); }
 #pitch.stacked .p-title .tagline { font-size: clamp(24px, 6vw, 38px); }
 #pitch.stacked .p-lede { font-size: 18px; }
+#pitch.stacked .p-scene-note { font-size: 17px; }
 #pitch.stacked h2 { font-size: clamp(30px, 6.4vw, 52px); line-height: 1.1; margin-bottom: 0; }
 #pitch.stacked .split, #pitch.stacked .two, #pitch.stacked .open, #pitch.stacked .loop, #pitch.stacked .why,
 #pitch.stacked .s-problem .split, #pitch.stacked .s-ai .split, #pitch.stacked .s-sources .split { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-top: 32px; }
