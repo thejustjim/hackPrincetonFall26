@@ -177,6 +177,23 @@ td.n, th.n { text-align: right; padding-left: 18px; }
 #report ul, #report ol { margin: 0 0 22px; padding-left: 22px; display: grid; gap: 8px; max-width: 38em; }
 #report li::marker { color: var(--accent); }
 #report .sample-note { margin: 14px 0 0; }
+/* the report: who wrote it, its verdict, the checks behind it, what each agent found, the draft notice */
+#report .by { margin: 14px 0 0; max-width: 46em; font-family: var(--sans); font-size: 13px; line-height: 1.45; color: var(--label3); }
+.rep-verdict { margin: -8px 0 26px; font-size: 21px; color: var(--label2); }
+.rep-verdict b { font-weight: 400; color: var(--text); }
+.rep-verdict.sev-0 b { color: var(--accent); }
+.rep-verdict.sev-2 b { color: var(--warn); }
+#report h3 { margin-top: 30px; }
+.checks { max-width: 44em; }
+.checks th { width: 7.5em; padding-right: 18px; font-weight: 400; font-style: italic; color: var(--label2); white-space: nowrap; vertical-align: baseline; }
+.checks td { color: var(--label2); font-size: 17px; line-height: 1.45; }
+.checks tr.warn td { color: var(--text); }
+.checks tr:last-child th, .checks tr:last-child td { border-bottom: 0; }
+.agents { margin: 0; max-width: 44em; display: grid; gap: 14px; }
+.agents dt { font-style: italic; color: var(--label2); font-size: 16px; }
+.agents dd { margin: 2px 0 0; font-size: 17px; line-height: 1.45; }
+.notice { margin: 0; max-width: 40em; padding-left: 18px; border-left: 1px solid var(--accent); font-style: italic; font-size: 18px; line-height: 1.5; color: var(--text); }
+.notice + .by { margin-top: 10px; }
 .quiet { color: var(--label2); }
 
 #filters + #nearby { margin-top: 36px; }

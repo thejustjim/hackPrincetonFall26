@@ -1,0 +1,32 @@
+{
+ "note": "A small set of guidance notes the maintenance agent can search. Each is a plain restatement with its source; none is a quotation.",
+ "notes": [
+  {"id": "epa-secondary", "topic": "dissolved solids, TDS and pH guidelines",
+   "text": "The EPA's secondary drinking water standards suggest total dissolved solids of no more than 500 mg/L and a pH of 6.5 to 8.5. They are guidelines for taste, colour, odour and scaling, not enforceable health limits.",
+   "source": "US EPA, National Secondary Drinking Water Regulations"},
+  {"id": "tds-meaning", "topic": "what a TDS or conductivity reading can and cannot show",
+   "text": "A dissolved-solids reading comes from electrical conductivity, so it reflects dissolved minerals and salts in total. It does not identify what they are, and it does not detect lead, bacteria, pesticides or anything that carries no charge.",
+   "source": "General practice for conductivity meters"},
+  {"id": "lab-test", "topic": "lab test, certified laboratory, confirm, contaminant",
+   "text": "An unusual reading says something changed, not what. A certified drinking-water laboratory can identify what is in the water; in New Jersey, laboratories are certified by NJ DEP.",
+   "source": "NJ DEP, Office of Quality Assurance (laboratory certification)"},
+  {"id": "repeat-sample", "topic": "second pour, repeat sample, confirm a single reading, spike",
+   "text": "Repeat the measurement with a fresh sample before acting on a single unusual reading. One reading can be a bad sample or a sensor glitch; two in a row is a pattern.",
+   "source": "General sampling practice"},
+  {"id": "zerowater-life", "topic": "ZeroWater filter replacement, cartridge life, 006",
+   "text": "ZeroWater says to replace its filter when filtered water reads 006 ppm or more on a TDS meter. Water high in dissolved solids uses a cartridge up faster.",
+   "source": "ZeroWater, filter instructions"},
+  {"id": "brita-life", "topic": "Brita Elite filter replacement, cartridge life, litres, gallons",
+   "text": "Brita rates its Elite filter for about 120 gallons (roughly 450 litres), or about six months of typical household use.",
+   "source": "Brita, Elite filter specifications"},
+  {"id": "carbon-vs-ion", "topic": "which filter, activated carbon, ion exchange, cloudy, dissolved solids unchanged",
+   "text": "An activated-carbon filter such as Brita's is made for taste, odour and some colour and cloudiness; it leaves most dissolved minerals in, so dissolved solids barely change. ZeroWater's ion-exchange stages remove dissolved solids.",
+   "source": "Makers' descriptions of each filter type"},
+  {"id": "calibration", "topic": "calibration, drift, recalibrate sensor, pH probe, stuck",
+   "text": "pH probes drift and need regular calibration against buffer solutions (commonly pH 4, 7 and 10). A conductivity or TDS probe is checked against a standard solution of known conductivity. A value that never changes usually means a wiring or probe fault.",
+   "source": "General practice for pH and conductivity probes"},
+  {"id": "road-salt", "topic": "regional rise in dissolved solids, conductance, road salt, runoff, winter, low flow",
+   "text": "When several sites rise together the cause is usually upstream of all of them. In streams in the Northeast, road salt washing off in winter and low flow in dry spells are common reasons for higher conductance.",
+   "source": "USGS studies of chloride and conductance in northern US streams"}
+ ]
+}

@@ -59,6 +59,42 @@
   }
   let heroWas = null;
 
+  /* The report's own evidence, in words: the base station's checks (gateway/analysis.py), what each
+     of the investigator's agents found, and the draft notice. All three are optional. */
+  const NAMES = { ph: "pH", tds: "Dissolved solids", clarity: "Transparency" };
+  const shown = (m, v) => (m === "tds" ? `${Math.round(v)} ppm` : Number(v).toFixed(m === "clarity" ? 2 : 1));
+  function checkRows(c) {
+    const faults = c.sensor.filter((x) => x.status !== "ok");
+    const lead = c.baseline.find((x) => x.metric === c.lead.metric);
+    const drift = c.baseline.filter((x) => x.ewma_signal || x.cusum_signal);
+    const far = Math.abs(lead.z) >= 3, p = c.peers;
+    return [
+      ["Sensors", faults.length ? faults.map((x) => x.note).join(" ") : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
+      ["This site", `${NAMES[lead.metric]} read ${shown(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} ${
+        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
+        far ? (c.repeat > 1 ? `${c.repeat} pours in a row have been unusual the same way.` : "Three or more is unusual; this is the only one in a row.") : "Three or more would be unusual."}`, far],
+      ["Trend", drift.length ? `${drift.map((x) => NAMES[x.metric]).join(" and ")} ${drift.length > 1 ? "have" : "has"} run ${drift[0].direction === "up" ? "high" : "low"} for several pours: a small shift that persists.`
+        : "No small shift has persisted across recent pours.", drift.length > 0],
+      ["Neighbours", !p.n ? "No nodes nearby to compare with." : !far ? "Not needed: this pour was ordinary for the site."
+        : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
+    ];
+  }
+  function reportExtras(rep, health) {
+    const { esc, t } = TapUI;
+    const by = rep.source === "deepagents" ? "Written by the investigator: a lead agent and five specialists, working from the base station's checks."
+      : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With an Anthropic key, the investigator's agents add to it."}`
+      : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
+    return {
+      by: by ? `<p class="${rep.source === "sample" ? "sample-note" : "by"}">${esc(by)}</p>` : "",
+      verdict: rep.kind_words ? `<p class="rep-verdict sev-${rep.severity || 0}"><b>${t(rep.kind_words)}.</b> ${t(rep.severity_words || "")}.</p>` : "",
+      checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks).map(([k, v, warn]) =>
+        `<tr${warn ? ' class="warn"' : ""}><th scope="row">${k}</th><td>${t(v)}</td></tr>`).join("")}</tbody></table>` : "",
+      agents: rep.sections?.length ? `<h3>What each agent found</h3><dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
+        `<div><dt>${t(x.title)}</dt><dd>${t(x.text)}</dd></div>`).join("")}</dl>` : "",
+      notice: rep.notice ? `<h3>Draft notice</h3><blockquote class="notice">${t(rep.notice)}</blockquote><p class="by">Filled in from fixed templates. Nothing sends it.</p>` : "",
+    };
+  }
+
   /* Each pour as a pair: a ring where it started, a dot where it ended, on one ppm scale. */
   function historyChart(pours) {
     const { esc, clock, FILTER_NAME } = TapUI;
@@ -229,10 +265,11 @@
         const rep = store.report;
         const earlier = rep && b && rep.test !== b.test;
         $("#report").innerHTML = `<h2>From the investigator</h2>${rep ? `<p class="about">On pour ${esc(rep.test)}${earlier ? ", the one before this" : ""}${rep.ts ? `, ${esc(ago(rep.ts))}` : ""}</p>` : ""}` + (!rep
-          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "Reports appear after each retest once the gateway has an Anthropic key. Add it to .env and restart the gateway."}</p>`
-          : `${rep.source === "sample" ? '<p class="sample-note">Sample report written for the demo data, not by the investigator.</p>' : ""}<p class="pull">${t(rep.summary)}</p>
-             ${rep.findings?.length ? `<h3>Findings</h3><ul>${rep.findings.map((x) => `<li>${t(x)}</li>`).join("")}</ul>` : ""}
-             ${rep.actions?.length ? `<h3>What to do next</h3><ol>${rep.actions.map((x) => `<li>${t(x)}</li>`).join("")}</ol>` : ""}`);
+          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>`
+          : (() => { const x = reportExtras(rep, store.health); return `${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
+             ${rep.findings?.length ? `<h3>Findings</h3><ul>${rep.findings.map((f) => `<li>${t(f)}</li>`).join("")}</ul>` : ""}
+             ${rep.actions?.length ? `<h3>What to do next</h3><ol>${rep.actions.map((f) => `<li>${t(f)}</li>`).join("")}</ol>` : ""}
+             ${x.checks}${x.agents}${x.notice}`; })());
       }
 
       if (what === "all" || what === "filters") {

@@ -30,6 +30,7 @@ import json
 import math
 import os
 import random
+import re
 import sqlite3
 import statistics
 import threading
@@ -42,6 +43,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSock
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import analysis
 import cloud
 import mock
 
@@ -91,6 +93,9 @@ db.execute("""CREATE TABLE IF NOT EXISTS filter_changes (
 db.execute("""CREATE TABLE IF NOT EXISTS investigations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, reading_id INTEGER,
     filter TEXT, summary TEXT, findings TEXT, actions TEXT, model TEXT)""")
+if "extra" not in [c[1] for c in db.execute("PRAGMA table_info(investigations)")]:
+    # the verdict of the checks, the checks themselves, what each agent said, and the notice (JSON)
+    db.execute("ALTER TABLE investigations ADD COLUMN extra TEXT")
 db.commit()
 db_lock = threading.Lock()
 
@@ -379,8 +384,7 @@ async def handle_line(raw: str):
         used = attach_after(reading)
         await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
         asyncio.create_task(explain_only(reading, past))
-        if investigator_agent is not None:
-            asyncio.create_task(run_investigation(reading, used))
+        asyncio.create_task(report_on(reading, used))
 
 
 async def decide(reading, past):
@@ -477,27 +481,200 @@ def get_reference_data() -> dict:
                            "n_samples", "first_date", "last_date")} for s in ref["sites"]]}
 
 
+# ---------------------------------------------------------------- layered detection (analysis.py)
+def peers_for(node, radius_km=8.0):
+    """Nearby nodes, each with its latest raw-water reading and the ones before it."""
+    here, out = NODES.get(node), []
+    for key, n in NODES.items():
+        if not here or key == node:
+            continue
+        d = km_between(here["lat"], here["lon"], n["lat"], n["lon"])
+        if d <= radius_km:
+            rows = [h for h in history(key, 40) if h["phase"] == "before"]      # newest first
+            if rows:
+                out.append({"node": key, "name": n["name"], "sim": n["sim"], "km": round(d, 1),
+                            "reading": rows[0], "history": rows[:0:-1]})
+    return out
+
+
+def raw_reading(node, test=None, before_id=None):
+    """The raw-water ("before") reading of one test at a node, or the node's latest one."""
+    q, args = "SELECT * FROM readings WHERE node=? AND phase='before'", [node]
+    if test is not None:
+        q, args = q + " AND test=?", args + [int(test)]
+    if before_id is not None:
+        q, args = q + " AND id<?", args + [before_id]
+    with db_lock:
+        row = db.execute(q + " ORDER BY id DESC LIMIT 1", args).fetchone()
+    return row_to_dict(row) if row else None
+
+
+def analyse_reading(reading):
+    """Every layer of analysis.py for one raw-water reading: sensor checks, baseline, peers, verdict."""
+    with db_lock:
+        rows = db.execute("SELECT * FROM readings WHERE node=? AND id<? ORDER BY id DESC LIMIT 150",
+                          (reading["node"], reading["id"])).fetchall()
+    return analysis.analyse(reading, [row_to_dict(r) for r in reversed(rows)], peers_for(reading["node"]))
+
+
+def case_for(node, test, after=None, filter_used=None):
+    """One filter run: its before and after readings, the filter used and the checks' verdict."""
+    before = raw_reading(node, test, after["id"] if after else None)
+    if before is None:
+        return None, None
+    with db_lock:
+        if after is None:
+            row = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
+                             "ORDER BY id LIMIT 1", (node, before["test"], before["id"])).fetchone()
+            after = row_to_dict(row) if row else None
+        if filter_used is None and after is not None:
+            tip = db.execute("SELECT filter FROM tips WHERE after_id=?", (after["id"],)).fetchone()
+            filter_used = tip["filter"] if tip else None
+    result = analyse_reading(before)
+    case = {"node": node, "site": NODES.get(node, {}).get("name"), "test": before["test"], "filter": filter_used,
+            "before": {k: before[k] for k in READING_KEYS}, "after": {k: after[k] for k in READING_KEYS} if after else None,
+            "checks": {"kind": result["kind"], "verdict": result["kind_words"], "severity": result["severity_words"],
+                       "evidence": result["evidence"]}}
+    return case, result
+
+
+# More tools for the investigator's specialists. Each returns numbers worked out by analysis.py.
+def get_case(node: str, test: int) -> dict:
+    """The filter run under investigation: the before and after readings of one test at a node
+    (verdict SAFE means in range), the filter used, the verdict of the gateway's statistical
+    checks with its evidence, and the notice template that fits the outcome."""
+    case, result = case_for(node, test)
+    if case is None:
+        return {"error": f"no reading for node {node} test {test}"}
+    if case["after"]:
+        case["notice_template"] = analysis.notice_template(case, result)
+    return case
+
+
+def get_sensor_checks(node: str, test: int) -> dict:
+    """Whether each sensor can be believed for this test: status ok, check or fault per reading
+    (pH, tds, clarity) with the reason. A fault means the reading is not a water event."""
+    reading = raw_reading(node, test)
+    if reading is None:
+        return {"error": f"no reading for node {node} test {test}"}
+    result = analyse_reading(reading)
+    return {"sensor": result["sensor"], "verdict": result["kind_words"]}
+
+
+def get_baseline(node: str, test: int) -> dict:
+    """This test against the node's own history. Per reading: value, the node's median and
+    spread (sigma) over n earlier pours, z (spreads from the median; 3 or more is unusual),
+    and EWMA and CUSUM control charts with their limits (a signal means a small shift that
+    has persisted). Also the multivariate distance across all three (3.4 or more is unusual)
+    and repeat: how many pours in a row were unusual the same way."""
+    reading = raw_reading(node, test)
+    if reading is None:
+        return {"error": f"no reading for node {node} test {test}"}
+    result = analyse_reading(reading)
+    return {k: result[k] for k in ("baseline", "multivariate", "lead", "repeat", "kind_words", "severity_words")}
+
+
+def get_peer_comparison(node: str, test: int) -> dict:
+    """Did the neighbours move too? scope is regional (at least two nearby nodes, and at least
+    half of them, are unusual the same way), local, or unknown (no neighbours). Each node has
+    its value, its z against its own history and sim=true when it is simulated."""
+    reading = raw_reading(node, test)
+    if reading is None:
+        return {"error": f"no reading for node {node} test {test}"}
+    result = analyse_reading(reading)
+    return {"compared": analysis.LABEL[result["lead"]["metric"]], "direction": result["lead"]["direction"], **result["peers"]}
+
+
+def query_readings(sql: str) -> list[dict] | dict:
+    """Run one read-only SQL SELECT over the `readings` table; up to 200 rows come back.
+    Columns: id, ts (UTC), node, test, phase ('before' = raw water, 'after' = retest), ph,
+    tds (ppm), clarity (0-1), verdict ('SAFE' means in range; 'HIGH_TDS', 'CLOUDY', 'PH_WARN'),
+    filter, ai_filter, sim (1 = simulated node), anomaly (0-1).
+    Example: SELECT phase, count(*), round(avg(tds)) FROM readings WHERE node='tank-01' GROUP BY phase"""
+    text = (sql or "").strip().rstrip(";")
+    if ";" in text or not re.match(r"(?is)^(select|with)\b", text):
+        return {"error": "only a single SELECT statement is allowed"}
+    ro = None
+    try:
+        ro = sqlite3.connect(Path(DB_PATH).resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
+        ro.row_factory = sqlite3.Row
+        steps = [0]
+
+        def tick():                                  # give up on a query that runs away
+            steps[0] += 1
+            return steps[0] > 3000
+        ro.set_progress_handler(tick, 1000)
+        return [dict(r) for r in ro.execute(text).fetchmany(200)]
+    except sqlite3.Error as e:
+        return {"error": str(e)}
+    finally:
+        if ro is not None:
+            ro.close()
+
+
+GUIDANCE_PATH = Path(__file__).with_name("guidance.json")
+
+
+def search_guidance(query: str) -> list[dict]:
+    """Search a small set of guidance notes (the filter makers' replacement rules, the EPA's
+    secondary guidelines, calibration, when to ask a lab). Returns up to three notes, each
+    with its text and its source. Use the source when you repeat a note."""
+    try:
+        notes = json.loads(GUIDANCE_PATH.read_text())["notes"]
+    except Exception:
+        return []
+    words = {w for w in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(w) > 2}
+    scored = [(sum(w in f"{n['topic']} {n['text']}".lower() for w in words), n) for n in notes]
+    return [n for score, n in sorted(scored, key=lambda x: -x[0]) if score][:3]
+
+
+def get_notice_templates() -> dict:
+    """The fixed notice templates, by outcome, and the sentence every notice must end with,
+    word for word. Blanks: {site}, {problem}, {filter}."""
+    return {"templates": analysis.NOTICE_TEMPLATES, "required_last_sentence": analysis.NOTICE_REQUIRED}
+
+
+INVESTIGATOR_TOOLS = [get_site_history, get_nearby_nodes, get_filter_life, get_reference_data, get_case,
+                      get_sensor_checks, get_baseline, get_peer_comparison, query_readings, search_guidance,
+                      get_notice_templates]
 investigator_agent = None
 if claude is not None and os.getenv("INVESTIGATOR", "1") != "0":
     try:
         import investigator
-        investigator_agent = investigator.build(
-            [get_site_history, get_nearby_nodes, get_filter_life, get_reference_data])
+        investigator_agent = investigator.build({f.__name__: f for f in INVESTIGATOR_TOOLS})
     except Exception as e:
         print("investigator off:", type(e).__name__, e)
 investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
 
 
-async def run_investigation(after, filter_used):
+async def save_report(after, filter_used, report, extra, model):
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db_lock:
+        cur = db.execute(
+            "INSERT INTO investigations (ts, node, test, reading_id, filter, summary, findings, actions, model, extra) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (ts, after["node"], after["test"], after["id"], filter_used, report["summary"],
+             json.dumps(report["findings"]), json.dumps(report["actions"]), model, json.dumps(extra)))
+        db.commit()
+    await broadcast(report_message(cur.lastrowid, ts, after["node"], after["test"], after["id"],
+                                   filter_used, report, model, extra))
+
+
+async def report_on(after, filter_used):
+    """Every retest gets a report at once, written from the checks by fixed rules, so the page
+    never waits on a model. If the investigator is on, its agents then write a fuller one for
+    the same pour, which takes the first one's place on the page."""
+    case, result = case_for(after["node"], after["test"], after, filter_used or "NONE")
+    if case is None:
+        return
+    rules = analysis.rule_report(case, result, filter_life(after["node"]))
+    extra = {"source": "rules", "kind": result["kind"], "kind_words": result["kind_words"],
+             "severity": rules["severity"], "severity_words": analysis.SEVERITY_WORDS[rules["severity"]],
+             "checks": result, "notice": analysis.notice_for(case, result, case["site"]), "sections": []}
+    await save_report(after, filter_used, rules, extra, None)
+    if investigator_agent is None:
+        return
     async with investigate_lock:
-        with db_lock:
-            before = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='before' "
-                                "AND id<? ORDER BY id DESC LIMIT 1",
-                                (after["node"], after["test"], after["id"])).fetchone()
-        case = {"node": after["node"], "site": NODES.get(after["node"], {}).get("name"),
-                "test": after["test"], "filter": filter_used,
-                "before": {k: before[k] for k in READING_KEYS} if before else None,
-                "after": {k: after[k] for k in READING_KEYS}}
         t0 = time.time()
         try:
             report = await asyncio.wait_for(investigator.investigate(investigator_agent, case), timeout=240)
@@ -506,24 +683,21 @@ async def run_investigation(after, filter_used):
             return
         if not report.get("summary"):
             return
-        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        with db_lock:
-            cur = db.execute(
-                "INSERT INTO investigations (ts, node, test, reading_id, filter, summary, findings, actions, model) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (ts, after["node"], after["test"], after["id"], filter_used, report["summary"],
-                 json.dumps(report["findings"]), json.dumps(report["actions"]), investigator.MODEL))
-            db.commit()
-        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s")
-        await broadcast(report_message(cur.lastrowid, ts, after["node"], after["test"], after["id"],
-                                       filter_used, report, investigator.MODEL))
+        notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else extra["notice"]
+        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s "
+              f"from {len(report['sections'])} specialists")
+        await save_report(after, filter_used, report,
+                          {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"]},
+                          investigator.MODEL)
 
 
-def report_message(rid, ts, node, test, reading_id, filter_used, report, model):
+def report_message(rid, ts, node, test, reading_id, filter_used, report, model, extra=None):
+    extra = extra or {}
     return {"type": "report", "id": rid, "ts": ts, "node": node, "test": test,
             "reading_id": reading_id, "filter": filter_used, "summary": report["summary"],
             "findings": report["findings"], "actions": report["actions"],
-            "source": "deepagents", "model": model}
+            "source": extra.get("source", "deepagents"), "model": model,
+            **{k: extra.get(k) for k in ("kind", "kind_words", "severity", "severity_words", "checks", "notice", "sections")}}
 
 
 # ---------------------------------------------------------------- input sources
@@ -737,13 +911,26 @@ def reports(node: str | None = None, limit: int = 20):
         rows = db.execute(q, args).fetchall()
     return [report_message(r["id"], r["ts"], r["node"], r["test"], r["reading_id"], r["filter"],
                            {"summary": r["summary"], "findings": json.loads(r["findings"]),
-                            "actions": json.loads(r["actions"])}, r["model"]) for r in rows]
+                            "actions": json.loads(r["actions"])}, r["model"],
+                           json.loads(r["extra"]) if r["extra"] else None) for r in rows]
+
+
+@app.get("/api/analysis")
+def analysis_for(node: str = "tank-01", test: int | None = None):
+    """The layered checks for one raw-water reading (the node's latest unless `test` is given):
+    sensor checks, its own baseline and control charts, the peer comparison and the verdict."""
+    reading = raw_reading(node, test)
+    if reading is None:
+        raise HTTPException(404, "no reading for that node and test")
+    return analyse_reading(reading)
 
 
 @app.get("/health")
 def health():
     return {"ok": True, "mock": MOCK, "ai": claude is not None, "control": "token" if CONTROL_TOKEN else "local",
-            "investigator": investigator_agent is not None, "clients": len(clients),
+            "investigator": investigator_agent is not None,
+            "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
+            "clients": len(clients),
             "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
 
 

@@ -167,7 +167,7 @@
       ? { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: store.pour?.before && store.report.test !== store.pour.before.test ? `Report on pour ${store.report.test}, the one before` : `Report on pour ${store.report.test}`,
           detail: `${store.report.summary}${store.report.actions?.[0] ? ` Next: ${store.report.actions[0]}` : ""}` }
       : { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: "No report yet",
-          detail: store.health.investigator ? "A report follows each retest: what changed, how this site compares, and what to do next." : "Reports follow each retest once the gateway has an Anthropic key." });
+          detail: "A report follows each retest: what changed, how this site compares, and what to do next." });
     return out;
   }
 

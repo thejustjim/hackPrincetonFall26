@@ -1,0 +1,157 @@
+"""Offline check of the investigator's plumbing: the lead, its five specialists and their tools,
+driven by scripted stand-in models (no API key, no network). It shows that the lead reaches every
+specialist through the task tool, that each specialist is offered only its own tools and calls
+them, and that the report and what each specialist said come back in the shape the page needs.
+It does not show what Claude would write.   Run: python test_swarm.py
+"""
+import asyncio
+import json
+import os
+import re
+import tempfile
+
+os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "swarm.db")
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["TIGER_DATABASE_URL"] = ""
+os.environ.pop("DATABASE_URL", None)
+
+from langchain_core.language_models.chat_models import BaseChatModel   # noqa: E402
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage   # noqa: E402
+from langchain_core.outputs import ChatGeneration, ChatResult   # noqa: E402
+
+import gateway   # noqa: E402
+import investigator   # noqa: E402
+
+ok = True
+OFFERED = {}     # specialist or "lead" -> the tool names it was offered
+CALLED = []      # (tool name, args) for every specialist tool call
+
+
+def check(name, cond, detail=""):
+    global ok
+    ok &= bool(cond)
+    print(("PASS" if cond else "FAIL"), name, detail if not cond else "")
+
+
+def text(m):
+    return m.content if isinstance(m.content, str) else "".join(b.get("text", "") for b in m.content if isinstance(b, dict))
+
+
+class Scripted(BaseChatModel):
+    """Answers from what it is shown, so five specialists can run at once without a shared script."""
+    lead: bool = False
+    offered: list = []
+
+    @property
+    def _llm_type(self):
+        return "scripted"
+
+    def bind_tools(self, tools, **kwargs):
+        names = [t.get("name") if isinstance(t, dict) else getattr(t, "name", getattr(t, "__name__", "?")) for t in tools]
+        return self.model_copy(update={"offered": names})
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        return ChatResult(generations=[ChatGeneration(message=self.reply(messages))])
+
+    def reply(self, messages):
+        system = next((text(m) for m in messages if isinstance(m, SystemMessage)), "")
+        results = [m for m in messages if isinstance(m, ToolMessage)]
+        if self.lead:
+            OFFERED["lead"] = self.offered
+            if not results:
+                return AIMessage(content="", tool_calls=[
+                    {"name": "task", "id": f"t{i}", "args": {"subagent_type": s["name"],
+                     "description": f"Node tank-01, test 21. Report your findings on this filter run."}}
+                    for i, s in enumerate(investigator.SPECIALISTS)])
+            notice = next(text(m) for m in results if "Clarity measured" in text(m))
+            return AIMessage(content=json.dumps({
+                "summary": "ZeroWater took dissolved solids from 780 ppm to 4 ppm.",
+                "findings": [text(m)[:80] for m in results[:4]], "actions": ["Pour a second cup."], "notice": notice}))
+        me = next(s for s in investigator.SPECIALISTS if system.startswith(s["prompt"]))
+        OFFERED[me["name"]] = self.offered
+        if not results:
+            node, test = re.search(r"Node (\S+), test (\d+)", text(next(m for m in messages if isinstance(m, HumanMessage)))).groups()
+            calls = []
+            for i, tool in enumerate(me["tools"]):
+                args = ({"node": node.rstrip(","), "test": int(test)} if tool.startswith(("get_case", "get_sensor", "get_baseline", "get_peer"))
+                        else {"node": node.rstrip(",")} if tool in ("get_site_history", "get_nearby_nodes")
+                        else {"sql": "SELECT phase, count(*) AS n FROM readings WHERE node='tank-01' GROUP BY phase"} if tool == "query_readings"
+                        else {"query": "ZeroWater filter replacement"} if tool == "search_guidance" else {})
+                CALLED.append((tool, args))
+                calls.append({"name": tool, "id": f"{me['name']}-{i}", "args": args})
+            return AIMessage(content="", tool_calls=calls)
+        if me["name"] == "comms":
+            case = json.loads(text(next(m for m in results if '"notice_template"' in text(m))))
+            return AIMessage(content=gateway.analysis.notice_for(case, {"kind": case["checks"]["kind"]}, case["site"]))
+        return AIMessage(content=f"{me['title']}: read {len(results)} tool results; the first begins {text(results[0])[:60]!r}")
+
+
+def seed():
+    def add(test, phase, ph, tds, clarity, verdict, filt="NONE"):
+        r = {"node": "tank-01", "test": test, "phase": phase, "ph": ph, "tds": tds, "clarity": clarity, "verdict": verdict,
+             "filter": filt, "rssi": -60, "ts": f"2026-11-14T12:{test:02d}:00+00:00", "lat": 40.35, "lon": -74.66, "sim": False,
+             "ai_filter": None, "explanation": None, "anomaly": 0.1}
+        return gateway.store(r)
+    for i in range(1, 21):
+        add(i, "before", 7.4 + 0.02 * (i % 5), 190 + 3 * (i % 7), 0.94 + 0.01 * (i % 4), "SAFE")
+    before = add(21, "before", 7.6, 780, 0.95, "HIGH_TDS", "ZEROWATER")
+    gateway.record_tip(before, "ZEROWATER", "local_rule")
+    after = add(21, "after", 7.2, 4, 0.99, "SAFE")
+    return after, gateway.attach_after(after)
+
+
+async def main():
+    after, used = seed()
+    tools = {f.__name__: f for f in gateway.INVESTIGATOR_TOOLS}
+    agent = investigator.build(tools, lead_model=Scripted(lead=True), specialist_model=Scripted())
+    gateway.investigator, gateway.investigator_agent = investigator, agent   # as the gateway does when a key is set
+    sent = []
+
+    async def capture(msg):
+        sent.append(msg)
+    gateway.broadcast = capture
+
+    await gateway.report_on(after, used)
+    kinds = [m.get("source") for m in sent if m["type"] == "report"]
+    check("the retest gets a rule-written report first, then the investigator's", kinds == ["rules", "deepagents"], kinds)
+    first, report = [m for m in sent if m["type"] == "report"]
+    check("the first report needs no model", first["model"] is None and first["checks"]["kind"] == "local_event" and first["sections"] == [])
+    names = [s["agent"] for s in report["sections"]]
+    check("the lead reached all five specialists through the task tool", names == [s["name"] for s in investigator.SPECIALISTS], names)
+    check("each section carries its title and what the specialist said", all(s["title"] and s["text"] for s in report["sections"]))
+    check("the lead has no data tools of its own, only delegation", "task" in OFFERED["lead"] and not set(OFFERED["lead"]) & set(tools), OFFERED["lead"])
+    for s in investigator.SPECIALISTS:
+        mine = set(OFFERED[s["name"]]) & set(tools)
+        check(f"{s['name']} is offered exactly its own tools and cannot delegate",
+              mine == set(s["tools"]) and "task" not in OFFERED[s["name"]], sorted(mine))
+    check("every specialist tool was called", {t for t, _ in CALLED} == set(tools), sorted({t for t, _ in CALLED}))
+    check("the structured report came back", report["summary"].startswith("ZeroWater") and report["actions"] == ["Pour a second cup."])
+    check("the verdict and severity are the checks', not a model's", report["kind"] == first["kind"] and report["severity"] == first["severity"])
+    check("the notice kept its required sentence", gateway.analysis.NOTICE_REQUIRED in report["notice"])
+    rows = gateway.reports(node="tank-01", limit=5)
+    check("both reports are stored and served newest first", [r["source"] for r in rows] == ["deepagents", "rules"] and len(rows[0]["sections"]) == 5)
+
+    check("read-only SQL returns rows", gateway.query_readings("SELECT count(*) AS n FROM readings")[0]["n"] == 22)
+    check("it refuses anything but one SELECT", all("error" in gateway.query_readings(q) for q in (
+        "DELETE FROM readings", "SELECT 1; DROP TABLE readings", "UPDATE readings SET tds=0", "PRAGMA writable_schema=1")))
+    check("a write inside a SELECT fails on the read-only connection", "error" in gateway.query_readings("WITH x AS (SELECT 1) INSERT INTO tips (node) VALUES ('x')"))
+    check("the readings were not changed", gateway.query_readings("SELECT count(*) AS n FROM readings")[0]["n"] == 22)
+    found = gateway.search_guidance("when should the ZeroWater filter be replaced")
+    check("guidance search finds the maker's rule with its source", found and found[0]["id"] == "zerowater-life" and found[0]["source"], found[:1])
+    check("an unrelated search finds nothing", gateway.search_guidance("xyzzy") == [])
+
+    gateway.investigator_agent = investigator.build(tools, lead_model=Scripted(lead=True), specialist_model=Scripted())
+
+    async def boom(agent, case):
+        raise TimeoutError("no answer")
+    real, investigator.investigate = investigator.investigate, boom
+    sent.clear()
+    await gateway.report_on(after, used)
+    investigator.investigate = real
+    check("if the investigator fails, the rule-written report still stands", [m["source"] for m in sent] == ["rules"])
+
+    print("\nall passed" if ok else "\nFAILURES")
+    raise SystemExit(0 if ok else 1)
+
+
+asyncio.run(main())

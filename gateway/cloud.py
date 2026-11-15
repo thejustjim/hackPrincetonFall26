@@ -81,6 +81,7 @@ CLOUD_TABLES = [
         station text NOT NULL, id bigint NOT NULL, ts timestamptz NOT NULL, node text, test integer,
         reading_id bigint, filter text, summary text, findings jsonb, actions jsonb, model text,
         mock boolean NOT NULL DEFAULT false, PRIMARY KEY (station, id))""",
+    "ALTER TABLE reports ADD COLUMN IF NOT EXISTS extra jsonb",    # the checks, what each agent said, the notice
     "CREATE INDEX IF NOT EXISTS readings_node_ts ON readings (node, ts DESC)",
 ]
 # TimescaleDB features, each tried on its own so one that is unavailable does not stop the rest.
@@ -108,9 +109,10 @@ UPSERT_READING = """INSERT INTO readings (ts, station, id, node, test, phase, ph
     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     ON CONFLICT (station, id, ts) DO UPDATE SET
         ai_filter = EXCLUDED.ai_filter, explanation = EXCLUDED.explanation, anomaly = EXCLUDED.anomaly"""
-UPSERT_REPORT = """INSERT INTO reports (station, id, ts, node, test, reading_id, filter, summary, findings, actions, model, mock)
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)
-    ON CONFLICT (station, id) DO UPDATE SET summary = EXCLUDED.summary, findings = EXCLUDED.findings, actions = EXCLUDED.actions"""
+UPSERT_REPORT = """INSERT INTO reports (station, id, ts, node, test, reading_id, filter, summary, findings, actions, model, mock, extra)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s::jsonb)
+    ON CONFLICT (station, id) DO UPDATE SET summary = EXCLUDED.summary, findings = EXCLUDED.findings,
+        actions = EXCLUDED.actions, extra = EXCLUDED.extra"""
 UPSERT_NODE = """INSERT INTO nodes (station, node, name, lat, lon, sim) VALUES (%s,%s,%s,%s,%s,%s)
     ON CONFLICT (station, node) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lon = EXCLUDED.lon, sim = EXCLUDED.sim"""
 
@@ -262,7 +264,7 @@ class CloudSync:
         marks = lambda n: ",".join("?" * n)
         readings = local.execute(f"SELECT {','.join(READING_COLS)} FROM readings WHERE id IN ({marks(len(ids['reading']))})",
                                  ids["reading"]).fetchall() if ids["reading"] else []
-        reports = local.execute("SELECT id, ts, node, test, reading_id, filter, summary, findings, actions, model "
+        reports = local.execute("SELECT id, ts, node, test, reading_id, filter, summary, findings, actions, model, extra "
                                 f"FROM investigations WHERE id IN ({marks(len(ids['report']))})", ids["report"]).fetchall() if ids["report"] else []
         with self._pg.cursor() as cur:
             if readings:
@@ -271,7 +273,7 @@ class CloudSync:
                      r[12], r[13], r[14], bool(r[15]), self.mock, r[16]) for r in readings])
             if reports:
                 cur.executemany(UPSERT_REPORT, [
-                    (self.station, r[0], _when(r[1]), r[2], r[3], r[4], r[5], r[6], r[7] or "[]", r[8] or "[]", r[9], self.mock)
+                    (self.station, r[0], _when(r[1]), r[2], r[3], r[4], r[5], r[6], r[7] or "[]", r[8] or "[]", r[9], self.mock, r[10])
                     for r in reports])
         self._pg.commit()
         # Only now forget them here. A row that changed again meanwhile has a newer seq and stays queued.

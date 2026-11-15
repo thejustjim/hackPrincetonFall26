@@ -90,6 +90,24 @@
       ];
     }
 
+    // a simple version of the gateway's checks for the sample tank: robust z-scores against its own earlier pours
+    const middle = (a) => { const v = [...a].sort((x, y) => x - y), n = v.length; return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2; };
+    function sampleChecks(before) {
+      const raw = readings.filter((r) => r.node === before.node && r.phase === "before" && r.id < before.id);
+      const floor = { ph: 0.1, tds: 10, clarity: 0.02 }, typical = { ph: [7.5, 0.3], tds: [180, 70], clarity: [0.95, 0.04] };
+      const baseline = ["ph", "tds", "clarity"].map((k) => {
+        const vals = raw.map((r) => r[k]);
+        const [median, sigma] = vals.length < 8 ? typical[k] : [middle(vals), Math.max(1.4826 * middle(vals.map((v) => Math.abs(v - middle(vals)))), floor[k])];
+        return { metric: k, value: before[k], median, sigma, n: vals.length, source: vals.length < 8 ? "typical" : "history",
+                 z: round((before[k] - median) / sigma, 1), ewma_signal: false, cusum_signal: false, direction: "up" };
+      });
+      const lead = baseline.reduce((a, b) => (Math.abs(b.z) > Math.abs(a.z) ? b : a));
+      const sims = SITES.filter((x) => x.sim).length;
+      return { sensor: ["ph", "tds", "clarity"].map((k) => ({ metric: k, status: "ok", note: "" })), baseline,
+               lead: { metric: lead.metric, z: lead.z, direction: lead.z >= 0 ? "up" : "down" }, repeat: 1,
+               peers: { scope: "local", n: sims, moved: 0, simulated: sims }, kind: Math.abs(lead.z) >= 3 ? "local_event" : "normal" };
+    }
+
     function makeReport(before, after, used) {
       const sims = SITES.filter((s) => s.sim).map((s) => latest(s.node)).filter(Boolean);
       const lo = Math.min(...sims.map((r) => r.tds)), hi = Math.max(...sims.map((r) => r.tds));
@@ -114,8 +132,24 @@
       const summary = zw
         ? `ZeroWater took this cup from ${before.tds} ppm to ${after.tds} ppm of dissolved solids${after.tds >= 6 ? ", but that is at its replace point" : ", so the filter did its job"}.`
         : `Brita took the cup's transparency from ${before.clarity.toFixed(2)} to ${after.clarity.toFixed(2)}, so the filter did its job.`;
+      // the same extra fields the gateway sends (gateway/analysis.py and investigator.py), worked out simply here
+      const checks = sampleChecks(before), lead = checks.baseline.find((x) => x.metric === checks.lead.metric);
+      const val = (k, v) => (k === "tds" ? `${Math.round(v)} ppm` : v.toFixed(k === "clarity" ? 2 : 1));
+      const far = Math.abs(lead.z) >= 3, name = zw ? "ZeroWater" : "Brita Elite", back = after.verdict === "SAFE";
+      const problem = { HIGH_TDS: `high in dissolved solids (${before.tds} ppm)`, CLOUDY: `cloudy (transparency ${before.clarity.toFixed(2)})`, PH_WARN: `outside the usual pH range (pH ${before.ph.toFixed(1)})` }[before.verdict];
+      const notice = `Clarity measured a cup of water at ${tank.name}. It read ${problem}${back ? ` and was sent through ${name}. On the retest, pH, dissolved solids and transparency all read in range.`
+        : `, and after ${name} the retest was still out of range. Have this source tested by a certified lab before relying on it.`} Clarity reads only pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant.`;
+      const sections = [
+        { agent: "sensor-health", title: "Sensor health", text: "Measured: pH, dissolved solids and transparency all read plausibly. None is stuck, out of range or trending, so this is a water event, not a sensor fault." },
+        { agent: "analyst", title: "This site's history", text: `Measured: ${{ ph: "pH", tds: "dissolved solids", clarity: "transparency" }[lead.metric]} read ${val(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} this site's median of ${val(lead.metric, lead.median)} over ${lead.n} pours. It is the only unusual pour in a row, and the control charts show no shift that has persisted.` },
+        { agent: "network", title: "Nearby and published", text: `Simulated: none of the ${checks.peers.n} simulated nodes nearby moved the same way, so this looks local to this site. ${findings[1]}` },
+        { agent: "maintenance", title: "Filters and upkeep", text: `${findings[3].replace(/^Filter: /, "Measured: ")} ${zw ? "ZeroWater says to replace its filter once filtered water reads 6 ppm or more (ZeroWater, filter instructions)." : "Brita rates the Elite filter for about 450 litres (Brita, Elite filter specifications)."}` },
+        { agent: "comms", title: "Draft notice", text: notice },
+      ];
       return { type: "report", id: ++reportId, ts: now(), node: after.node, test: after.test, reading_id: after.id,
-               filter: used, summary, findings, actions, source: "sample", model: "sample" };
+               filter: used, summary, findings, actions, source: "sample", model: "sample",
+               kind: checks.kind, kind_words: far ? "Unusual for this site" : "Nothing unusual", severity: back ? (far ? 1 : 0) : 2,
+               severity_words: back ? (far ? "Worth a second look" : "No action needed") : "Act on it", checks, notice, sections };
     }
 
     const latest = (node) => { for (let i = readings.length - 1; i >= 0; i--) if (readings[i].node === node) return readings[i]; return null; };

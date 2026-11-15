@@ -17,7 +17,9 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `firmware/taptest_node` - HUZZAH32 Feather on the tank: serial <-> ESP-NOW
 - `firmware/taptest_receiver` - Inland ESP32 board at the base station: ESP-NOW <-> USB serial
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
-  - `investigator.py` - deepagents (LangChain) agent that writes a report after every `after` test
+  - `analysis.py` - layered detection: sensor checks, each node's own baseline and control charts, peer comparison
+  - `investigator.py` - deepagents (LangChain): a lead agent and five specialists that write a report after every `after` test
+  - `guidance.json` - the short guidance notes the maintenance agent searches
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
   - `cloud.py` - copies everything to Tiger Cloud (TimescaleDB on AWS) when there is internet
 - `web` - two pages, served by the gateway at http://<pi>:8000/:
@@ -63,7 +65,8 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
   - `{"type":"reading", ...all fields above}`
   - `{"type":"decision","id":..,"node":..,"test":..,"ai_filter":..,"explanation":..,"source":"claude"|"local_rule"}`
   - `{"type":"filters","filters":[...same as GET /api/filters]}` - after every tip and every retest
-  - `{"type":"report","node":..,"test":..,"summary":"..","findings":[..],"actions":[..],"filter":..,"source":"deepagents","model":..}`
+  - `{"type":"report","node":..,"test":..,"summary":"..","findings":[..],"actions":[..],"filter":..,"source":"rules"|"deepagents","model":..,`
+    `"kind":"local_event","kind_words":"..","severity":0|1|2,"severity_words":"..","checks":{...GET /api/analysis},"sections":[{"agent","title","text"}],"notice":".."}`
 - `GET /api/nodes` - every node, location, latest reading
 - `GET /api/readings?node=tank-01&limit=200` - history, newest first
 - `GET /api/tests/{node}/{test}` - the before/after pair for the before/after card
@@ -71,7 +74,8 @@ Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,
 - `POST /api/filters/{zerowater|brita}/replace` - a new filter went in: start its count over (a control, see below)
 - `GET /api/reference` - `[{"site":"Stony Brook","lat":..,"lon":..,"tds_est":109,"date":"2023-07-27","source":"NJ DEP"|"USGS", ...}]`,
   the latest published sample per site plus `typical_tds_est` and `history` (cached, works offline)
-- `GET /api/reports?node=tank-01&limit=20` - investigator reports, newest first, same shape as the `/ws` message
+- `GET /api/reports?node=tank-01&limit=20` - reports, newest first, same shape as the `/ws` message
+- `GET /api/analysis?node=tank-01&test=17` - the layered checks for one raw-water reading (the node's latest without `test`)
 - `POST /api/cmd?test=17&filter=BRITA` - manual override (a control, see below)
 - `GET /api/cloud` - the cloud copy: on or off, connected, rows sent, rows waiting
 - `GET /api/cloud/rollup?node=tank-01&hours=24` - 5-minute buckets for one node, read back from the cloud database
@@ -88,11 +92,58 @@ Every time the cup tips into a filter, the gateway counts about 0.1 L through it
   (ZeroWater's own "006" rule). It stays `REPLACE` until you call the replace endpoint.
 - **Brita Elite**: rated for about 450 L. `REPLACE_SOON` at 90%, `REPLACE` at 100%.
 
+## Layered detection (`analysis.py`)
+A new sensor has almost no labelled data, so detection is statistics, in three layers, worked out
+by plain code before any model is asked:
+
+1. **Sensor checks.** Is the sensor believable? Out of range, stuck on one value, reading zero on
+   unfiltered water, or trending slowly one way. A sensor fault is not a water event.
+2. **The node's own baseline.** Robust z-scores (median and MAD) against the node's own earlier
+   pours; EWMA and CUSUM control charts for small shifts that persist; one multivariate
+   (Mahalanobis) distance across pH, dissolved solids and transparency.
+3. **Peer comparison.** Did the neighbours move the same way? Regional if at least two nearby
+   nodes, and at least half of them, did. Otherwise local.
+
+Then one verdict (`normal`, `sensor_fault`, `local_event`, `regional_shift`, `persistent_shift`)
+with a severity (0 no action, 1 worth a second look, 2 act on it) and the evidence as sentences
+that carry their numbers. `GET /api/analysis` returns all of it.
+
+What it does not do: there is no pipe network or hydraulic model behind this, so nothing is traced
+to a pipe segment; the neighbours are simulated nodes, and say so; there is no temperature sensor,
+so baselines are not temperature-adjusted; and no machine-learning model is involved. The control
+chart settings were chosen on simulated quiet data (about 3 false alarms per 1,000 pours).
+
+`python test_analysis.py` checks it (20 checks, no hardware or key needed).
+
 ## Investigator (deepagents)
-After each `after` test, a LangChain deep agent (Claude Opus 5.5) calls `get_site_history`,
-`get_nearby_nodes`, `get_filter_life` and `get_reference_data`, then returns a structured report
-(summary, findings, actions), and the gateway broadcasts it over `/ws`. It runs whenever
-`ANTHROPIC_API_KEY` is set; `INVESTIGATOR=0` turns it off, `INVESTIGATOR_EFFORT=medium` makes it dig deeper.
+Every `after` test gets a report at once, written from the checks above by fixed rules
+(`"source":"rules"`), so the page never waits on a model and still has a report with no key or
+no internet.
+
+When `ANTHROPIC_API_KEY` is set, a LangChain deep agent (Claude Opus 5.5) then writes a fuller
+one (`"source":"deepagents"`), which takes the first one's place on the page. The lead agent
+hands the case to five specialists at once through deepagents' `task` tool, each with only its
+own tools:
+
+| Specialist | Question | Tools |
+|---|---|---|
+| `sensor-health` | Can the sensor be believed? | `get_sensor_checks` |
+| `analyst` | Is this unusual for this site? | `get_baseline`, `get_site_history`, `query_readings` (one read-only SQL `SELECT`) |
+| `network` | Local or regional? What is published nearby? | `get_peer_comparison`, `get_nearby_nodes`, `get_reference_data` |
+| `maintenance` | Filter life and upkeep | `get_filter_life`, `search_guidance` (keyword search over `guidance.json`) |
+| `comms` | A short notice for the people who use this water | `get_notice_templates` |
+
+The agents explain and decide what to do next; they do not compute. Every number comes from a
+tool, and the verdict and severity come from `analysis.py`, not from a model. The notice is
+filled in from fixed templates, always ends with what Clarity cannot detect, is discarded for
+the fixed version if a model's draft drops that sentence, and is only shown: nothing sends it.
+
+`INVESTIGATOR=0` turns the agents off, `INVESTIGATOR_EFFORT=medium` makes them dig deeper, and
+`INVESTIGATOR_SUBAGENT_MODEL` gives the specialists a different model from the lead.
+
+`python test_swarm.py` drives the lead and all five specialists with scripted stand-in models
+(no key needed): it shows the delegation, the tool wiring, the read-only SQL guard and the
+fallback to the rule-written report. It does not show what Claude would write; that needs a key.
 
 ## Published reference data
 `python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake
@@ -138,8 +189,8 @@ python gateway.py                     # real receiver, found automatically
 The gateway looks for the receiver's USB serial port itself, trying USB-serial adapters (the ESP32
 receiver) before boards like the Uno. If more than one is plugged in it says which it picked; set
 `SERIAL_PORT=/dev/...` to choose.
-Without a key, the gateway uses the tank's local rule only. With one, Claude picks filters
-(`"source":"claude"`) and the investigator writes reports.
+Without a key, the gateway uses the tank's local rule and writes each report from its own checks.
+With one, Claude picks filters (`"source":"claude"`) and the investigator's agents write the reports.
 `python mock.py` alone prints the exact receiver lines, so you can test a parser.
 
 ## Hardware bring-up order (Uno)
