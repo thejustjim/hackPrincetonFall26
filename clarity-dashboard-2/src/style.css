@@ -276,7 +276,7 @@ body[data-theme=light] .maplibregl-ctrl-scale { color: var(--ink) !important; bo
 .lg-row span { display: inline-flex; align-items: center; gap: 5px; }
 .lg-row i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; }
 .lg-row i.ring { background: none; border: 1.5px solid var(--c); }
-.lg-row i.line { width: 16px; height: 4px; border-radius: 2px; background: #126EEB; opacity: 0.6; }
+.lg-row i.line { width: 16px; height: 2px; border-radius: 1px; background: #5A9BBD; opacity: 0.85; }
 .lg-guide { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
 .lg-guide summary { cursor: pointer; color: var(--steel); font-weight: 600; font-size: 12px; list-style: none; }
 .lg-guide summary::-webkit-details-marker { display: none; }

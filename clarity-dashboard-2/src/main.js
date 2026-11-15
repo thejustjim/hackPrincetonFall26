@@ -153,7 +153,7 @@ const overlay = new MapboxOverlay({ interleaved: true, layers: [], getTooltip: t
 map.addControl(overlay);
 
 // Which deck.gl layers are on (toggled from the Layers menu).
-const show = { ustds: true, columns: true, links: true, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
+const show = { ustds: true, columns: true, links: false, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
 document.body.dataset.theme = 'dark';
 installFacades(map);
 map.on('style.load', () => map.setLight({ anchor: 'map', position: [1.4, 210, 35], color: '#fff6e8', intensity: 0.45 }));
@@ -216,7 +216,7 @@ function tooltip({ object, layer }) {
   if (layer.id === 'towers') return { html: `<b>${esc(object.n && object.n !== 'water_tower' ? object.n : 'Water tower')}</b><br/>Holds treated water up high. Gravity pushes it down<br/>into the mains, which keeps pressure steady and<br/>covers busy hours. Location from OpenStreetMap.` };
   if (layer.id === 'route-trunk') return { html: '<b>Main water route (illustrative)</b><br/>Treated water leaves the Raritan-Millstone and<br/>Canal Road plants and heads south to the<br/>Princeton Ridge tower. Real main locations<br/>are not public, so this path is approximate.' };
   if (layer.id === 'route-branches') { const n = state.nodes.get(object.node); return { html: `<b>To ${esc(n?.name || 'a test site')} (illustrative)</b><br/>From the ridge tower down to this test site.` }; }
-  if (layer.id === 'links') { const r = nodeView(object).lt; return { html: `<b>Radio link: ${esc(object.name)}</b><br/>The node sends each reading to the base station<br/>by LoRa radio.${r ? ` Signal ${r.rssi} dBm (stronger is closer to 0).` : ''}` }; }
+  if (layer.id === 'links') { const r = nodeView(object).lt; return { html: `<b>Radio link: ${esc(object.name)}</b><br/>The node sends each reading to the base station<br/>by radio.${r ? ` Signal ${r.rssi} dBm (stronger is closer to 0).` : ''}` }; }
   if (layer.id === 'hydrants') return { html: '<b>Fire hydrant</b><br/>Connected to the water main under the street.' };
   if (layer.id === 'plants') return { html: `<b>${esc(object.name)}</b><br/>${esc(object.note)}<br/><span style="opacity:.75">Treatment plants settle, filter and disinfect river<br/>water before it goes into the mains.</span>` };
   if (layer.id === 'base') return { html: '<b>Base station</b><br/>LoRa receiver plus the gateway computer. It collects<br/>every reading, runs the checks and the AI, and<br/>feeds this dashboard.' };
@@ -295,7 +295,7 @@ function renderMap(fromAnim = false) {
     }),
     show.links && new ArcLayer({
       id: 'links',
-      // LoRa reaches a few miles, so only nodes near the base station link to it; other cities have their own gateways.
+      // Off unless switched on in Layers. Only nodes near the base station link to it; other cities would have their own.
       data: nodes.filter(n => Math.abs(n.lat - BASE[0]) < 0.5 && Math.abs(n.lon - BASE[1]) < 0.5),
       getSourcePosition: n => [n.lon, n.lat],
       getTargetPosition: [BASE[1], BASE[0]],
@@ -385,7 +385,7 @@ function renderMap(fromAnim = false) {
       getColor: n => (light ? (n.sim ? [113, 117, 128, 240] : [11, 32, 39, 255]) : (n.sim ? [150, 154, 163, 230] : [247, 240, 240, 255])),
       fontFamily: 'Inter, system-ui, sans-serif',
       fontWeight: 600,
-      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [11, 32, 39, 230],
+      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230],
       fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'bottom',
@@ -401,7 +401,7 @@ function renderMap(fromAnim = false) {
       getColor: d => (d.text === 'BASE STATION' ? (light ? [11, 32, 39, 255] : [247, 240, 240, 255]) : (light ? [11, 32, 39, 220] : [247, 240, 240, 200])),
       getPixelOffset: [0, 16],
       fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
-      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [11, 32, 39, 230], fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
+      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230], fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
       getAlignmentBaseline: 'top',
       updateTriggers: { getText: key, getColor: light },
     }),
@@ -430,7 +430,7 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
   const towerScale = Math.max(1, (mpp * 7) / 8);
   const textBase = {
     fontFamily: 'Inter, Helvetica, Arial, sans-serif', fontWeight: 600, fontSettings: { sdf: true }, characterSet: 'auto',
-    outlineWidth: 3, outlineColor: light ? [255, 252, 245, 240] : [11, 32, 39, 235], parameters: { depthTest: false },
+    outlineWidth: 3, outlineColor: light ? [255, 252, 245, 240] : [9, 22, 34, 235], parameters: { depthTest: false },
   };
   const ink = light ? [11, 32, 39, 255] : [247, 240, 240, 255];
   const cut = state.cutaway;
@@ -447,14 +447,17 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
       getColor: (d, { index }) => TREE_GREENS[index % TREE_GREENS.length],
       material: { ambient: 0.55, diffuse: 0.6, shininess: 8 },
     }),
+    // The water route (illustrative): one quiet line in the site's blue from the plants to the tower, and a
+    // hairline on to each site. Only the site that is open is picked out, so the map is not a web of spokes.
     show.route && new PathLayer({
-      id: 'route-trunk', opacity: 0.5, data: TRUNK_PATHS, getPath: d => d.points, getColor: [18, 110, 235, 255],
-      getWidth: 6, widthMinPixels: 3, widthMaxPixels: 9, capRounded: true, jointRounded: true, pickable: true,
+      id: 'route-trunk', data: TRUNK_PATHS, getPath: d => d.points, getColor: [90, 155, 189, 190],
+      getWidth: 6, widthMinPixels: 2, widthMaxPixels: 8, capRounded: true, jointRounded: true, pickable: true,
     }),
     show.route && new PathLayer({
-      id: 'route-branches', opacity: 0.5, data: branchPaths, getPath: d => d.points, getColor: [40, 140, 245, 235],
-      getWidth: 4, widthMinPixels: 2.5, widthMaxPixels: 6, capRounded: true, jointRounded: true, pickable: true,
-      updateTriggers: { getPath: branchPaths.length },
+      id: 'route-branches', data: branchPaths, getPath: d => d.points,
+      getColor: d => (d.node === state.selected ? [141, 189, 216, 255] : [90, 155, 189, 105]),
+      getWidth: d => (d.node === state.selected ? 3 : 1.2), widthUnits: 'pixels', capRounded: true, jointRounded: true, pickable: true,
+      updateTriggers: { getPath: branchPaths.length, getColor: state.selected, getWidth: state.selected },
     }),
     cut && new ScatterplotLayer({
       id: 'flow', data: cutFlow, getPosition: d => d.pos, getRadius: 0.35,
@@ -1009,6 +1012,7 @@ function lineChart(canvas, labels, series, opts) {
 
 async function openDrawer(node) {
   state.selected = node;
+  renderMap();                       // the open site's branch of the water route is picked out
   $('#drawer').classList.remove('hidden');
   const n = state.nodes.get(node);
   if (n?.lat != null) {
@@ -1027,6 +1031,7 @@ async function openDrawer(node) {
 
 function closeDrawer() {
   state.selected = null;
+  renderMap();
   $('#drawer').classList.add('hidden');
   charts.splice(0).forEach(c => c.destroy());
 }

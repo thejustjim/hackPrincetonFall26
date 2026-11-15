@@ -13,11 +13,12 @@ const GREEN = ['park', 'grass', 'pitch', 'garden', 'playground', 'recreation_gro
 const GOLF = ['golf_course', 'fairway', 'green', 'tee', 'rough'];
 
 export const THEMES = {
+  // Dark: the site's ink blue (web/assets/base.css), not the teal it started as, so the map and the panels round it are one colour family.
   dark: {
-    bg: '#0B2027', green: '#0f2c2c', golf: '#11322f', wood: '#0d2828', farm: '#0e252a', wet: '#0e2a33', sand: '#2b2b26',
-    water: '#163f52', waterLine: '#2c6d8f', road: '#173743', roadMajor: '#2a4c58', path: '#14313a', rail: '#3b5058',
-    bLow: '#16343e', bHigh: '#2e4f5b', bOpacity: 0.95, hill: 0.3, hillShadow: '#000000', hillHigh: '#2c4a55',
-    ocean: '#03090c', other: '#0a1c22', usLand: '#123540', border: '#4f7a88',
+    bg: '#091622', green: '#0d2026', golf: '#0f272b', wood: '#0b1d22', farm: '#0c1b24', wet: '#0c1d2c', sand: '#2b2b26',
+    water: '#132b47', waterLine: '#2c588f', road: '#14273a', roadMajor: '#24394c', path: '#112332', rail: '#3b4a58',
+    bLow: '#132535', bHigh: '#283c4e', bOpacity: 0.95, hill: 0.3, hillShadow: '#000000', hillHigh: '#263849',
+    ocean: '#03060a', other: '#09141d', usLand: '#0f2537', border: '#4f6e88',
   },
   light: {
     bg: '#F7F0F0', green: '#e3e6dc', golf: '#d8e1d2', wood: '#d6ddd0', farm: '#f0ebe5', wet: '#d9e6ea', sand: '#ece4d2',
@@ -61,13 +62,13 @@ export const BUCKET = ['case', ['has', 'id'], ['index-of', ['slice', ['to-string
 export const WALL_SETS = {
   g: ['#e9dcc3', '#d9b38c', '#c97b5a', '#efe6d2', '#b8664a', '#d8c7a6', '#e4cfa8', '#a9a39a'],
   l: ['#ece6e6', '#e2dcdc', '#d9d3d4', '#efeaea', '#d2cccd', '#e6e0e0', '#dcd6d7', '#cfc9cb'],
-  d: ['#1d3c47', '#21424d', '#264852', '#1a3741', '#2b4e59', '#203f4a', '#24454f', '#2e5260'],
+  d: ['#1a2e40', '#1e3345', '#22384a', '#172a3a', '#273d50', '#1d3143', '#203647', '#294056'],
   s: ['#c8ccd2', '#d4d6da', '#bfc4cb', '#e0e2e5', '#c3c7cd', '#d9dbde', '#b8bdc4', '#ccd0d5'],
 };
 export const ROOF_SETS = {
   g: ['#a4553f', '#8a4a3a', '#6f6a6a', '#b4683f', '#5f6670', '#94503c', '#7b7470', '#a35b48'],
   l: ['#cfc8ca', '#c6bfc2', '#bdb7ba', '#d4cdcf', '#b9b3b6', '#c8c1c4', '#c1babd', '#b5afb2'],
-  d: ['#12303a', '#163541', '#183843', '#102b34', '#1b3c48', '#142f39', '#173640', '#1d404c'],
+  d: ['#102334', '#14273a', '#162a3c', '#0e202f', '#182d41', '#122333', '#15293a', '#1a3044'],
   s: ['#9ea3aa', '#a8acb2', '#959aa2', '#b1b5ba', '#9a9fa6', '#a4a8ae', '#8f949c', '#abafb4'],
 };
 export const themeKey = t => (t.walls ? 'g' : t === THEMES.light ? 'l' : t === THEMES.satellite ? 's' : 'd');
