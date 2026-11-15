@@ -19,6 +19,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `firmware/taptest_uno` - Arduino Uno: sensors, decision rule, tipping cup, LCD, radio out
 - `firmware/taptest_node` - HUZZAH32 Feather on the tank: serial <-> ESP-NOW
 - `firmware/taptest_receiver` - Inland ESP32 board at the base station: ESP-NOW <-> USB serial
+- `hardware` - the tank as built: wiring diagrams, both boards, parts, pin map, the printed PUR Plus ring. Start at `hardware/README.md`
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, layered detection, an AI agent (Gemini or Claude), REST + WebSocket
   - `analysis.py` - layered detection: sensor checks, each node's own baseline and control charts, peer comparison
   - `investigator.py` - deepagents (LangChain): a lead agent and five specialists that write a report after every `after` test

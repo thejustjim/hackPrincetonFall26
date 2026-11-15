@@ -4,11 +4,11 @@
 // Libraries (Arduino IDE > Library Manager): "LiquidCrystal I2C" by Frank de Brabander.
 // Servo, Wire, EEPROM, SoftwareSerial are built in.
 //
-// Pins (matches taptest-wiring-filter.png):
-//   A0 pH Po | A1 TDS signal | D7 TDS power | A2 LDR + 10k divider
-//   SDA/SCL LCD 0x27 | D4 button (to GND) | D5/D6/D8 RGB via 270R
-//   D10 servo signal | D2 stop switch LEFT | D12 stop switch RIGHT (switches to GND)
-//   D3 -> 1k -> Feather RX (2k to GND) | D9 <- Feather TX (optional, AI commands)
+// Pins, as built (see hardware/README.md and hardware/diagrams/):
+//   A0 pH Po | A1 TDS signal | D7 TDS power | A2 LDR + 10k divider (room light through the cup)
+//   A4/A5 (SDA/SCL) LCD 0x27 | D10 SG90 360 servo signal (1000uF across the servo supply)
+//   D3 -> 10k -> ESP32 RX2 (2x 10k to GND) | D9 <- ESP32 TX2 (AI commands, remote start)
+//   Any other pins the code sets up are left unconnected on the as-built board.
 //
 // USB serial monitor at 115200 for calibration. Type "h" for help.
 
@@ -24,7 +24,7 @@ enum Filter { F_NONE, F_ZERO, F_BRITA };
 // ---------------- settings you may need to flip ----------------
 #define COMMON_ANODE   0      // 1 if your RGB LED's long leg goes to 5V
 #define LEFT_SIGN      (-1)   // flip to 1 if "tip left" turns the cup right
-#define TDS_LIMIT      300    // ppm above this -> ZeroWater
+#define TDS_LIMIT      300    // ppm above this -> PUR Plus (left). Radio label stays "ZEROWATER" so the Pi/dashboard keep working
 #define CLARITY_LIMIT  0.70   // below this -> Brita
 #define PH_LOW         6.5
 #define PH_HIGH        8.5
@@ -34,7 +34,7 @@ enum Filter { F_NONE, F_ZERO, F_BRITA };
 #define PH_FROM_TDS    1
 #define PH_TDS_CLEAN   150    // ppm at or below this -> pH 7.0 (plain tap water)
 #define PH_TDS_SODA    800    // ppm at or above this -> pH 8.3 (baking soda water)
-#define POUR_MS        6000   // how long the cup stays tipped
+#define POUR_MS        4000   // how long the cup stays tipped (100 mL empties in ~2 s)
 #define AI_WAIT_MS     8000   // how long to wait for the Pi's AI decision
 // "Reflex vs judgment": clear-cut readings are handled instantly by the rules below.
 // Only unsure readings (near a limit, two problems at once, or sensor looks wrong) go to the AI.
@@ -48,6 +48,8 @@ const uint8_t PIN_PH = A0, PIN_TDS = A1, PIN_LDR = A2;
 const uint8_t PIN_TDS_PWR = 7, PIN_BTN = 4;
 const uint8_t PIN_R = 5, PIN_G = 6, PIN_B = 8;
 const uint8_t PIN_SERVO = 10, PIN_SW_L = 2, PIN_SW_R = 12;
+#define USE_BEAM 0      // 1 = separate clarity LED on D11 shines at the LDR; 0 = LDR reads room light through the cup
+const uint8_t PIN_BEAM = 11;   // plain/white LED on the cup wall, shines through the water at the LDR
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 Servo servo;
@@ -130,11 +132,16 @@ int readTDS() {
 }
 
 float clarityRaw() {
-  led(0, 0, 0); delay(120);
+#if USE_BEAM
+  digitalWrite(PIN_BEAM, LOW); delay(120);
   float off = readAvg(PIN_LDR, 16);
-  led(1, 1, 1); delay(120);
+  digitalWrite(PIN_BEAM, HIGH); delay(120);
   float on = readAvg(PIN_LDR, 16);
+  digitalWrite(PIN_BEAM, LOW);
   return fabs(on - off);
+#else
+  return readAvg(PIN_LDR, 16);   // room light reaching the LDR through the water (cloudy/colored water = darker)
+#endif
 }
 
 float readClarity() {
@@ -259,7 +266,7 @@ void runTest() {
   bool unsure     = bothBad || nearTds || nearClr || oddSensor;
 
   sendReading(phase, ph, tds, clr, verdict, f, unsure);
-  delay(2500);
+  delay(800);                                       // let people read the numbers
 
   if (unsure) {
     // ask the Pi's AI; fall back to our own rule if it does not answer in time
@@ -279,8 +286,8 @@ void runTest() {
   } else {
     showLine(1, F("Clear call:"));                   // instant reflex, AI explains on the dashboard
   }
-  lcd.setCursor(11, 1); lcd.print(f == F_ZERO ? F("ZeroW") : f == F_BRITA ? F("Brita") : F("none"));
-  delay(1500);
+  lcd.setCursor(11, 1); lcd.print(f == F_ZERO ? F("PUR  ") : f == F_BRITA ? F("Brita") : F("none"));
+  delay(1000);
 
   if (f == F_NONE) {
     bool ok = strcmp(verdict, "SAFE") == 0;
@@ -292,7 +299,7 @@ void runTest() {
   }
 
   led(1, 1, 0);
-  showLine(0, f == F_ZERO ? F("-> ZeroWater") : F("-> Brita"));
+  showLine(0, f == F_ZERO ? F("-> PUR Plus") : F("-> Brita"));
   showLine(1, F("Filtering..."));
   tipAndReturn(f == F_ZERO ? -1 : +1);   // ZeroWater is on the left
   waitingRetest = true;
@@ -303,7 +310,7 @@ void runTest() {
 void help() {
   Serial.println(F("Commands: v=raw volts | m=measure | a6.86 / b4.00 = pH point at current probe"));
   Serial.println(F("c=clean water clarity baseline | s1500=servo stop us | t80=tip speed | k1.0=return scale | p1000=tip time ms"));
-  Serial.println(F("l / r = jog servo 200ms | L / R = full tip test | z = reset test counter"));
+  Serial.println(F("g = run a test (same as button) | l / r = jog servo 200ms | L / R = full tip test | z = reset test counter"));
 }
 
 void console() {
@@ -335,6 +342,7 @@ void console() {
     case 'r': servoRun(+1); delay(200); servoStop(); break;
     case 'L': tipAndReturn(-1); break;
     case 'R': tipAndReturn(+1); break;
+    case 'g': runTest(); break;                  // same as a short button press
     case 'z': cal.testNo = 0; saveCal(); Serial.println(F("test counter reset")); break;
   }
   if (cmd != '\n' && cmd != '\r') idleScreen();   // put the LED and LCD back to the idle state
@@ -347,14 +355,28 @@ void setup() {
   pinMode(PIN_BTN, INPUT_PULLUP);
   pinMode(PIN_SW_L, INPUT_PULLUP); pinMode(PIN_SW_R, INPUT_PULLUP);
   pinMode(PIN_R, OUTPUT); pinMode(PIN_G, OUTPUT); pinMode(PIN_B, OUTPUT);
+  pinMode(PIN_BEAM, OUTPUT); digitalWrite(PIN_BEAM, LOW);
   loadCal();
   lcd.init(); lcd.backlight();
   help();
   idleScreen();
 }
 
+// Remote start: the dashboard/Pi sends {"cmd":"run"} over the radio -> same as a button press
+void checkRadioStart() {
+  static char buf[80]; static uint8_t n = 0;
+  while (radio.available()) {
+    char c = radio.read();
+    if (c == '\n') {
+      buf[n] = 0; n = 0;
+      if (strstr(buf, "\"cmd\"") && strstr(buf, "\"run\"")) runTest();
+    } else if (n < sizeof(buf) - 1) buf[n++] = c;
+  }
+}
+
 void loop() {
   console();
+  checkRadioStart();
   if (digitalRead(PIN_BTN) == LOW) {
     unsigned long t0 = millis();
     while (digitalRead(PIN_BTN) == LOW) {}

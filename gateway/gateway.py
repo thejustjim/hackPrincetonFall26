@@ -1041,6 +1041,13 @@ def manual_cmd(test: int, filter: str):
     return {"ok": True}
 
 
+@app.post("/api/start", dependencies=[Depends(require_control)])
+def start_test():
+    """Remote start: the tank runs a test as soon as this reaches it over the radio."""
+    send_to_tank({"cmd": "run"})
+    return {"ok": True}
+
+
 @app.get("/api/filters")
 def filters():
     """Filter life per tank: liters through each filter, status OK / REPLACE_SOON / REPLACE."""
