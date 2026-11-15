@@ -94,6 +94,8 @@ db.execute("""CREATE TABLE IF NOT EXISTS filter_changes (
 db.execute("""CREATE TABLE IF NOT EXISTS investigations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, node TEXT, test INTEGER, reading_id INTEGER,
     filter TEXT, summary TEXT, findings TEXT, actions TEXT, model TEXT)""")
+if "source" not in [c[1] for c in db.execute("PRAGMA table_info(readings)")]:
+    db.execute("ALTER TABLE readings ADD COLUMN source TEXT")      # who chose the filter: gemini, claude or local_rule
 if "extra" not in [c[1] for c in db.execute("PRAGMA table_info(investigations)")]:
     # the verdict of the checks, the checks themselves, what each agent said, and the notice (JSON)
     db.execute("ALTER TABLE investigations ADD COLUMN extra TEXT")
@@ -404,7 +406,10 @@ def clean_reading(msg):
     if msg.get("verdict") not in VERDICTS:
         return None, "unknown verdict"
     rssi = msg.get("rssi")
-    return {"node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
+    # "ask":0 from the tank means the reading was clear-cut and it has already acted on its own rule.
+    # Older firmware and the simulator send no "ask": they always wait for an answer.
+    ask = msg.get("ask", 1) not in (0, False, "0")
+    return {"ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
             "clarity": round(min(1.0, max(0.0, clarity)), 2), "verdict": msg["verdict"],
             "filter": msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE",
             "rssi": int(rssi) if isinstance(rssi, (int, float)) else None}, None
@@ -438,7 +443,7 @@ async def handle_line(raw: str):
 
     # Before-filter tests from the real tank: the agent decides, the tank acts.
     if reading["phase"] == "before" and not reading["sim"]:
-        asyncio.create_task(decide(reading, past))
+        asyncio.create_task(decide(reading, past) if reading.get("ask", True) else reflex(reading, past))
     elif not reading["sim"]:
         # Retest after filtering: update filter life, explain, and investigate.
         used = attach_after(reading)
@@ -467,6 +472,23 @@ async def decide(reading, past):
         await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
 
 
+async def reflex(reading, past):
+    """A clear-cut reading ("ask":0). The tank has already acted on its own rule and is not waiting,
+    so nothing is sent back. The rule is recorded as the decision; the model is asked only to
+    explain it, and its words are kept only if it would have chosen the same filter."""
+    used = reading["filter"]
+    await save_explanation(reading, used, None, source="local_rule")
+    if used in FILTERS:
+        record_tip(reading, used, "local_rule")
+        await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
+    try:
+        result = await asyncio.wait_for(ask_model(reading, past), timeout=20)
+    except Exception:
+        result = None
+    if result and result["filter"] == used:
+        await save_explanation(reading, used, result["explanation"], source="local_rule")
+
+
 async def explain_only(reading, past):
     try:
         result = await asyncio.wait_for(ask_model(reading, past), timeout=20)
@@ -478,8 +500,8 @@ async def explain_only(reading, past):
 
 async def save_explanation(reading, ai_filter, explanation, source):
     with db_lock:
-        db.execute("UPDATE readings SET ai_filter=?, explanation=? WHERE id=?",
-                   (ai_filter, explanation, reading["id"]))
+        db.execute("UPDATE readings SET ai_filter=?, explanation=?, source=? WHERE id=?",
+                   (ai_filter, explanation, source, reading["id"]))
         db.commit()
     await broadcast({"type": "decision", "id": reading["id"], "node": reading["node"],
                      "test": reading["test"], "phase": reading["phase"], "ai_filter": ai_filter,

@@ -203,6 +203,37 @@ async def main():
     for bad in ('{"filter": "BLEACH", "explanation": "x"}', "not json", None):
         gateway.gemini = FakeGemini(bad)
         check(f"a bad Gemini answer ({str(bad)[:12]}) leaves it to the tank's rule", await gateway.ask_model(reading, []) is None)
+    # a clear call ("ask":0): the tank has already acted, so nothing goes back and the rule is the decision
+    radio = []
+    gateway.send_to_tank = radio.append
+    sent.clear()
+    line = {"node": "tank-01", "test": 30, "phase": "before", "ph": 7.5, "tds": 780, "clarity": 0.95, "verdict": "HIGH_TDS", "filter": "ZEROWATER", "rssi": -60}
+    gateway.gemini = FakeGemini('{"filter": "ZEROWATER", "explanation": "Dissolved solids read 780 ppm."}')
+    await gateway.handle_line(json.dumps({**line, "ask": 0}))
+    await asyncio.sleep(0.2)
+    made = [m for m in sent if m["type"] == "decision"]
+    check("a clear call sends nothing back to the tank", radio == [], radio)
+    check("it is recorded as the tank's rule, with the model's words as the explanation",
+          made and all(m["source"] == "local_rule" and m["ai_filter"] == "ZEROWATER" for m in made) and made[-1]["explanation"], made)
+    stored = gateway.raw_reading("tank-01", 30)
+    check("who decided is stored with the reading", stored["source"] == "local_rule" and stored["ai_filter"] == "ZEROWATER", stored)
+    gateway.gemini = FakeGemini('{"filter": "BRITA", "explanation": "Send it to Brita."}')
+    sent.clear()
+    await gateway.handle_line(json.dumps({**line, "test": 31, "ask": 0}))
+    await asyncio.sleep(0.2)
+    made = [m for m in sent if m["type"] == "decision"]
+    check("a model that would have chosen differently is not quoted as the reason", made and all(m["explanation"] is None and m["ai_filter"] == "ZEROWATER" for m in made), made)
+    gateway.gemini = FakeGemini('{"filter": "ZEROWATER", "explanation": "High dissolved solids."}')
+    sent.clear()
+    await gateway.handle_line(json.dumps({**line, "test": 32, "ask": 1}))
+    await asyncio.sleep(0.2)
+    made = [m for m in sent if m["type"] == "decision"]
+    check("an unsure reading still gets the model's decision, sent to the tank", radio == [{"cmd": "filter", "test": 32, "filter": "ZEROWATER"}]
+          and made and made[-1]["source"] == "gemini", (radio, made))
+    radio.clear()
+    await gateway.handle_line(json.dumps({**line, "test": 33}))
+    await asyncio.sleep(0.2)
+    check("older firmware, which sends no ask, is treated as asking", len(radio) == 1, radio)
     gateway.gemini = None
 
     print("\nall passed" if ok else "\nFAILURES")

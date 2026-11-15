@@ -47,7 +47,7 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 ## Data format
 The receiver prints one JSON object per line at 115200 baud:
 ```
-{"node":"tank-01","test":17,"phase":"before","ph":7.21,"tds":482,"clarity":0.83,"verdict":"HIGH_TDS","filter":"ZEROWATER","rssi":-61}
+{"node":"tank-01","test":17,"phase":"before","ph":7.21,"tds":482,"clarity":0.83,"verdict":"HIGH_TDS","filter":"ZEROWATER","ask":0,"rssi":-61}
 ```
 | field | meaning |
 |---|---|
@@ -59,16 +59,25 @@ The receiver prints one JSON object per line at 115200 baud:
 | clarity | 0-1, 1 = as clear as clean water |
 | verdict | `SAFE`, `HIGH_TDS` (>300 ppm), `CLOUDY` (clarity < 0.70), `PH_WARN` (outside 6.5-8.5). `SAFE` only means these three readings are in range; the pages show it as "In range". Nothing here tests for lead, bacteria or any specific contaminant. |
 | filter | the tank's own rule: `NONE`, `ZEROWATER`, `BRITA` |
+| ask | `1`: the tank is unsure (a reading near a limit, two problems at once, or a sensor that looks wrong) and waits up to 8 s for the gateway's answer. `0`: a clear call, already acted on by the tank's rule. Left out by older firmware, which always waits. |
 | rssi | radio signal strength, dBm |
 
 The gateway adds `id`, `ts` (UTC ISO), `lat`, `lon`, `sim`, `anomaly` (0-1), and later
-`ai_filter` + `explanation` once the model answers.
+`ai_filter`, `explanation` and `source` (who chose the filter: `gemini`, `claude` or `local_rule`).
+For a clear call (`ask` 0) the source is always `local_rule`, nothing is sent back to the tank, and
+the model is asked only to explain; its words are kept only if it would have chosen the same filter.
 
 Lines are checked before they are stored: the node must be one the gateway knows (`ALLOW_UNKNOWN_NODES=1`
 lifts that), and the phase, verdict and number ranges must be valid. Anything else is dropped with a
 logged reason.
 
-Gateway to tank (AI decision, sent back over radio): `{"cmd":"filter","test":17,"filter":"BRITA"}`
+Gateway to tank (the model's decision, sent back over radio when the tank asked): `{"cmd":"filter","test":17,"filter":"BRITA"}`.
+The Uno sketch also accepts `RETEST` ("check the probes and test again"); the gateway does not send it yet.
+
+**pH on the current Uno sketch is not measured.** `PH_FROM_TDS 1` in `taptest_uno.ino` estimates pH from
+dissolved solids (7.0 at 150 ppm rising to 8.3 at 800 ppm), because the probe drifts without buffer
+solutions to calibrate it. Set it to `0` once the probe is calibrated. Until then the pH on the pages
+is an estimate and carries no information that dissolved solids do not.
 
 ## Gateway API (port 8000)
 - `WS /ws` - live messages:

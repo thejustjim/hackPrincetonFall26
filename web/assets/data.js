@@ -55,7 +55,7 @@
     const after = pair.find((r) => r.phase === "after") || null;
     let decision = null;
     if (before && before.ai_filter) {
-      decision = { ai_filter: before.ai_filter, explanation: before.explanation, source: !before.explanation ? "local_rule" : kind === "demo" ? "sample" : (aiName || "Claude").toLowerCase() };
+      decision = { ai_filter: before.ai_filter, explanation: before.explanation, source: before.source || (!before.explanation ? "local_rule" : kind === "demo" ? "sample" : (aiName || "Claude").toLowerCase()) };
     }
     return { before, after, decision };
   }
