@@ -167,7 +167,19 @@ radio -> gateway -> SQLite on the Pi (source of truth) -> outbox -> Tiger Cloud
   ordinary tables you can join to. Every row says whether it is measured, simulated or from the mock.
 - On plain Postgres the same code works with ordinary tables.
 
-Set it up:
+Set it up on your own AWS account (one command):
+```
+aws login                         # or: aws configure
+deploy/aws-timescale.sh up        # one t3.small running TimescaleDB with TLS; about 3 cents an hour
+cd gateway && python cloud.py check
+```
+The script makes a security group that lets in port 5432 only (no SSH), one Amazon Linux server
+running the `timescale/timescaledb` container, and an Elastic IP, then writes
+`TIGER_DATABASE_URL` into `.env` with a random password it never prints. Port 5432 is open to
+any address by default so the Pi works from any network, protected by that password and TLS;
+set `ALLOW_CIDR=<your address>/32` to narrow it. `deploy/aws-timescale.sh down` deletes all of it.
+
+Or use a managed service:
 1. Create a service at Tiger Cloud (pick an AWS region) and copy its connection string.
 2. Put it in `.env` as `TIGER_DATABASE_URL=postgres://...` (it contains a password: never commit it).
 3. `python cloud.py check` creates the tables and says what it found. Then start the gateway as usual;
