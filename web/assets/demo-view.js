@@ -12,17 +12,15 @@
     if (!b) return "No cup has been poured yet. Pour one into the tank and press its button.";
     const what = { SAFE: "All three readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
                    CLOUDY: "This cup is cloudy.", PH_WARN: "This cup's pH is outside the usual range." }[b.verdict];
-    if (!d) return `${what} ${b.verdict === "SAFE" ? "It may not need a filter; that is being decided." : "A filter is being chosen."}`;
+    // The headline has the verdict and the line under it the filter and the reading, so this says only
+    // what they do not: who chose, and what to do next.
+    if (!d) return what;
     const f = d.ai_filter;
     const who = TapUI.AI[d.source] || (d.source === "sample" ? "The demo data" : "The tank's own rule");
-    if (f === "NONE") {
-      return b.verdict === "SAFE"
-        ? `${what} No filter was needed. That is not a safety test: these readings can't show lead or bacteria.`
-        : `${what} Neither filter corrects pH, so none was used.`;
-    }
-    const did = `${who} sent it through ${FILTER_NAME[f] || f}`;
-    if (!a) return `${what} ${did}. Pour it back to see whether that helped.`;
-    return a.verdict === "SAFE" ? `${what} ${did}, and the retest came back in range.` : `${what} ${did}, but the retest is still out of range.`;
+    if (f === "NONE") return b.verdict === "SAFE" ? "Not a safety test: these readings can't show lead or bacteria." : "Neither filter corrects pH, so none was used.";
+    const did = `${who} chose ${FILTER_NAME[f] || f}`;
+    if (!a) return `${did}. Pour the cup back to retest.`;
+    return a.verdict === "SAFE" ? `${did}, and the retest came back in range.` : `${did}, but the retest is still out of range.`;
   }
 
   /* Use the reading the chosen filter addresses. Until the retest, this is explicitly the
@@ -290,10 +288,10 @@
         $("#plate").innerHTML = !b ? "" : untouched ? `
           <div class="pair single">${TapCup.svg(b)}</div>
           <div class="pair-labels single"><div><b>As poured</b><span>${esc(clock(b.ts))}</span></div></div>
-          <figcaption>No filter was used, so there is no retest. The amber tint and specks follow dissolved solids; the brown murk follows transparency.</figcaption>` : `
+          <figcaption>No filter was used, so there is no retest. Tint and specks follow dissolved solids; murk follows transparency.</figcaption>` : `
           <div class="pair">${TapCup.svg(b)}<svg class="arrow" viewBox="0 0 54 12" aria-hidden="true"><path d="M0 6 H52 M46 1 L52 6 L46 11"/></svg>${TapCup.svg(a)}</div>
           <div class="pair-labels"><div><b>Before</b><span>${esc(clock(b.ts))}</span></div><i></i><div><b>After</b><span>${esc(afterNote)}</span></div></div>
-          <figcaption>Drawn from the readings. The amber tint and specks follow dissolved solids; the brown murk follows transparency.</figcaption>`;
+          <figcaption>Drawn from the readings: tint and specks follow dissolved solids, murk follows transparency.</figcaption>`;
         // the same two cups in 3D, laid over the flat ones (plate3d.js); `after` undefined means no second glass
         window.TapPlateState = !b ? null : { before: b, after: untouched ? undefined : a || null };
         window.TapPlate?.set(window.TapPlateState);

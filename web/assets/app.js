@@ -92,8 +92,10 @@
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
   const usedFilter = (store) => store.pour?.decision?.ai_filter || null;
-  /* Keep the measured before-reading in the glass until a retest arrives. The filter and drops
-     illustrate the chosen action; their appearance is not evidence that the action worked. */
+  /* What the glass holds. No filter: the water as it was poured, brown or amber if that is how it
+     read. A filter in use: what comes through it, drawn clear until the retest arrives, and from
+     then on as the retest actually read. The glass is a picture of the action; the line under the
+     headline and the notes round the glass say in words that the retest is still awaited. */
   const HOLD_MS = 2600;        // the tank decides clear-cut pours at once; the page still shows the cup as poured for this long
   let heldPour = null, heldAt = 0;
   const justPoured = (store) => {
@@ -106,7 +108,8 @@
   const inGlass = (store) => {
     const p = store.pour;
     if (!p?.before) return null;
-    return p.after || p.before;
+    if (p.after) return p.after;
+    return filtering(store) ? null : p.before;
   };
 
   /* The hero's words: a short verdict, and under it what is being done about it.
@@ -140,11 +143,11 @@
       const state = (bad, wasBad, why) => bad ? { flag: why, tone: "warn" } : a && wasBad ? { flag: "back in range", tone: "good" } : { flag: null, tone: null };
       const phBad = (x) => x.ph < 6.5 || x.ph > 8.5;
       out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
-        detail: `Drinking water is normally between 6.5 and 8.5. Neither filter here corrects pH.` });
+        detail: `Usual range 6.5 to 8.5. Neither filter corrects pH.` });
       out.push({ id: "clarity", group: "cup", icon: "eye", label: `Transparency${phase}`, value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
-        detail: `How clear the water looks, from 0 (opaque) to 1 (clear). Below 0.70 counts as cloudy, and this device sends cloudy water to Brita.` });
+        detail: `0 is opaque, 1 is clear. Below 0.70 counts as cloudy and goes to Brita.` });
       out.push({ id: "tds", group: "cup", icon: "drop", label: `Dissolved solids${phase}`, value: `${r.tds} ppm`, ...state(r.tds > 300, b.tds > 300, r.tds > 500 ? "over the EPA guideline of 500" : "high: above 300"),
-        detail: `Minerals and salts in the water${a ? `. This cup went from ${b.tds} to ${a.tds} ppm` : ""}. Above 300 is high; the EPA guideline is 500.` });
+        detail: `Minerals and salts. Above 300 is high; the EPA guideline is 500.` });
     }
     if (d) {
       const who = AI[d.source] ? `${AI[d.source]} chose it.` : d.source === "sample" ? "Sample explanation, written for the demo data." : "The tank's own rule chose it.";
@@ -160,7 +163,7 @@
         detail: `After ${FILTER_NAME[f] || "filtering"}: dissolved solids ${b.tds} to ${a.tds} ppm, transparency ${fmt(b.clarity, 2)} to ${fmt(a.clarity, 2)}, pH ${fmt(b.ph, 1)} to ${fmt(a.ph, 1)}.` });
     } else if (d && f !== "NONE") {
       out.push({ id: "retest", group: "cup", minor: true, icon: "retest", label: "Retest", value: "Awaited",
-        detail: `Pour the filtered water back into the cup and press the button to see whether it helped.` });
+        detail: `Pour the filtered water back and press the button.` });
     }
     if (store.filters.length) {
       const bad = store.filters.find((x) => x.status === "REPLACE") || store.filters.find((x) => x.status === "REPLACE_SOON");
@@ -173,19 +176,19 @@
       const near = [...store.reference].sort((x, y) => km(tank, x) - km(tank, y))[0];
       const typical = near.typical_tds_est ?? near.tds_est;
       out.push({ id: "nearby", group: "context", icon: "pin", label: "Nearby water", value: `${near.site}: ${typical} ppm`,
-        detail: `Typical of recent samples published by ${near.source}; last sampled ${String(near.date).slice(0, 4)}, about ${km(tank, near).toFixed(1)} km away. Estimated from conductance.${r ? ` This cup reads ${r.tds} ppm.` : ""}` });
+        detail: `Typical of samples published by ${near.source}, estimated from conductance. Last sampled ${String(near.date).slice(0, 4)}, about ${km(tank, near).toFixed(1)} km away.` });
     }
     const all = [...store.nodes.values()];
     if (all.length) {
       const sims = all.filter((n) => n.sim).length, odd = all.filter((n) => !n.sim && n.latest?.anomaly >= 0.6).length;
       out.push({ id: "network", group: "context", icon: "nodes", label: "Network", value: `${all.length - sims} measured, ${sims} simulated`,
-        detail: `${all.length - sims} measuring and ${sims} simulated around Princeton. Simulated nodes are always labelled. ${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}${cloudLine(store) ? ` ${cloudLine(store)}` : ""}` });
+        detail: `Simulated nodes are always labelled. ${odd ? "The measured site's latest reading is unusual for it." : "Nothing unusual at the measured site."}${cloudLine(store) ? ` ${cloudLine(store)}` : ""}` });
     }
     out.push(store.report
       ? { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: store.pour?.before && store.report.test !== store.pour.before.test ? `Report on pour ${store.report.test}, the one before` : `Report on pour ${store.report.test}`,
           detail: `${store.report.summary}${store.report.actions?.[0] ? ` Next: ${store.report.actions[0]}` : ""}` }
       : { id: "report", group: "context", icon: "sparkles", label: "Investigator", value: "No report yet",
-          detail: "A report follows each retest: what changed, how this site compares, and what to do next." });
+          detail: "A report follows each retest." });
     return out;
   }
 

@@ -34,7 +34,7 @@
   /* The wide-screen glass follows the loop's four steps. Keep the measured water until Compare:
        raw      the cup as poured, with no filter.
        hang     Interpret: hold the untreated drop while a filter is chosen.
-       catch    Act: bring in the filter and hold its output; the retest is still awaited.
+       catch    Act: the filter snaps in and the water clears; the clear drop is held, since the retest is still to come.
        release  Compare: show the retested water and release the filtered drop.
        bypass   a separate, in-range cup: no filter is needed.
        run      the filtered example repeats on the optional detail slides.
@@ -47,7 +47,7 @@
     g.setSource(DIRTY, filtered); g.setWater(water); g.step?.(phase);
   };
   const SCENES = {
-    raw, hang: scene("hang", DIRTY, false), catch: scene("catch", DIRTY),
+    raw, hang: scene("hang", DIRTY, false), catch: scene("catch", null),
     release: scene("release", RETEST), run: scene(null, RETEST),
     bypass: (g) => { g.setSource(IN_RANGE, false); g.setWater(IN_RANGE); g.step?.(null); },
   };

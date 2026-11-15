@@ -42,8 +42,10 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     In a wide window the 3D glass stays on stage beside every slide and follows the demo's rule: with
     no filter the water is what was poured, and it is nasty; with the filter in place it is clear. The
     title and the problem show brown water with dirty drops falling straight in. The "One cup, one loop"
-    slide has four steps, a press each: the dirty cup, the filter snapping into place (the water
-    clears), the dirty drop going through it, the clear drop falling. It stays clear from there on.
+    slide has four steps, a press each, one for each line on the slide: the cup as poured (Measure),
+    the untreated drop held while a filter is chosen (Interpret), the filter snapping into place and
+    the water clearing (Act), and the retested water with the clear drop falling (Compare). The
+    savings slide shows a different, in-range cup with no filter at all.
     When the pitch ends the glass glides to its place in the demo.
     There is no way back up from the demo; reload `/pitch/` to start again.
   - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up

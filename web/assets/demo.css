@@ -30,7 +30,8 @@ body { font-family: var(--serif); font-size: 19px; line-height: 1.5; letter-spac
 /* what Clarity is for, in one sentence, ending on a live count: the page's argument, under the account of this cup */
 #about { margin-top: 24px; max-width: 25em; font-style: italic; color: var(--label2); font-size: clamp(15px, 1.12vw, 17.5px); line-height: 1.45; text-wrap: balance; }
 #about::before { content: ""; display: block; margin-bottom: 16px; border-top: 1px solid var(--hair); }
-#about-tally { display: block; color: var(--text); }   /* the count is a line of its own, so the sentence before it never leaves one word beside it */
+#about-tally { display: block; color: var(--text); }
+#about:has(#about-tally:empty) { display: none; }       /* no pours yet: no tally, and no rule above nothing */
 
 /* entrance (.live): the copy rises line by line, the cup fades up, then the notes (base.css) */
 .hero-copy > *, .cup-wrap, .context { opacity: 0; }
@@ -272,14 +273,13 @@ td.n, th.n { text-align: right; padding-left: 18px; }
   .page { padding: 36px var(--page-x) 56px; }
   .section-head { flex-wrap: wrap; gap: 4px 24px; }
 }
-/* Keep the measure-first argument on short presentation screens. Only the supplementary
-   history tally gives way; the cup, palette and editorial hierarchy stay the same. */
+/* Short presentation screens: the tally under the hero gives way; the cup, palette and editorial
+   hierarchy stay the same. */
 @media (min-width: 1181px) and (max-height: 800px) {
   .hero-copy { top: 18vh; }
   #standfirst { margin-top: 18px; }
-  #about { margin-top: 18px; }
-  #about::before { margin-bottom: 12px; }
-  #about-tally { display: none; }
+  #about { display: none; }
+}
 }
 /* small laptop windows: the notes' explanations are set narrower, so an open one stays clear of the headline column */
 @media (min-width: 1181px) and (max-width: 1320px) {
