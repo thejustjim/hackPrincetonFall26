@@ -22,7 +22,7 @@
    Once a pour has been retested, moving the pointer across the glass divides its water: as it
    was before the filter to the left of the pointer, as it is now to the right.
 
-   window.TapHero = { setWater(reading, immediate), setSource(before, filtered), setCompare(before), drip(), setRunning(bool) }
+   window.TapHero = { setWater(reading, immediate), setSource(before, filtered), setCompare(before), drip(), step(phase), setRunning(bool) }
    once mounted. Until setSource is called the pipette holds brown water and the filter is on (the pitch).
    Events on window: "hero3d:ready", and "hero3d:impact" each time a drop lands.
    If WebGL or the module fails, the page keeps its SVG cup. */
@@ -306,6 +306,8 @@ function mount(host) {
   const src = { tint: C.murk.clone(), clear: 0, filter: true };
   const tintNow = C.murk.clone(), pipeColor = new THREE.Color();
   let clearNow = 0;
+  let hurry = false;                                  // a drop was asked for while one was in the air
+  let walk = null;                                    // the pitch's step, while it is walking one drop through the filter
   let splashPace = PACE;                              // the pace of the drop that last landed: its splash keeps it
   const sat = { on: false, y: 0, v: 0 };
   const jet = { on: false, y: 0, v: 0, thrown: true };
@@ -417,9 +419,36 @@ function mount(host) {
      way slow-motion film does, so the motion stays true to a real drop. If the pour is being
      filtered, the funnel sets off now and is in place before the drop lets go. */
   function drip(pace) {
-    if (still || drop.state !== "idle") return;
+    if (still || walk) return;                                 // while the pitch is walking a drop through, it alone says when
+    if (drop.state !== "idle") { hurry = true; return; }       // one is already on its way: the next follows it closely
     Object.assign(drop, { state: "gather", t: 0, pace: pace || PACE, caught: src.filter, through: false });
     if (drop.caught) { fun.want = true; fun.leaveAt = 0; }
+  }
+  /* The pitch walks one drop through the filter a step at a time (pitch.js):
+       "hang"     a drop gathers at the tip and stays there
+       "filter"   the funnel swings in beneath it
+       "catch"    the drop falls into the funnel, and a clear one forms at its stem and stays there
+       "release"  the clear drop falls into the glass
+     Going back a step starts the drop again from the tip. null hands the drops back to their own timing. */
+  function step(phase) {
+    walk = phase || null;
+    if (!walk) { nextDrip = performance.now() + 900; return; }
+    if (still) return;
+    const atTip = drop.state === "gather" || drop.state === "neck";
+    const again = () => {
+      Object.assign(drop, { state: "gather", t: 0, pace: PACE, caught: true, through: false });
+      dropMesh.visible = satMesh.visible = false;
+      sat.on = false;
+    };
+    if (walk === "hang" || walk === "filter") {
+      if (drop.state !== "gather") again();
+      fun.want = walk === "filter";
+    } else {
+      if (drop.state === "idle" || drop.through || (walk === "release" && atTip && !fun.want)) again();
+      fun.want = true;
+    }
+    drop.caught = true;
+    fun.leaveAt = 0;
   }
   /* how the drop looks: 0 as untreated as the pipette's water, 1 clear */
   function dropLook(clear) {
@@ -441,7 +470,8 @@ function mount(host) {
     splashPace = drop.pace;
     jet.thrown = false;
     splash(0.022);
-    nextDrip = impactAt + 3800 + Math.random() * 1400;
+    nextDrip = impactAt + (hurry ? 900 : 3800 + Math.random() * 1400);
+    hurry = false;
     window.dispatchEvent(new Event("hero3d:impact"));
   }
 
@@ -543,7 +573,7 @@ function mount(host) {
     }
 
     // ---- the drop
-    if (!still && drop.state === "idle" && now >= nextDrip) drip();
+    if (!still && !walk && drop.state === "idle" && now >= nextDrip) drip();
     pendant.visible = !still;
     const ddt = dt * drop.pace;
     pinchAge += ddt;
@@ -553,7 +583,9 @@ function mount(host) {
       const rb = Math.max(bead.r, RD * Math.cbrt(q));
       const yc = TIP - rb * 0.82 - 0.012 * q * q;        // it sags as it gets heavier
       pendantShape(rb, yc, R0);
-      if (q >= 1) Object.assign(drop, { state: "neck", t: 0, y: yc });
+      // it lets go when it is full, unless the pitch is holding it there, and not before a funnel meant for it is in place
+      const held = walk === "hang" || walk === "filter" || (drop.caught && fun.want && fun.p < 0.98 && drop.t < GATHER + 2.5);
+      if (q >= 1 && !held) Object.assign(drop, { state: "neck", t: 0, y: yc });
     } else if (drop.state === "neck") {                  // the neck stretches and thins, fastest at the end
       drop.t += ddt;
       const q = Math.min(1, drop.t / NECK);
@@ -582,7 +614,7 @@ function mount(host) {
       dropMesh.visible = true;
       dropMesh.scale.set(r, r * 1.12, r);
       dropMesh.position.set(0, yc, 0);
-      if (q >= 1) {                                      // it lets go, and the funnel leaves once it is clear of it
+      if (q >= 1 && walk !== "catch") {                  // it lets go (unless the pitch is holding it), and the funnel leaves once it is clear of it
         Object.assign(drop, { state: "fall", y: yc, v: 0.25, y0: yc, tf: 0, caught: false, through: true });
         fun.leaveAt = now + 420;
       }
@@ -750,7 +782,7 @@ function mount(host) {
   document.addEventListener("visibilitychange", sync);
   frame();
   sync();
-  return Object.assign(api, { setWater, setSource, setCompare, drip, setRunning });
+  return Object.assign(api, { setWater, setSource, setCompare, drip, step, setRunning });
 }
 
 export { C, lookFor, glassMaterial, waterMaterial };   // the before and after glasses (plate3d.js) are made the same way

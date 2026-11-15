@@ -1,8 +1,11 @@
 <!-- The pitch. Loaded by assets/pitch.js and laid over the /demo page when you arrive at /pitch.
-     The first slide is see-through: the live cup shows behind it. Scrolling past the last slide
-     hands over to /demo. `data-rise` marks what floats in, in order. -->
+     In a wide window the 3D glass stays on stage beside every slide, and `data-scene` says what it
+     is doing there: `run` lets a dirty drop meet the filter and a clear one fall, over and over;
+     `hang filter catch release` walks one drop through by hand, a step per name, and `data-step`
+     marks the item each step lights. Scrolling past the last slide hands over to
+     /demo. `data-rise` marks what floats in, in order. -->
 
-<section class="slide s-title" aria-label="Clarity" data-clear>
+<section class="slide s-title" aria-label="Clarity" data-clear data-scene="run">
   <div class="p-title">
     <h1>Clarity</h1>
     <p class="tagline" data-rise>What you deserve.</p>
@@ -11,7 +14,7 @@
   <p class="p-hint" data-rise>Scroll<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
 </section>
 
-<section class="slide s-problem" aria-label="The problem">
+<section class="slide s-problem" aria-label="The problem" data-scene="run">
   <div class="frame">
     <h2>Stony Brook's flow is measured every fifteen minutes. Its dissolved solids were last sampled in 2023.</h2>
     <div class="split">
@@ -28,19 +31,19 @@
   </div>
 </section>
 
-<section class="slide s-loop" aria-label="How Clarity works">
+<section class="slide s-loop" aria-label="How Clarity works" data-scene="hang filter catch release">
   <div class="frame">
     <h2>One cup, one loop</h2>
     <ol class="loop">
-      <li data-rise><span class="n">1</span><h3>Measure</h3><p>pH, dissolved solids and transparency, from one pour.</p></li>
-      <li data-rise><span class="n">2</span><h3>Interpret</h3><p><span data-ai>Gemini</span> explains the reading against this site's history.</p></li>
-      <li data-rise><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits.</p></li>
-      <li data-rise><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows whether it worked.</p></li>
+      <li data-rise data-step><span class="n">1</span><h3>Measure</h3><p>pH, dissolved solids and transparency, from one pour.</p></li>
+      <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p><span data-ai>Gemini</span> explains the reading against this site's history.</p></li>
+      <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits.</p></li>
+      <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows whether it worked.</p></li>
     </ol>
   </div>
 </section>
 
-<section class="slide s-why" aria-label="What it saves">
+<section class="slide s-why" aria-label="What it saves" data-scene="run">
   <div class="frame">
     <h2>Measure first, and less is wasted</h2>
     <ul class="why">
@@ -51,7 +54,7 @@
   </div>
 </section>
 
-<section class="slide s-hardware" aria-label="Hardware">
+<section class="slide s-hardware" aria-label="Hardware" data-scene="run">
   <div class="frame">
     <h2>The cup reaches the base station by direct radio. No router, no cell.</h2>
     <ol class="chain" data-rise>
@@ -72,7 +75,7 @@
   </div>
 </section>
 
-<section class="slide s-ai" aria-label="AI">
+<section class="slide s-ai" aria-label="AI" data-scene="run">
   <div class="frame">
     <h2>AI that explains, inside limits</h2>
     <div class="split">
@@ -91,7 +94,7 @@
   </div>
 </section>
 
-<section class="slide s-filters" aria-label="Filter life">
+<section class="slide s-filters" aria-label="Filter life" data-scene="run">
   <div class="frame">
     <h2>Filters that say when they're done</h2>
     <div class="split">
@@ -115,7 +118,7 @@
   </div>
 </section>
 
-<section class="slide s-sources" aria-label="Where the data comes from">
+<section class="slide s-sources" aria-label="Where the data comes from" data-scene="run">
   <div class="frame">
     <h2>Every point says where it came from</h2>
     <div class="split">
@@ -131,7 +134,7 @@
   </div>
 </section>
 
-<section class="slide s-open" aria-label="Open questions">
+<section class="slide s-open" aria-label="Open questions" data-scene="run">
   <div class="frame">
     <h2>What we're still deciding</h2>
     <dl class="open">
@@ -143,7 +146,7 @@
   </div>
 </section>
 
-<section class="slide s-close" aria-label="Team">
+<section class="slide s-close" aria-label="Team" data-scene="run">
   <div class="frame">
     <h2>Clarity</h2>
     <p class="tagline" data-rise>What you deserve.</p>

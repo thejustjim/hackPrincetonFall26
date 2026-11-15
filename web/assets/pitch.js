@@ -1,9 +1,11 @@
 /* The pitch. It runs on top of the live /demo page, which is already loaded underneath.
 
    Arriving at /pitch lands here (see pitch/index.html and the script in demo/index.html's head):
-     1. The page opens on black. One brown drop gathers; a filter swings in and catches it; a
-        clear drop falls from the filter and lands.
-     2. On impact the page colour comes up and the title rises over the glass.
+     1. The page opens on black, on a glass of clear water. One dirty drop gathers; a filter swings
+        in and catches it; a clear drop falls from the filter and lands.
+     2. On impact the page colour comes up and the title rises beside the glass.
+        In a wide window the glass then stays on stage for the whole deck, doing the same thing over
+        and over, and the "One cup, one loop" slide walks one drop through it a step at a time.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
      4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
         is removed from the page at that point, so there is no way back up to it.
@@ -28,6 +30,26 @@
   let holdUntil = 0, armed = true, lastWheel = 0, pile = 0, restTimer = 0;
 
   // ---------------------------------------------------------------- handing over to the demo
+  /* The glass stays on stage through the whole deck (in a wide window). It always holds clear water:
+     the dirt is in the drop. A dirty drop comes down, meets the filter, and a clear drop falls into the
+     clear water. Each slide names its scene in data-scene. "run" lets that happen by itself, over and
+     over. A slide that names several scenes has that many steps, and walks one drop through by hand:
+     hang (the dirty drop gathers at the tip and waits), filter (the funnel swings in under it), catch
+     (it falls in, and a clear drop forms beneath and waits), release (the clear drop falls). */
+  const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };     // what the dropper holds
+  const scene = (phase) => (g) => { g.setSource(DIRTY, true); g.setWater(null); g.step?.(phase); };
+  const SCENES = { run: scene(null), hang: scene("hang"), filter: scene("filter"), catch: scene("catch"), release: scene("release") };
+  let sub = 0;                                                  // which step of the current slide
+  const stepsOf = (s) => (s.dataset.scene || "").split(" ").filter(Boolean);
+  function stage() {
+    const slide = slides[at], names = stepsOf(slide);
+    slide.querySelectorAll("[data-step]").forEach((el, k) => {
+      el.classList.toggle("is", k === sub);
+      el.classList.toggle("done", k < sub);
+    });
+    if (window.TapHero?.setSource && wide.matches && !done) SCENES[names[Math.min(sub, names.length - 1)]]?.(TapHero);
+  }
+
   function finish(instant) {
     if (done) return;
     done = true;
@@ -37,7 +59,14 @@
     try { history.replaceState(null, "", DEMO_PATH + location.search); } catch (e) { /* opened as a file */ }
     window.scrollTo(0, 0);
     document.body.classList.add("ready");
-    if (window.TapApp) { document.body.classList.add("live"); TapApp.refresh(); }   // else app.js does this when it starts
+    // The glass glides from its place in the pitch to its place in the demo. The demo's words and
+    // notes come in once it has arrived, so the notes are measured against where it ends up.
+    const arrive = () => {
+      if (window.TapApp) { document.body.classList.add("live"); TapApp.refresh(); }   // else app.js does this when it starts
+      window.dispatchEvent(new Event("resize"));
+    };
+    if (instant || reduced || !wide.matches) arrive(); else setTimeout(arrive, 1500);
+    window.TapHero?.step?.(null);                     // the drops go back to their own timing
     window.TapHero?.setRunning(true);
     host.classList.add("leaving");
     removeEventListener("keydown", onKey);
@@ -47,9 +76,11 @@
   }
 
   // ---------------------------------------------------------------- moving between slides
-  function show(n) {
+  function show(n, back) {
     at = n;
+    sub = back ? Math.max(0, stepsOf(slides[n]).length - 1) : 0;   // coming back to a slide lands on its last step
     slides.forEach((s, k) => {
+      s.classList.remove("stepping");
       s.classList.toggle("past", k < n);
       s.classList.toggle("on", k === n);
       s.classList.toggle("in", k === n);
@@ -57,19 +88,25 @@
     });
     host.dataset.at = n;
     $(".p-count").textContent = `${n + 1} / ${slides.length}`;
-    // the glass only needs drawing while the see-through title slide is up
-    clearTimeout(restTimer);
-    if (!wide.matches || slides[n].hasAttribute("data-clear")) window.TapHero?.setRunning(true);
-    else restTimer = setTimeout(() => window.TapHero?.setRunning(false), HOLD);
+    window.TapHero?.setRunning(true);                 // the glass is on stage for every slide
+    stage();
   }
   function go(step) {
     if (done || !revealed || !wide.matches) return false;
     const now = performance.now();
     if (now < holdUntil) return false;
+    const last = stepsOf(slides[at]).length - 1;
+    if ((step > 0 && sub < last) || (step < 0 && sub > 0)) {      // another step of the same slide
+      sub += step;
+      holdUntil = now + 800;
+      slides[at].classList.add("stepping");
+      stage();
+      return true;
+    }
     const n = at + step;
     if (n < 0) return false;
     holdUntil = now + HOLD;
-    if (n >= slides.length) finish(); else show(n);
+    if (n >= slides.length) finish(); else show(n, step < 0);
     return true;
   }
 
@@ -134,6 +171,7 @@
     const start = () => {
       document.body.classList.add("ready");          // the glass fades up out of the dark
       TapHero.setWater(null, true);                  // clear water, whatever the latest reading is
+      TapHero.setSource?.(DIRTY, true);              // and a first dirty drop, which the filter will catch
       if (reduced) { reveal(); return; }
       addEventListener("hero3d:impact", reveal, { once: true });
       setTimeout(() => TapHero.drip(0.5), 1300);    // the first drop, at half speed

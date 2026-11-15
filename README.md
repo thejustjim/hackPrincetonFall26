@@ -30,8 +30,12 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     The dropper over the glass holds the latest pour as it read before filtering. If that pour was
     sent through a filter, a funnel swings in, catches the drop and lets a clear one through; water
     that read in range falls straight in.
-  - `/pitch/` - the pitch. It opens on black with one brown drop caught by the filter, runs through the slides (scroll, swipe or
+  - `/pitch/` - the pitch. It opens on black with one dirty drop caught by the filter, runs through the slides (scroll, swipe or
     arrow keys; `End` jumps to the last one), and scrolling past the last slide lands on `/demo/`.
+    In a wide window the 3D glass stays on stage beside every slide, always holding clear water: a
+    dirty drop comes down, meets the filter, and a clear drop falls in. The "One cup, one loop" slide
+    has four steps, and each press walks one drop a step further (it hangs, the filter swings in,
+    it goes through, the clear drop falls). When the pitch ends the glass glides to its place in the demo.
     There is no way back up from the demo; reload `/pitch/` to start again.
   - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up
     events, the trace back to the pipe each most likely entered from, and an incident report that can

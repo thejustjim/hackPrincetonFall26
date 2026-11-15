@@ -192,3 +192,84 @@
 @media (prefers-reduced-motion: reduce) {
   #pitch .w, #pitch [data-rise] { opacity: 1; transform: none; }
 }
+
+/* ---- wide windows: the glass stays on stage, at the right, and every slide keeps to the left of it.
+   The slides are see-through here, so the one leaving goes quickly and the next waits for it.
+   Sizes are for a column about 860 units wide (the frame is still 900 units tall, scaled to fit). */
+.cup-wrap { transition: left 1.6s var(--lux); }      /* it glides back to its place in the demo when the pitch ends */
+@media (min-width: 1181px) and (min-height: 480px) {
+  html.pitching { --cup-x: calc(100vw - var(--page-x) - 25vh); }
+  #pitch .slide { background: none; transition: opacity 0.45s ease, visibility 0s linear 0.45s; }
+  #pitch .slide.on { transition: opacity 1.1s ease 0.4s, visibility 0s; }
+  #pitch .frame { width: calc((100vw - var(--page-x) - 50vh - 3vw) / var(--s, 1)); padding-right: 0; }
+  #pitch h2 { font-size: 58px; line-height: 1.08; margin-bottom: 30px; max-width: none; }
+  #pitch figcaption { font-size: 20px; }
+  #pitch .split, #pitch .s-ai .split, #pitch .s-sources .split { grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; }
+  #pitch .says li { padding: 16px 0 18px; font-size: 23px; }
+
+  /* the problem */
+  #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 176px; gap: 34px; align-items: end; }
+  #pitch #sample-chart text { font-size: 25px; }
+  #pitch #sample-chart .note { font-size: 29px; }
+  #pitch .src { font-size: 13px; }
+  #pitch .p-stat .num { font-size: 150px; }
+  #pitch .p-stat .what { margin-top: 14px; font-size: 24px; }
+
+  /* the loop: four rows, lit one at a time as the glass does each */
+  #pitch .loop { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  #pitch .loop li { display: grid; grid-template-columns: 62px 200px minmax(0, 1fr); column-gap: 18px; align-items: baseline; padding: 20px 0 22px; }
+  #pitch .loop .n { font-size: 56px; }
+  #pitch .loop h3 { margin-top: 0; font-size: 36px; }
+  #pitch .loop p { margin: 0; font-size: 23px; }
+  #pitch .slide.in .loop li[data-step]:not(.is) { opacity: 0.32; }
+  #pitch .slide.in .loop li[data-step].done { opacity: 0.6; }
+  #pitch .slide.in.stepping .loop li[data-step] { transition: opacity 0.7s ease 0s; }
+
+  /* what measuring first saves */
+  #pitch .why { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  #pitch .why li { display: grid; grid-template-columns: 280px minmax(0, 1fr); column-gap: 28px; padding: 20px 0 22px; }
+  #pitch .why h3 { font-size: 30px; }
+  #pitch .why p { margin: 0; font-size: 22px; }
+
+  /* hardware */
+  #pitch .s-hardware h2 { font-size: 50px; }
+  #pitch .chain li { padding: 16px 10px 0 0; }
+  #pitch .chain b { font-size: 19px; }
+  #pitch .chain span { font-size: 15px; }
+  #pitch .chain .link { flex: 0 0 58px; padding-top: 12px; font-size: 11px; }
+  #pitch .two { gap: 36px; }
+  #pitch .two p { padding-top: 18px; font-size: 22px; }
+
+  /* AI */
+  #pitch .p-plate { padding: 22px 26px 24px; }
+  #pitch .p-plate .lab { font-size: 19px; }
+  #pitch .p-plate .val { font-size: 46px; }
+  #pitch .p-plate .txt { margin-top: 14px; padding-top: 14px; font-size: 20px; }
+  #pitch .p-plate figcaption { margin-top: 14px; font-size: 15px; }
+
+  /* filter life */
+  #pitch .p-filters .f { padding: 18px 0 22px; }
+  #pitch .p-filters .name { font-size: 34px; }
+  #pitch .p-filters .st { font-size: 21px; }
+  #pitch .p-filters .line { margin-top: 8px; font-size: 21px; }
+  #pitch .p-filters .life { margin-top: 14px; }
+
+  /* where the data comes from: the glass is the picture on this slide, so the sketch map is left out */
+  #pitch .p-map { display: none; }
+  #pitch .sources > div { padding: 18px 0 20px; }
+  #pitch .sources dt { font-size: 30px; }
+  #pitch .sources dd { font-size: 21px; }
+
+  /* open questions */
+  #pitch .open { gap: 0 44px; }
+  #pitch .open > div { padding: 20px 0 30px; }
+  #pitch .open dt { font-size: 30px; }
+  #pitch .open dd { font-size: 22px; }
+
+  /* close: set like the title, on the left */
+  #pitch .s-close .frame { align-items: flex-start; justify-content: center; text-align: left; }
+  #pitch .s-close h2 { font-size: 170px; }
+  #pitch .s-close .tagline { margin-top: 22px; font-size: 46px; }
+  #pitch .s-close .team { margin-top: 40px; font-size: 25px; }
+  #pitch .s-close .p-hint { left: calc(var(--page-x) / var(--s, 1)); translate: 0 0; }
+}
