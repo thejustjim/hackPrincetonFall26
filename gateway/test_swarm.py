@@ -253,6 +253,17 @@ async def main():
     for bad in ('{"filter": "BLEACH", "explanation": "x"}', "not json", None):
         gateway.gemini = FakeGemini(bad)
         check(f"a bad Gemini answer ({str(bad)[:12]}) leaves it to the tank's rule", await gateway.ask_model(reading, []) is None)
+    gateway.gemini = FakeGemini('{"filter": "NONE", "explanation": "The TDS is 198 ppm, which is normal. You can continue using the water as is."}')
+    out = await gateway.ask_model(reading, [])
+    check("a sentence that says the water can be used is cut from the explanation", out["explanation"] == "The TDS is 198 ppm, which is normal.", out)
+    check("so is one that calls it safe or says to drink it", gateway.no_promises("It is safe. Readings are in range. Drink up!") == "Readings are in range.")
+    check("the decision asks for a short answer, with thinking off on a Gemini model", gateway.gemini.seen["config"]["max_output_tokens"] <= 400
+          and gateway.gemini.seen["config"]["thinking_config"] == {"thinking_budget": 0})
+    gateway.AI_MODEL = "gemma-4-26b-a4b-it"
+    await gateway.ask_model(reading, [])
+    check("and a tighter cap and no thinking setting on Gemma, which refuses one", gateway.gemini.seen["config"]["max_output_tokens"] == 180
+          and "thinking_config" not in gateway.gemini.seen["config"])
+    gateway.AI_MODEL = "gemini-test"
     # a clear call ("ask":0): the tank has already acted, so nothing goes back and the rule is the decision
     radio = []
     gateway.send_to_tank = radio.append

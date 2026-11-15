@@ -315,7 +315,20 @@ def checked(text, who):
         return None
     if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
         return None
+    result["explanation"] = no_promises(result.get("explanation"))
     return result
+
+
+# A model is told never to call water safe or say it can be used or drunk. If it does anyway,
+# that sentence is cut. (Run live, Gemma ended in-range pours with "You can continue using the water as is.")
+PROMISE = re.compile(r"\b(safe|drink|drinking|drinkable|potable|continue using|keep using|fine to use|good to use|ok to use|okay to use)\b", re.I)
+
+
+def no_promises(text):
+    if not isinstance(text, str):
+        return text
+    kept = [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x and not PROMISE.search(x)]
+    return " ".join(kept) or None
 
 
 async def ask_claude(reading, past):
@@ -338,20 +351,30 @@ async def ask_claude(reading, past):
 
 
 async def ask_gemini(reading, past):
-    """Returns {"filter", "explanation"} or None."""
+    """Returns {"filter", "explanation"} or None. The answer is a few dozen tokens, so the cap is
+    low: run live, about one Gemma answer in four ran away repeating itself until it hit the cap
+    (84 seconds at a cap of 4,000). With a low cap a runaway ends in about three seconds and
+    there is time to ask once more before the tank stops waiting."""
     if gemini is None:
         return None
-    resp = await gemini.aio.models.generate_content(
-        model=AI_MODEL,
-        contents=decision_prompt(reading, past),
-        config={"system_instruction": SYSTEM, "response_mime_type": "application/json", "max_output_tokens": 4000,
-                "response_json_schema": {k: v for k, v in SCHEMA.items() if k != "additionalProperties"}},
-    )
-    text = resp.text                               # None when the answer was blocked or cut off
-    if not text:
-        print("Gemini gave no decision:", getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else resp.prompt_feedback)
-        return None
-    return checked(text, "Gemini")
+    who = ai_name()
+    # Gemma does no thinking and refuses the setting; a Gemini model thinks by default and its
+    # thinking counts against the cap, so for this small answer it is switched off and the cap raised.
+    # (No temperature is set: at 0.2 Gemma ran away far more often than at its default.)
+    limits = {"max_output_tokens": 180} if AI_MODEL.startswith("gemma") else {"max_output_tokens": 400, "thinking_config": {"thinking_budget": 0}}
+    for attempt in (1, 2):
+        resp = await gemini.aio.models.generate_content(
+            model=AI_MODEL,
+            contents=decision_prompt(reading, past),
+            config={"system_instruction": SYSTEM, "response_mime_type": "application/json", **limits,
+                    "response_json_schema": {k: v for k, v in SCHEMA.items() if k != "additionalProperties"}},
+        )
+        result = checked(resp.text, who) if resp.text else None      # no text: blocked, or nothing came back
+        if result:
+            return result
+        print(f"{who} gave no decision (attempt {attempt}):",
+              getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else resp.prompt_feedback)
+    return None
 
 
 async def ask_model(reading, past):

@@ -178,6 +178,12 @@ thinking budget for the specialists (they spent thousands of thinking tokens on 
 and telling each specialist to keep to its own tools (one wandered into the file tools). The
 Claude path has not been run: there was no Anthropic key.
 
+The filter decision on Gemma is unreliable: in JSON mode about one first answer in three ran away
+repeating a word until it hit the token cap. The gateway caps the answer, asks once more, and
+otherwise lets the tank's rule decide; with that, 8 of 12 test decisions came back in time. On
+`gemini-3.8-flash` (thinking off for this call) 9 of 9 did, in about 2.4 seconds each. Set
+`GEMINI_MODEL=gemini-3.8-flash` in `.env` to use it for decisions too.
+
 ## Layered detection (`analysis.py`)
 A new sensor has almost no labelled data, so detection is statistics, in three layers, worked out
 by plain code before any model is asked:
