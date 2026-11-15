@@ -137,7 +137,7 @@ async def main():
     check("a write inside a SELECT fails on the read-only connection", "error" in gateway.query_readings("WITH x AS (SELECT 1) INSERT INTO tips (node) VALUES ('x')"))
     check("the readings were not changed", gateway.query_readings("SELECT count(*) AS n FROM readings")[0]["n"] == 22)
     found = gateway.search_guidance("when should the ZeroWater filter be replaced")
-    check("guidance search finds the maker's rule with its source", found and found[0]["id"] == "zerowater-life" and found[0]["source"], found[:1])
+    check("guidance search finds the maker's rule with its source", found and "ZeroWater" in found[0]["document"] and found[0]["prepared_by"], found[:1])
     check("an unrelated search finds nothing", gateway.search_guidance("xyzzy") == [])
 
     gateway.investigator_agent = investigator.build(tools, lead_model=Scripted(lead=True), specialist_model=Scripted())

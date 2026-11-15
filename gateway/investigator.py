@@ -9,7 +9,7 @@ through deepagents' `task` tool, each with its own narrow tools, then writes the
     sensor-health   is the sensor believable?            get_sensor_checks
     analyst         is this unusual for this site?       get_baseline, get_site_history, query_readings (read-only SQL)
     network         local or regional? what is published get_peer_comparison, get_nearby_nodes, get_reference_data
-    maintenance     filters and upkeep                   get_filter_life, search_guidance
+    maintenance     filters and upkeep                   get_filter_life, search_guidance (EPA and AWWA documents)
     comms           a short notice from fixed templates  get_notice_templates
 
 The agents explain and decide what to do next. They do not compute: every number comes from
@@ -106,12 +106,14 @@ SPECIALISTS = [
                "every time you use one."},
     {"name": "maintenance", "title": "Filters and upkeep",
      "tools": ["get_case", "get_filter_life", "search_guidance"],
-     "description": "Reports filter life and what upkeep the case calls for, from the makers' rules and a small "
-                    "set of guidance notes. Give it the node id and test number.",
+     "description": "Reports filter life and what upkeep the case calls for, from the makers' rules and published "
+                    "EPA and AWWA guidance. Give it the node id and test number.",
      "prompt": "You look after the filters and the sensor's upkeep. Call get_case and get_filter_life for the node "
-               "and test you are given, then search_guidance for what the case calls for (for example the filter "
-               "that was used, a lab test, or calibration). Say whether the filter that was used needs replacing "
-               "and why, and name one upkeep step if the guidance supports it, with the guidance note's source."},
+               "and test you are given, then search_guidance once or twice for what the case calls for (for example "
+               "the filter that was used, confirming a reading with a lab sample, or sensor calibration). Say whether "
+               "the filter that was used needs replacing and why, and name one upkeep step that a passage supports, "
+               "citing its document and page. The guidance was written for water utilities, so say plainly when a "
+               "passage is about a utility's network and not a household cup."},
     {"name": "comms", "title": "Draft notice",
      "tools": ["get_case", "get_notice_templates"],
      "description": "Drafts a short notice about this run for the people who use this water, from fixed templates. "

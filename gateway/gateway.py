@@ -45,6 +45,7 @@ from fastapi.staticfiles import StaticFiles
 
 import analysis
 import cloud
+import guidance
 import mock
 
 try:  # secrets live in .env (git-ignored), never in the code
@@ -612,20 +613,14 @@ def query_readings(sql: str) -> list[dict] | dict:
             ro.close()
 
 
-GUIDANCE_PATH = Path(__file__).with_name("guidance.json")
-
-
 def search_guidance(query: str) -> list[dict]:
-    """Search a small set of guidance notes (the filter makers' replacement rules, the EPA's
-    secondary guidelines, calibration, when to ask a lab). Returns up to three notes, each
-    with its text and its source. Use the source when you repeat a note."""
-    try:
-        notes = json.loads(GUIDANCE_PATH.read_text())["notes"]
-    except Exception:
-        return []
-    words = {w for w in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(w) > 2}
-    scored = [(sum(w in f"{n['topic']} {n['text']}".lower() for w in words), n) for n in notes]
-    return [n for score, n in sorted(scored, key=lambda x: -x[0]) if score][:3]
+    """Search published guidance: EPA documents on monitoring water quality in distribution
+    systems, responding to contamination, flushing and risk communication; the issue papers
+    AWWA and American Water prepared for EPA on water mains, water age, storage, leaching and
+    ageing pipes; and the team's notes on the filter makers' replacement rules. Returns up to
+    three passages, each with its document, who prepared it, year, page and URL. When you use
+    one, name the document and the page."""
+    return guidance.search(query, 3)
 
 
 def get_notice_templates() -> dict:
@@ -930,6 +925,7 @@ def health():
     return {"ok": True, "mock": MOCK, "ai": claude is not None, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
+            "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},
             "clients": len(clients),
             "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
 

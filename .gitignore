@@ -11,3 +11,6 @@ __pycache__/
 
 # personal agent instructions: local only
 CLAUDE.local.md
+
+# the guidance index holds the text of published documents: built locally by gateway/fetch_guidance.py
+gateway/guidance_index.json

@@ -19,7 +19,8 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
 - `gateway` - Python base station for the Pi (or a laptop): SQLite, anomaly score, Claude agent, REST + WebSocket
   - `analysis.py` - layered detection: sensor checks, each node's own baseline and control charts, peer comparison
   - `investigator.py` - deepagents (LangChain): a lead agent and five specialists that write a report after every `after` test
-  - `guidance.json` - the short guidance notes the maintenance agent searches
+  - `fetch_guidance.py`, `guidance.py` - build and search an index of EPA and AWWA documents for the maintenance agent
+  - `guidance.json` - the team's own short notes (the filter makers' rules), searched alongside
   - `fetch_reference.py` - pulls published USGS / NJ DEP conductance data into `reference.json`
   - `cloud.py` - copies everything to Tiger Cloud (TimescaleDB on AWS) when there is internet
 - `web` - two pages, served by the gateway at http://<pi>:8000/:
@@ -130,13 +131,35 @@ own tools:
 | `sensor-health` | Can the sensor be believed? | `get_sensor_checks` |
 | `analyst` | Is this unusual for this site? | `get_baseline`, `get_site_history`, `query_readings` (one read-only SQL `SELECT`) |
 | `network` | Local or regional? What is published nearby? | `get_peer_comparison`, `get_nearby_nodes`, `get_reference_data` |
-| `maintenance` | Filter life and upkeep | `get_filter_life`, `search_guidance` (keyword search over `guidance.json`) |
+| `maintenance` | Filter life and upkeep | `get_filter_life`, `search_guidance` (search over EPA and AWWA documents, below) |
 | `comms` | A short notice for the people who use this water | `get_notice_templates` |
 
 The agents explain and decide what to do next; they do not compute. Every number comes from a
 tool, and the verdict and severity come from `analysis.py`, not from a model. The notice is
 filled in from fixed templates, always ends with what Clarity cannot detect, is discarded for
 the fixed version if a model's draft drops that sentence, and is only shown: nothing sends it.
+
+### The guidance it searches
+`python fetch_guidance.py` (needs internet once, and `pip install pypdf`) downloads 14 documents
+from epa.gov, splits them into passages and writes `gateway/guidance_index.json`:
+
+- EPA's own guidance: Online Water Quality Monitoring in Distribution Systems (2018), Exploratory
+  Analysis of Time-Series Data (2016), Guidance for Responding to Drinking Water Contamination
+  Incidents (2018) and its planning primer, Developing Risk Communication Plans (2013), the
+  distribution-system flushing fact sheet (2022), and the secondary standards page.
+- Five distribution-system issue papers AWWA prepared for EPA (2002): New or Repaired Water
+  Mains, Effects of Water Age, Permeation and Leaching, Finished Water Storage Facilities,
+  Nitrification. And two that American Water prepared for EPA: Deteriorating Buried
+  Infrastructure, and Intrusion of Contaminants from Pressure Transients.
+
+`search_guidance` ranks passages with BM25 (keyword ranking; no embeddings, no model call, works
+offline) and returns up to three, each with its document, who prepared it, page and URL, so the
+agent can cite it. The index holds the documents' text, so it is git-ignored and built on each
+machine. Without it the search falls back to the team's short notes in `guidance.json`; the filter
+makers' replacement rules there are always searched, because no EPA or AWWA document covers them.
+Not included: AWWA's own standards and manuals (C651, the M-series), which are sold, not
+published. These documents were written for water utilities, not household cups, and the agent
+is told to say so. `python test_guidance.py` checks the search (13 checks).
 
 `INVESTIGATOR=0` turns the agents off, `INVESTIGATOR_EFFORT=medium` makes them dig deeper, and
 `INVESTIGATOR_SUBAGENT_MODEL` gives the specialists a different model from the lead.
