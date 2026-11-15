@@ -173,3 +173,12 @@ html.opening .glow { filter: opacity(0); }
   .leader line { stroke-dashoffset: 0; }
   .leader circle { opacity: 0.8; }
 }
+
+/* the end of the cup page hands over to the map (onward.js) */
+.onward { position: relative; min-height: 64vh; display: grid; place-items: center; margin-top: 56px; border-top: 1px solid var(--hair); text-align: center; }
+.onward-link { display: grid; gap: 12px; color: var(--text); text-decoration: none; }
+.onward-link:hover { text-decoration: none; }
+.onward-word { font-family: var(--serif); font-size: clamp(44px, 6vw, 96px); line-height: 1; letter-spacing: -0.02em; }
+.onward-hint { font: italic 18px var(--serif); color: var(--label2); }
+.onward-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform 0.25s ease; }
+html.leaving body { opacity: 0; transition: opacity 0.45s ease; }

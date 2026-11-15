@@ -80,30 +80,6 @@
 
 /* ---- what measuring first saves (after the loop): three ruled columns */
 #pitch .why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 72px; margin-top: auto; }
-/* the network: the trace drawn beside three facts */
-#pitch .s-net .split { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 56px; align-items: center; margin-top: auto; }
-#pitch .p-net { margin: 0; }
-#pitch .p-net svg { display: block; width: 100%; height: auto; overflow: hidden; }
-#pitch .p-net .pipes { fill: none; stroke: rgba(141, 189, 216, 0.34); stroke-width: 2; stroke-linecap: round; }
-#pitch .p-net .suspect { fill: none; stroke: var(--accent); stroke-linecap: round; }
-#pitch .p-net .suspect.s1 { stroke-width: 11; filter: drop-shadow(0 0 8px rgba(141, 189, 216, 0.7)); }
-#pitch .p-net .suspect.s2 { stroke-width: 7; opacity: 0.55; }
-#pitch .p-net .suspect.s3 { stroke-width: 5; opacity: 0.38; }
-#pitch .p-net .store { fill: none; stroke: rgba(247, 240, 240, 0.4); stroke-width: 1.2; }
-#pitch .p-net .quiet { fill: #050A11; stroke: rgba(247, 240, 240, 0.55); stroke-width: 2; }
-#pitch .p-net .alert { fill: #D9667E; }
-#pitch .p-net .ring { fill: none; stroke: rgba(217, 102, 126, 0.5); stroke-width: 2; }
-#pitch .p-net text { font-family: var(--sans); fill: var(--text); }
-#pitch .p-net .order { font-size: 24px; fill: #D9667E; }
-#pitch .p-net .tag { font-size: 26px; fill: var(--accent); }
-#pitch .net-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-#pitch .net-facts li { padding: 22px 0 24px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
-#pitch .net-facts h3 { font-size: 34px; line-height: 1.12; letter-spacing: -0.015em; }
-#pitch .net-facts p { margin: 8px 0 0; font-size: 22px; line-height: 1.36; color: var(--label2); }
-#pitch.stacked .s-net .split { grid-template-columns: minmax(0, 1fr); gap: 20px; margin-top: 24px; }
-#pitch.stacked .net-facts li { padding: 12px 0 14px; }
-#pitch.stacked .net-facts h3 { font-size: 22px; }
-#pitch.stacked .net-facts p { font-size: 16px; }
 #pitch .why li { padding-top: 26px; border-top: 1px solid rgba(247, 240, 240, 0.28); }
 #pitch .why h3 { font-size: 42px; line-height: 1.1; letter-spacing: -0.015em; }
 #pitch .why p { margin: 16px 0 0; font-size: 29px; line-height: 1.36; color: var(--label2); text-wrap: pretty; }
@@ -240,10 +216,6 @@
 
   /* the problem */
   #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 260px; gap: 34px; align-items: end; }
-  #pitch .s-net .split { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 30px; align-items: center; }
-  #pitch .net-facts h3 { font-size: 27px; }
-  #pitch .net-facts p { font-size: 18px; }
-  #pitch .net-facts li { padding: 15px 0 17px; }
   #pitch .p-turn { font-size: 24px; }
   #pitch #sample-chart text { font-size: 25px; }
   #pitch #sample-chart .note { font-size: 29px; }
