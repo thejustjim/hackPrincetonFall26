@@ -14,7 +14,10 @@ Env vars (also read from ../.env or ./.env; see .env.example):
     ANTHROPIC_API_KEY   optional. Without it the gateway uses the local rule only.
     SERIAL_PORT         default: first /dev/ttyUSB* or /dev/ttyACM*
     MOCK=1              use mock.py instead of a serial port
+    GATEWAY_MODE=remote  accept token-protected HTTP telemetry; no serial or mock tank
+    REMOTE_INGEST=1      alias for GATEWAY_MODE=remote
     SIM_NODES=12        number of simulated Princeton nodes (0 to turn off)
+    SIM_FAULT_RATE=0    optional synthetic background spikes; explicit scenarios exercise failures
     AI_TIMEOUT=6        seconds to wait for Claude before the tank uses its own rule
     LITERS_PER_TIP=0.1  water through a filter each time the cup tips
     INVESTIGATOR=0      turn off the deepagents report after each "after" test
@@ -41,12 +44,8 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-
-import analysis
-import cloud
-import guidance
-import mock
 
 try:  # secrets live in .env (git-ignored), never in the code
     from dotenv import load_dotenv
@@ -55,10 +54,22 @@ try:  # secrets live in .env (git-ignored), never in the code
 except ImportError:
     pass
 
-MOCK = os.getenv("MOCK") == "1"
+import analysis
+import cloud
+import guidance
+import ingest
+import baseline
+import mock
+
+REMOTE_INGEST = os.getenv("GATEWAY_MODE", "").lower() == "remote" or os.getenv("REMOTE_INGEST") == "1"
+MOCK = os.getenv("MOCK") == "1" and not REMOTE_INGEST
 SIM_NODES = int(os.getenv("SIM_NODES", "12"))
+SIM_FAULT_RATE = float(os.getenv("SIM_FAULT_RATE", "0"))
+if not 0 <= SIM_FAULT_RATE <= 1:
+    raise ValueError("SIM_FAULT_RATE must be between 0 and 1")
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "6"))
-DB_PATH = os.getenv("DB_PATH", "taptest.db")
+# Mock rehearsals get their own default file; never mix fresh synthetic rows into physical history.
+DB_PATH = os.getenv("DB_PATH", "taptest-remote.db" if REMOTE_INGEST else "taptest-mock.db" if MOCK else "taptest.db")
 MODEL = "claude-opus-5-5"
 
 # ---------------------------------------------------------------- nodes
@@ -99,6 +110,10 @@ if "source" not in [c[1] for c in db.execute("PRAGMA table_info(readings)")]:
 if "extra" not in [c[1] for c in db.execute("PRAGMA table_info(investigations)")]:
     # the verdict of the checks, the checks themselves, what each agent said, and the notice (JSON)
     db.execute("ALTER TABLE investigations ADD COLUMN extra TEXT")
+ingest.prepare_local(db)     # additive local metadata/identity only; no cloud migration
+for name, kind in (("before_id", "INTEGER"), ("session", "TEXT")):
+    if name not in {c[1] for c in db.execute("PRAGMA table_info(tips)")}:
+        db.execute(f"ALTER TABLE tips ADD COLUMN {name} {kind}")
 db.commit()
 db_lock = threading.Lock()
 
@@ -108,12 +123,15 @@ cloud_sync = cloud.CloudSync(DB_PATH, mock=MOCK, nodes=NODES)
 cloud_sync.prepare_local(db)
 
 COLS = ["id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict", "filter",
-        "ai_filter", "rssi", "lat", "lon", "sim", "anomaly", "explanation"]
+        "ai_filter", "rssi", "lat", "lon", "sim", "anomaly", "explanation", *ingest.EXTRA_COLUMNS]
 
 
 def row_to_dict(r):
     d = dict(r)
     d["sim"] = bool(d["sim"])
+    if d.get("ph_est") is not None:
+        d["ph_est"] = bool(d["ph_est"])
+    d.pop("ingest_key", None)       # local uniqueness key, not a sensor field
     return d
 
 
@@ -131,15 +149,16 @@ def anomaly_score(node, reading):
     """0 = normal for this node, 1 = very unusual. Robust z-score against the node's own history."""
     past = [h for h in history(node, 50) if h["phase"] == "before"]
     zs = []
-    for k in ("ph", "tds", "clarity"):
-        vals = [h[k] for h in past if h[k] is not None]
+    for k in analysis.measured_metrics(reading):
+        vals = [h[k] for h in past if h[k] is not None
+                and not (k == "ph" and analysis.ph_is_estimated(h))]
         if len(vals) >= 5:
             med = statistics.median(vals)
             mad = statistics.median([abs(v - med) for v in vals]) * 1.4826 or TYPICAL[k][1] / 3
         else:
             med, mad = TYPICAL[k]
         zs.append(abs(reading[k] - med) / mad)
-    return round(min(1.0, max(zs) / 6), 2)
+    return round(min(1.0, max(zs, default=0.0) / 6), 2)
 
 
 # ---------------------------------------------------------------- filter life
@@ -158,16 +177,17 @@ def now_iso():
 
 def record_tip(reading, filt, source):
     with db_lock:
-        db.execute("INSERT INTO tips (ts, node, test, filter, liters, source) VALUES (?,?,?,?,?,?)",
-                   (now_iso(), reading["node"], reading["test"], filt, LITERS_PER_TIP, source))
+        db.execute("INSERT INTO tips (ts, node, test, filter, liters, source, before_id, session) VALUES (?,?,?,?,?,?,?,?)",
+                   (now_iso(), reading["node"], reading["test"], filt, LITERS_PER_TIP, source,
+                    reading["id"], reading.get("session")))
         db.commit()
 
 
 def attach_after(reading):
     """Link an "after" retest to the tip it followed. Returns the filter used, or None."""
     with db_lock:
-        tip = db.execute("SELECT id, filter FROM tips WHERE node=? AND test=? AND after_id IS NULL "
-                         "ORDER BY id DESC LIMIT 1", (reading["node"], reading["test"])).fetchone()
+        tip = db.execute("SELECT id, filter FROM tips WHERE node=? AND test=? AND session IS ? AND after_id IS NULL "
+                         "ORDER BY id DESC LIMIT 1", (reading["node"], reading["test"], reading.get("session"))).fetchone()
         if tip:
             db.execute("UPDATE tips SET after_id=?, after_tds=? WHERE id=?",
                        (reading["id"], reading["tds"], tip["id"]))
@@ -178,6 +198,8 @@ def attach_after(reading):
 def filter_life(node="tank-01"):
     out = []
     for key, spec in FILTERS.items():
+        if key not in ingest.FITTED:                      # not on the rig
+            continue
         with db_lock:
             ch = db.execute("SELECT ts FROM filter_changes WHERE node=? AND filter=? ORDER BY id DESC LIMIT 1",
                             (node, key)).fetchone()
@@ -225,13 +247,28 @@ def load_reference():
 
 
 # ---------------------------------------------------------------- the decision agent (Gemini or Claude)
-SYSTEM = (
+TWO_FILTERS = (
     "You are the decision agent inside Clarity, a water tester with two filters: ZEROWATER "
     "(ion exchange: removes dissolved solids, the choice for high TDS) and BRITA (activated carbon: "
     "certified for chlorine taste and fine particles; this device also sends cloudy or coloured "
     "water to it, which is the team's rule rather than a certified claim). You get one water test "
     "plus that site's recent history. Choose the filter the cup should be tipped into, or NONE if "
-    "all three readings are in range or no filter helps (neither filter corrects pH). Then explain "
+    "the measured readings are in range or no filter helps (neither filter corrects pH). "
+)
+ONE_FILTER = (
+    "You are the decision agent inside Clarity, a water tester with one filter: BRITA (activated "
+    "carbon: certified for chlorine taste and fine particles; it is not built to remove dissolved "
+    "solids). The device tips a cup into it when dissolved solids are high or the water is cloudy or "
+    "coloured, which is the team's rule rather than a certified claim, and then measures the water "
+    "again to show what the filter changed. You get one water test plus that site's recent history. "
+    "Choose BRITA when dissolved solids are high or the water is cloudy or coloured, or NONE when the "
+    "measured readings are in range (the filter does not correct pH). Never say the filter removes "
+    "dissolved solids: say the retest will show what it changed. "
+)
+SYSTEM = (
+    (TWO_FILTERS if len(ingest.FITTED) > 1 else ONE_FILTER) + "The per-reading "
+    "ph_est flag/provenance says whether pH is measured or derived from TDS: never count a derived pH as "
+    "an independent signal. Then explain "
     "the result to a non-expert in at most three short sentences, mentioning the numbers that "
     "mattered and one practical next step. Guidance: TDS above 300 ppm is high (EPA secondary "
     "standard 500), pH should be 6.5 to 8.5, clarity is 0 to 1 where 1 is as clear as clean water. "
@@ -242,7 +279,7 @@ SYSTEM = (
 SCHEMA = {
     "type": "object",
     "properties": {
-        "filter": {"type": "string", "enum": ["ZEROWATER", "BRITA", "NONE"]},
+        "filter": {"type": "string", "enum": [*ingest.FITTED, "NONE"]},
         "explanation": {"type": "string"},
     },
     "required": ["filter", "explanation"],
@@ -258,37 +295,52 @@ GEMINI_CHOICES = [m for m in (os.getenv("GEMINI_MODEL"), "gemini-3.8-flash", "ge
                               "gemini-3.5-flash-lite") if m]
 
 
-def pick_gemini_model(client):
-    """The first model on our list that this key can use. Asking is free and saves a refused first pour."""
+FLASH_CHOICES = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
+
+
+def pick_gemini_models(client):
+    """-> (the model for the filter decision, the model for the investigator's agents).
+    The decision uses GEMINI_MODEL if the key can use it, else the first Flash model it can.
+    The agents use GEMINI_AGENT_MODEL if set; otherwise the same model, unless that is a Gemma
+    model: Gemma's limit on the Gemini API (16,000 input tokens a minute on this tier) is far
+    below what several agents need for one report, so the agents then run on a Flash model."""
     try:
         have = {m.name.split("/")[-1] for m in client.models.list(config={"http_options": {"timeout": 8000}})}
     except Exception as e:
-        print("could not list Gemini models, using", GEMINI_CHOICES[0], "-", type(e).__name__)
-        return GEMINI_CHOICES[0]
-    return next((m for m in GEMINI_CHOICES if m in have), GEMINI_CHOICES[0])
+        print("could not list Gemini models -", type(e).__name__)
+        have = set()
+    usable = lambda names: next((m for m in names if m in have), names[0])
+    decision = usable(GEMINI_CHOICES)
+    wanted = os.getenv("GEMINI_AGENT_MODEL")
+    agents = wanted or (usable(FLASH_CHOICES) if decision.startswith("gemma") else decision)
+    return decision, agents
 
 
-claude = gemini = AI_MODEL = None
+claude = gemini = AI_MODEL = AGENT_MODEL = None
 if AI_PROVIDER == "google" and GOOGLE_KEY:
     from google import genai
     gemini = genai.Client(api_key=GOOGLE_KEY)
-    AI_MODEL = pick_gemini_model(gemini)
+    AI_MODEL, AGENT_MODEL = pick_gemini_models(gemini)
 elif AI_PROVIDER == "anthropic" and os.getenv("ANTHROPIC_API_KEY"):
     from anthropic import AsyncAnthropic
     claude = AsyncAnthropic()
-    AI_MODEL = MODEL
+    AI_MODEL = AGENT_MODEL = MODEL
 elif AI_PROVIDER:
     print(f"AI_PROVIDER={AI_PROVIDER} but its key is not set: the tank's own rule will decide")
 
 
-def ai_name():
-    return "Gemini" if gemini is not None else "Claude" if claude is not None else None
+def ai_name(model=None):
+    """What to call the model in words: Gemma, Gemini or Claude (the one that picks filters, unless a model is named)."""
+    model = model or AI_MODEL or ""
+    return "Gemma" if model.startswith("gemma") else "Gemini" if gemini is not None else "Claude" if claude is not None else None
 
 
 def decision_prompt(reading, past):
-    recent = [{k: h[k] for k in ("ts", "phase", "ph", "tds", "clarity", "verdict")} for h in past[:8]]
+    recent = [{k: h.get(k) for k in ("ts", "phase", "ph", "tds", "clarity", "verdict", "ph_est")} for h in past[:8]]
+    provenance = "pH is estimated from TDS: exclude it as independent evidence and do not use it to choose a filter." if analysis.ph_is_estimated(reading) else "pH is marked as measured for this reading."
     return (f"Site: {NODES.get(reading['node'], {}).get('name', reading['node'])}\n"
-            f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter')})}\n"
+            f"Measurement provenance: {provenance}\n"
+            f"New test: {json.dumps({k: reading[k] for k in ('phase', 'ph', 'tds', 'clarity', 'verdict', 'filter', 'ph_est')})}\n"
             f"Anomaly score vs this site's history (0-1): {reading['anomaly']}\n"
             f"Recent history (newest first): {json.dumps(recent)}")
 
@@ -302,7 +354,21 @@ def checked(text, who):
         return None
     if not isinstance(result, dict) or result.get("filter") not in ("ZEROWATER", "BRITA", "NONE"):
         return None
+    result["filter"] = ingest.fitted(result["filter"])          # the cup can only go to a filter that is on the rig
+    result["explanation"] = no_promises(result.get("explanation"))
     return result
+
+
+# A model is told never to call water safe or say it can be used or drunk. If it does anyway,
+# that sentence is cut. (Run live, Gemma ended in-range pours with "You can continue using the water as is.")
+PROMISE = re.compile(r"\b(safe|drink|drinking|drinkable|potable|continue using|keep using|fine to use|good to use|ok to use|okay to use)\b", re.I)
+
+
+def no_promises(text):
+    if not isinstance(text, str):
+        return text
+    kept = [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x and not PROMISE.search(x)]
+    return " ".join(kept) or None
 
 
 async def ask_claude(reading, past):
@@ -325,20 +391,30 @@ async def ask_claude(reading, past):
 
 
 async def ask_gemini(reading, past):
-    """Returns {"filter", "explanation"} or None."""
+    """Returns {"filter", "explanation"} or None. The answer is a few dozen tokens, so the cap is
+    low: run live, about one Gemma answer in four ran away repeating itself until it hit the cap
+    (84 seconds at a cap of 4,000). With a low cap a runaway ends in about three seconds and
+    there is time to ask once more before the tank stops waiting."""
     if gemini is None:
         return None
-    resp = await gemini.aio.models.generate_content(
-        model=AI_MODEL,
-        contents=decision_prompt(reading, past),
-        config={"system_instruction": SYSTEM, "response_mime_type": "application/json", "max_output_tokens": 4000,
-                "response_json_schema": {k: v for k, v in SCHEMA.items() if k != "additionalProperties"}},
-    )
-    text = resp.text                               # None when the answer was blocked or cut off
-    if not text:
-        print("Gemini gave no decision:", getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else resp.prompt_feedback)
-        return None
-    return checked(text, "Gemini")
+    who = ai_name()
+    # Gemma does no thinking and refuses the setting; a Gemini model thinks by default and its
+    # thinking counts against the cap, so for this small answer it is switched off and the cap raised.
+    # (No temperature is set: at 0.2 Gemma ran away far more often than at its default.)
+    limits = {"max_output_tokens": 180} if AI_MODEL.startswith("gemma") else {"max_output_tokens": 400, "thinking_config": {"thinking_budget": 0}}
+    for attempt in (1, 2):
+        resp = await gemini.aio.models.generate_content(
+            model=AI_MODEL,
+            contents=decision_prompt(reading, past),
+            config={"system_instruction": SYSTEM, "response_mime_type": "application/json", **limits,
+                    "response_json_schema": {k: v for k, v in SCHEMA.items() if k != "additionalProperties"}},
+        )
+        result = checked(resp.text, who) if resp.text else None      # no text: blocked, or nothing came back
+        if result:
+            return result
+        print(f"{who} gave no decision (attempt {attempt}):",
+              getattr(resp.candidates[0], "finish_reason", None) if resp.candidates else resp.prompt_feedback)
+    return None
 
 
 async def ask_model(reading, past):
@@ -367,21 +443,21 @@ device = None  # serial port or MockDevice
 
 def send_to_tank(obj):
     if device is None:
-        return
+        return False
     try:
         device.write((json.dumps(obj, separators=(",", ":")) + "\n").encode())
+        return True
     except Exception as e:
-        print("send to tank failed:", e)
+        print("send to tank failed:", type(e).__name__)
+        return False
 
 
 def store(reading):
+    """Store one original sample. A duplicate never updates history or creates side effects."""
     with db_lock:
-        cur = db.execute(
-            f"INSERT INTO readings ({','.join(COLS[1:])}) VALUES ({','.join('?' * (len(COLS) - 1))})",
-            [reading.get(c) for c in COLS[1:]])
+        result = ingest.insert(db, reading, COLS[1:])
         db.commit()
-        reading["id"] = cur.lastrowid
-    return reading
+    return result
 
 
 VERDICTS = ("SAFE", "HIGH_TDS", "CLOUDY", "PH_WARN")
@@ -393,10 +469,11 @@ def clean_reading(msg):
     The radio link is open, so anything can arrive on it."""
     try:
         node, phase = str(msg["node"]), msg["phase"]
-        test = int(msg["test"])
+        test = ingest.uint(msg["test"], "test", 65535)
         ph, tds, clarity = float(msg["ph"]), float(msg["tds"]), float(msg["clarity"])
-    except (KeyError, TypeError, ValueError):
-        return None, "missing or non-numeric field"
+        extra = ingest.metadata(msg)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None, "missing, non-numeric or invalid identity/provenance field"
     if node not in NODES and not ALLOW_UNKNOWN_NODES:
         return None, f"unknown node {node!r} (add it to NODES or set ALLOW_UNKNOWN_NODES=1)"
     if phase not in ("before", "after") or test < 0:
@@ -409,13 +486,16 @@ def clean_reading(msg):
     # "ask":0 from the tank means the reading was clear-cut and it has already acted on its own rule.
     # Older firmware and the simulator send no "ask": they always wait for an answer.
     ask = msg.get("ask", 1) not in (0, False, "0")
-    return {"ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
+    reading = {**extra, "ask": ask, "node": node, "test": test, "phase": phase, "ph": round(ph, 2), "tds": int(round(tds)),
             "clarity": round(min(1.0, max(0.0, clarity)), 2), "verdict": msg["verdict"],
-            "filter": msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE",
-            "rssi": int(rssi) if isinstance(rssi, (int, float)) else None}, None
+            "filter": ingest.fitted(msg.get("filter") if msg.get("filter") in ("ZEROWATER", "BRITA", "NONE") else "NONE"),
+            "rssi": int(rssi) if isinstance(rssi, (int, float)) and math.isfinite(rssi) else None}
+    reading["device_verdict"] = msg["verdict"]
+    reading["verdict"] = analysis.measured_verdict(reading)
+    return reading, None
 
 
-async def handle_line(raw: str):
+async def handle_line(raw: str, *, wait_decision=False):
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
@@ -429,27 +509,38 @@ async def handle_line(raw: str):
         print("dropped reading:", problem, "|", raw[:140])
         return
     node = NODES.get(msg["node"], {"lat": None, "lon": None, "sim": False})
+    received = now_iso()
     reading = {
         **msg,
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "ts": msg.get("measured_ts") or received, "received_ts": received,
         "lat": node["lat"], "lon": node["lon"], "sim": node["sim"],
         "ai_filter": None, "explanation": None,
     }
     reading["anomaly"] = anomaly_score(msg["node"], reading)
     past = history(msg["node"], 8)
-    store(reading)
+    if store(reading) is None:
+        print("duplicate ignored:", reading["node"], reading["test"], reading["phase"])
+        return {"ok": True, "duplicate": True, "reading_id": None,
+                "node": reading["node"], "test": reading["test"], "phase": reading["phase"]}
     await broadcast({"type": "reading", **reading})
     print("reading:", {k: reading[k] for k in ("node", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")})
 
     # Before-filter tests from the real tank: the agent decides, the tank acts.
     if reading["phase"] == "before" and not reading["sim"]:
-        asyncio.create_task(decide(reading, past) if reading.get("ask", True) else reflex(reading, past))
+        decision_task = asyncio.create_task(decide(reading, past) if reading.get("ask", True) else reflex(reading, past))
+        if wait_decision:
+            try:
+                await asyncio.wait_for(asyncio.shield(decision_task), timeout=max(0.1, min(AI_TIMEOUT + 1, 8)))
+            except asyncio.TimeoutError:
+                pass  # canonical task continues and publishes the decision over /ws
     elif not reading["sim"]:
         # Retest after filtering: update filter life, explain, and investigate.
         used = attach_after(reading)
         await broadcast({"type": "filters", "filters": filter_life(reading["node"])})
         asyncio.create_task(explain_only(reading, past))
         asyncio.create_task(report_on(reading, used))
+    return {"ok": True, "duplicate": False, "reading_id": reading["id"],
+            "node": reading["node"], "test": reading["test"], "phase": reading["phase"]}
 
 
 async def decide(reading, past):
@@ -459,7 +550,7 @@ async def decide(reading, past):
         print("AI decision skipped:", type(e).__name__, e)
         result = None
     if result:
-        send_to_tank({"cmd": "filter", "test": reading["test"], "filter": result["filter"]})
+        send_to_tank(ingest.command(reading, result["filter"]))
         source = ai_name().lower()
         await save_explanation(reading, result["filter"], result["explanation"], source=source)
         used = result["filter"]
@@ -510,7 +601,14 @@ async def save_explanation(reading, ai_filter, explanation, source):
 
 # ---------------------------------------------------------------- deepagents investigator
 # Tools the investigator can call. Docstrings are what the agent reads.
-READING_KEYS = ("ts", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")
+CORE_READING_KEYS = ("ts", "test", "phase", "ph", "tds", "clarity", "verdict", "anomaly")
+READING_KEYS = (*CORE_READING_KEYS,
+                "ph_est", "session", "seq", "sender_ms", "measured_ts", "received_ts", "temp", "fault", "odd")
+
+
+def case_reading_fields(reading):
+    """Core measurements remain required; pre-provenance firmware may omit optional metadata."""
+    return {k: reading[k] if k in CORE_READING_KEYS else reading.get(k) for k in READING_KEYS}
 
 
 def km_between(lat1, lon1, lat2, lon2):
@@ -580,13 +678,18 @@ def peers_for(node, radius_km=8.0):
     return out
 
 
-def raw_reading(node, test=None, before_id=None):
+_ANY_SESSION = object()
+
+
+def raw_reading(node, test=None, before_id=None, session=_ANY_SESSION):
     """The raw-water ("before") reading of one test at a node, or the node's latest one."""
     q, args = "SELECT * FROM readings WHERE node=? AND phase='before'", [node]
     if test is not None:
         q, args = q + " AND test=?", args + [int(test)]
     if before_id is not None:
         q, args = q + " AND id<?", args + [before_id]
+    if session is not _ANY_SESSION:
+        q, args = q + " AND session IS ?", args + [session]
     with db_lock:
         row = db.execute(q + " ORDER BY id DESC LIMIT 1", args).fetchone()
     return row_to_dict(row) if row else None
@@ -602,20 +705,21 @@ def analyse_reading(reading):
 
 def case_for(node, test, after=None, filter_used=None):
     """One filter run: its before and after readings, the filter used and the checks' verdict."""
-    before = raw_reading(node, test, after["id"] if after else None)
+    before = raw_reading(node, test, after["id"] if after else None,
+                         session=after.get("session") if after else _ANY_SESSION)
     if before is None:
         return None, None
     with db_lock:
         if after is None:
-            row = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
-                             "ORDER BY id LIMIT 1", (node, before["test"], before["id"])).fetchone()
+            row = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? AND session IS ? "
+                             "ORDER BY id LIMIT 1", (node, before["test"], before["id"], before.get("session"))).fetchone()
             after = row_to_dict(row) if row else None
         if filter_used is None and after is not None:
             tip = db.execute("SELECT filter FROM tips WHERE after_id=?", (after["id"],)).fetchone()
             filter_used = tip["filter"] if tip else None
     result = analyse_reading(before)
     case = {"node": node, "site": NODES.get(node, {}).get("name"), "test": before["test"], "filter": filter_used,
-            "before": {k: before[k] for k in READING_KEYS}, "after": {k: after[k] for k in READING_KEYS} if after else None,
+            "before": case_reading_fields(before), "after": case_reading_fields(after) if after else None,
             "checks": {"kind": result["kind"], "verdict": result["kind_words"], "severity": result["severity_words"],
                        "evidence": result["evidence"]}}
     return case, result
@@ -631,6 +735,8 @@ def get_case(node: str, test: int) -> dict:
         return {"error": f"no reading for node {node} test {test}"}
     if case["after"]:
         case["notice_template"] = analysis.notice_template(case, result)
+    case["notice_required"] = analysis.notice_required(case)
+    case["notice_templates"] = analysis.notice_templates(case)
     return case
 
 
@@ -672,7 +778,9 @@ def query_readings(sql: str) -> list[dict] | dict:
     """Run one read-only SQL SELECT over the `readings` table; up to 200 rows come back.
     Columns: id, ts (UTC), node, test, phase ('before' = raw water, 'after' = retest), ph,
     tds (ppm), clarity (0-1), verdict ('SAFE' means in range; 'HIGH_TDS', 'CLOUDY', 'PH_WARN'),
-    filter, ai_filter, sim (1 = simulated node), anomaly (0-1).
+    filter, ai_filter, sim (1 = simulated node), anomaly (0-1), ph_est (1 = derived from TDS,
+    0 = measured; NULL = legacy deployment default), session and seq (radio sample identity).
+    Estimated pH is not an independent sensor signal; do not treat it as one in analysis.
     Example: SELECT phase, count(*), round(avg(tds)) FROM readings WHERE node='tank-01' GROUP BY phase"""
     text = (sql or "").strip().rstrip(";")
     if ";" in text or not re.match(r"(?is)^(select|with)\b", text):
@@ -702,13 +810,20 @@ def search_guidance(query: str) -> list[dict]:
     ageing pipes; and the team's notes on the filter makers' replacement rules. Returns up to
     three passages, each with its document, who prepared it, year, page and URL. When you use
     one, name the document and the page."""
-    return guidance.search(query, 3)
+    # short enough that a few searches do not swamp the agent that asked
+    return [{**hit, "text": hit["text"][:600]} for hit in guidance.search(query, 3)]
 
 
-def get_notice_templates() -> dict:
-    """The fixed notice templates, by outcome, and the sentence every notice must end with,
-    word for word. Blanks: {site}, {problem}, {filter}."""
-    return {"templates": analysis.NOTICE_TEMPLATES, "required_last_sentence": analysis.NOTICE_REQUIRED}
+def get_notice_templates(node: str | None = None, test: int | None = None) -> dict:
+    """Notice templates and the exact required ending. Supply the case's node/test to respect
+    that reading's measured-versus-estimated pH; otherwise use the deployment's legacy default.
+    Blanks: {site}, {problem}, {filter}."""
+    case = None
+    if node is not None:
+        case, _ = case_for(node, test)
+        if case is None:
+            return {"error": "no reading for that node/test"}
+    return {"templates": analysis.notice_templates(case), "required_last_sentence": analysis.notice_required(case)}
 
 
 # Tools for the incident team, which works on the simulated network (localize.py). The scenario's
@@ -724,7 +839,9 @@ def trace_scenario(scenario_id: str) -> dict:
         return {"error": f"no scenario {scenario_id!r}", "scenarios": [x["id"] for x in localize.scenarios()]}
     traced = localize.localize(sc["alerts"], sc["quiet"])
     traced["affected"] = {k: v for k, v in traced["affected"].items() if k != "nodes"}
-    return {"scenario": sc["id"], "name": sc["name"], "alerts": sc["alerts"], "quiet": sc["quiet"], **traced}
+    return {"scenario": sc["id"], "name": sc["name"], "alerts": sc["alerts"], "quiet": sc["quiet"],
+            "stress": bool(sc.get("stress")), "unavailable": sc.get("unavailable", []),
+            "description": sc.get("description", ""), **traced}
 
 
 def get_pipe(pipe_id: str) -> dict:
@@ -752,14 +869,14 @@ if ai_name() and os.getenv("INVESTIGATOR", "1") != "0":
     try:
         import investigator
         investigator_agent = investigator.build({f.__name__: f for f in INVESTIGATOR_TOOLS},
-                                                provider=AI_PROVIDER, model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY)
+                                                provider=AI_PROVIDER, model=AGENT_MODEL if gemini is not None else None, key=GOOGLE_KEY)
     except Exception as e:
         print("investigator off:", type(e).__name__, e)
 incident_agent = None
 if investigator_agent is not None:
     try:
         incident_agent = investigator.build({f.__name__: f for f in INCIDENT_TOOLS}, provider=AI_PROVIDER,
-                                            model=AI_MODEL if gemini is not None else None, key=GOOGLE_KEY, incident=True)
+                                            model=AGENT_MODEL if gemini is not None else None, key=GOOGLE_KEY, incident=True)
     except Exception as e:
         print("incident team off:", type(e).__name__, e)
 investigate_lock = asyncio.Lock()   # one report at a time; later ones wait their turn
@@ -794,19 +911,47 @@ async def report_on(after, filter_used):
         return
     async with investigate_lock:
         t0 = time.time()
+        who = {"type": "agent", "node": after["node"], "test": after["test"]}
+        case["plan"] = analysis.plan(case, result)            # triage: who this run needs, and why
+        await broadcast({**who, "event": "plan", "agent": None, "t": 0, "plan": case["plan"]})
+        told = 0
+
+        async def tell():                                     # pass on what the agents are doing, as it happens
+            nonlocal told
+            for e in investigator.RUN.events[told:]:
+                await broadcast({**who, **e})
+            told = len(investigator.RUN.events)
+
+        async def keep_telling():
+            while True:
+                await asyncio.sleep(0.15)
+                await tell()
+        watcher = asyncio.create_task(keep_telling())
         try:
             report = await asyncio.wait_for(investigator.investigate(investigator_agent, case), timeout=240)
         except Exception as e:
             print("investigation failed:", type(e).__name__, e)
+            report = None
+        finally:
+            watcher.cancel()
+        await tell()
+        if not report or not report.get("summary"):
+            await broadcast({**who, "event": "failed", "agent": None, "t": round(time.time() - t0, 1)})
             return
-        if not report.get("summary"):
-            return
-        notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else extra["notice"]
-        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s "
-              f"from {len(report['sections'])} specialists")
+        # the check: every figure the agents wrote has to be in the case or in something a tool returned
+        report, check = analysis.ground(report, "\n".join(investigator.RUN.evidence))
+        if not check["summary_ok"]:
+            report["summary"] = rules["summary"]
+        await broadcast({**who, "event": "check", "agent": None, "t": round(time.time() - t0, 1), "check": check})
+        notice = report.get("notice") if analysis.notice_ok(report.get("notice"), case) else extra["notice"]
+        print(f"report for {after['node']} test {after['test']} in {time.time() - t0:.0f}s from {len(report['sections'])} "
+              f"specialists; {check['traced']} of {check['figures']} figures traced, {check['dropped']} dropped")
         await save_report(after, filter_used, report,
-                          {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"]},
-                          AI_MODEL or investigator.MODEL)
+                          {**extra, "source": "deepagents", "notice": notice, "sections": report["sections"],
+                           "plan": case["plan"], "trail": report.get("trail", []), "check": check,
+                           "seconds": round(time.time() - t0, 1)},
+                          AGENT_MODEL or investigator.MODEL)
+        await broadcast({**who, "event": "done", "agent": None, "t": round(time.time() - t0, 1)})
 
 
 def report_message(rid, ts, node, test, reading_id, filter_used, report, model, extra=None):
@@ -815,11 +960,14 @@ def report_message(rid, ts, node, test, reading_id, filter_used, report, model, 
             "reading_id": reading_id, "filter": filter_used, "summary": report["summary"],
             "findings": report["findings"], "actions": report["actions"],
             "source": extra.get("source", "deepagents"), "model": model,
-            **{k: extra.get(k) for k in ("kind", "kind_words", "severity", "severity_words", "checks", "notice", "sections")}}
+            **{k: extra.get(k) for k in ("kind", "kind_words", "severity", "severity_words", "checks", "notice", "sections",
+                                         "plan", "trail", "check", "seconds")}}
 
 
 # ---------------------------------------------------------------- input sources
 def open_device():
+    if REMOTE_INGEST:
+        return None
     if MOCK:
         print("MOCK mode: fake tank-01")
         return mock.MockDevice()
@@ -846,6 +994,22 @@ def find_serial_ports():
     return [p for pattern in patterns for p in sorted(glob.glob(pattern))]
 
 
+RECORD = "" if MOCK or REMOTE_INGEST or os.getenv("RECORD") == "0" else os.getenv("RECORD_PATH", mock.LOG_PATH)
+
+
+def record(text):
+    """Keep every line the real receiver sends (logs/tank.jsonl, not in git), so that if the
+    tank goes quiet its own pours can be played back: MOCK=1 MOCK_SCENARIO=replay."""
+    if not RECORD:
+        return
+    try:
+        os.makedirs(os.path.dirname(RECORD), exist_ok=True)
+        with open(RECORD, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": round(time.time(), 3), "line": text}) + "\n")
+    except OSError as e:
+        print("recording skipped:", e)
+
+
 def reader_thread(loop):
     buf = b""
     while True:
@@ -862,36 +1026,93 @@ def reader_thread(loop):
             text = buf.decode(errors="ignore").strip()
             buf = b""
             if text:
+                record(text)
                 asyncio.run_coroutine_threadsafe(handle_line(text), loop)
 
 
 async def simulate_nodes():
     """Simulated network around Princeton, one reading per node about every 20 s."""
-    sims = [(k, v) for k, v in NODES.items() if v["sim"]]
+    reserved = {"sim-01", "sim-02"} if MOCK and os.getenv("MOCK_SCENARIO") == "regional" else set()
+    sims = [(k, v) for k, v in NODES.items() if v["sim"] and k not in reserved]
+    session = f"sim-{random.getrandbits(64):016x}"
     tests = {k: 0 for k, _ in sims}
     while sims:
         for key, n in sims:
             tests[key] += 1
             t = time.time() / 600 + hash(key) % 10
             tds = max(20, int(n["base_tds"] * (1 + 0.15 * math.sin(t)) + random.gauss(0, 12)))
-            if random.random() < 0.03:           # rare contamination event
+            if SIM_FAULT_RATE and random.random() < SIM_FAULT_RATE:  # explicit synthetic spike; quiet by default
                 tds = int(tds * random.uniform(1.8, 2.6))
             ph = round(random.gauss(7.5 if "well" not in n["name"] else 7.0, 0.15), 2)
             clr = round(min(1.0, random.gauss(0.95, 0.03)), 2)
             v, f = mock.verdict_for(ph, tds, clr)
             await handle_line(mock.line(key, tests[key], "before", ph, tds, clr, v, f,
-                                        rssi=random.randint(-95, -60)))
+                                        rssi=random.randint(-95, -60), session=session, seq=tests[key], ph_est=False))
             await asyncio.sleep(20 / max(1, len(sims)))
+
+
+# ---------------------------------------------------------------- a baseline for a new tank
+BASELINE_DAYS = float(os.getenv("BASELINE_DAYS", "7"))
+
+
+def seed_baseline(node="tank-01"):
+    """Give a tank with no history a week of estimated pours to be read against (baseline.py).
+    Runs once per database: a tank that already has its estimated rows is left alone. The rows
+    are marked by their session and never go to the cloud copy. Returns how many were written."""
+    if BASELINE_DAYS <= 0 or node not in NODES:
+        return 0
+    with db_lock:
+        if db.execute("SELECT 1 FROM readings WHERE node=? AND session=? LIMIT 1", (node, baseline.SESSION)).fetchone():
+            return 0
+        own = [r[0] for r in db.execute("SELECT tds FROM readings WHERE node=? AND phase='before' AND verdict='SAFE' "
+                                        "ORDER BY id DESC LIMIT 30", (node,))]
+    centre = (float(os.getenv("BASELINE_TDS")) if os.getenv("BASELINE_TDS")
+              else statistics.median(own) if len(own) >= 3 else mock.CUPS["clean"][1] if MOCK else baseline.TDS)
+    written = 0
+    for i, e in enumerate(baseline.estimate(days=BASELINE_DAYS, tds=centre), 1):
+        msg, problem = clean_reading({"node": node, "test": i, "phase": "before", "ph": mock.estimated_ph(e["tds"]),
+                                      "tds": e["tds"], "clarity": e["clarity"], "verdict": "SAFE", "filter": "NONE",
+                                      "ph_est": 1, "ask": 0, "session": baseline.SESSION, "seq": i, "measured_ts": e["ts"]})
+        if msg is None:
+            print("baseline row dropped:", problem)
+            continue
+        reading = {**msg, "ts": msg["measured_ts"], "received_ts": msg["measured_ts"], "lat": NODES[node]["lat"],
+                   "lon": NODES[node]["lon"], "sim": NODES[node]["sim"], "ai_filter": "NONE", "explanation": None}
+        reading["anomaly"] = anomaly_score(node, reading)
+        written += store(reading) is not None
+    with db_lock:
+        db.execute("UPDATE readings SET source='local_rule' WHERE node=? AND session=?", (node, baseline.SESSION))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_outbox'").fetchone():
+            # estimates stay on this machine: take them back out of the queue for the cloud copy
+            db.execute("DELETE FROM cloud_outbox WHERE kind='reading' AND row_id IN "
+                       "(SELECT id FROM readings WHERE session=?)", (baseline.SESSION,))
+        db.commit()
+    print(f"baseline: {written} estimated pours around {centre:.0f} ppm written for {node} (session {baseline.SESSION})")
+    return written
 
 
 # ---------------------------------------------------------------- web app
 app = FastAPI(title="Clarity base station")
 # Reading is open to any page (a dashboard hosted elsewhere can point at this gateway).
 # The routes that move hardware are guarded by require_control below.
+# Text goes out compressed: the map's data is 18 MB as written and about 3 MB on the wire.
+app.add_middleware(GZipMiddleware, minimum_size=4096)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"],
-                   allow_headers=["X-Clarity-Token", "Content-Type"])
+                   allow_headers=["X-Clarity-Token", "Authorization", "Content-Type"])
 
 CONTROL_TOKEN = os.getenv("CONTROL_TOKEN", "").strip()
+REMOTE_BODY_LIMIT = 4096
+INGEST_RATE_PER_MINUTE = float(os.getenv("INGEST_RATE_PER_MINUTE", "120"))
+INGEST_BURST = int(os.getenv("INGEST_BURST", "20"))
+if not 0 < INGEST_RATE_PER_MINUTE <= 6000 or not 1 <= INGEST_BURST <= 1000:
+    raise ValueError("ingest rate and burst must be positive and bounded")
+remote_ingest_lock = asyncio.Lock()
+_ingest_tokens, _ingest_at = float(INGEST_BURST), time.monotonic()
+startup_ready = False
+# The Uno sketch ships with PH_FROM_TDS 1: its pH is worked out from dissolved solids, not read from the probe.
+# The pages label it as an estimate and the notices leave it out unless PH_ESTIMATED=0 is set in the environment
+# (do that once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0). See analysis.py.
+PH_ESTIMATED = analysis.PH_ESTIMATED
 
 
 def require_control(request: Request):
@@ -899,9 +1120,11 @@ def require_control(request: Request):
     With CONTROL_TOKEN set, the caller must send it in the X-Clarity-Token header.
     Without one, only this machine may call them, and only from a page this gateway served."""
     if CONTROL_TOKEN:
-        if not hmac.compare_digest(request.headers.get("x-clarity-token", ""), CONTROL_TOKEN):
+        if not hmac.compare_digest(request.headers.get("x-clarity-token", "").encode(), CONTROL_TOKEN.encode()):
             raise HTTPException(401, "control token required: send it in the X-Clarity-Token header")
         return
+    if REMOTE_INGEST:
+        raise HTTPException(503, "remote controls require CONTROL_TOKEN")
     host = request.client.host if request.client else ""
     if host not in ("127.0.0.1", "::1"):
         raise HTTPException(403, "controls are limited to this machine; set CONTROL_TOKEN in .env to allow other devices")
@@ -912,12 +1135,119 @@ def require_control(request: Request):
 
 @app.on_event("startup")
 async def startup():
-    global device
+    global device, startup_ready, remote_ingest_lock, _ingest_tokens, _ingest_at
+    startup_ready = False
+    remote_ingest_lock = asyncio.Lock()
+    _ingest_tokens, _ingest_at = float(INGEST_BURST), time.monotonic()
+    if REMOTE_INGEST and not CONTROL_TOKEN:
+        raise RuntimeError("remote ingestion requires CONTROL_TOKEN")
+    try:
+        if not REMOTE_INGEST:
+            seed_baseline()                                   # before anything is read, sent to the cloud or shown
+    except Exception as e:
+        print(f"baseline skipped ({type(e).__name__}: {e})")
     device = open_device()
-    loop = asyncio.get_running_loop()
-    threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
-    asyncio.create_task(simulate_nodes())
+    if not REMOTE_INGEST:
+        loop = asyncio.get_running_loop()
+        threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
+    if SIM_NODES > 0:
+        asyncio.create_task(simulate_nodes())
+    if cloud_sync.enabled:                               # the simulated network and its incidents go to the cloud too, marked as simulated
+        try:
+            import incident
+            import localize
+            cloud_sync.simulated = {"network": localize.NET, "incidents": [incident.report(s["id"]) for s in localize.scenarios()]}
+        except Exception as e:
+            print(f"[cloud] the simulated network was not loaded ({type(e).__name__})")
     cloud_sync.start()
+    startup_ready = True
+
+
+async def require_ingest(request: Request):
+    """HTTP telemetry always requires a configured secret, including loopback callers."""
+    if not REMOTE_INGEST:
+        raise HTTPException(404, "remote ingestion is disabled")
+    if not CONTROL_TOKEN:
+        raise HTTPException(503, "remote ingestion requires CONTROL_TOKEN")
+    authorization = request.headers.get("authorization", "")
+    scheme, _, bearer = authorization.partition(" ")
+    token = bearer if scheme.lower() == "bearer" else request.headers.get("x-clarity-token", "")
+    if not hmac.compare_digest(token.encode(), CONTROL_TOKEN.encode()):
+        raise HTTPException(401, "ingest token required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@app.post("/api/ingest", dependencies=[Depends(require_ingest)])
+async def remote_reading(request: Request):
+    """One authenticated hardware packet through the serial ingestion pipeline.
+
+    A current ask:true before packet may receive the canonical addressed decision.
+    Hardware must enforce node/session/seq/test identity, consume it once, and keep
+    its local timeout fallback. Dashboard updates also publish over /ws.
+    """
+    global _ingest_tokens, _ingest_at
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(415, "send application/json")
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            size = int(length)
+        except ValueError:
+            raise HTTPException(400, "invalid content length")
+        if not 0 <= size <= REMOTE_BODY_LIMIT:
+            raise HTTPException(413, "one reading must fit in 4096 bytes")
+    async def bounded_body():
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > REMOTE_BODY_LIMIT:
+                raise HTTPException(413, "one reading must fit in 4096 bytes")
+        return bytes(body)
+    try:
+        body = await asyncio.wait_for(bounded_body(), timeout=5)
+    except asyncio.TimeoutError:
+        raise HTTPException(408, "reading upload timed out")
+    try:
+        packet = json.loads(body)
+    except (ValueError, UnicodeError):
+        raise HTTPException(422, "send one JSON reading object")
+    if not isinstance(packet, dict):
+        raise HTTPException(422, "send one JSON reading object")
+    if not isinstance(packet.get("node"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,23}", packet["node"]):
+        raise HTTPException(422, "invalid node")
+    if any(packet.get(k) is None for k in ("session", "seq", "ph_est")):
+        raise HTTPException(422, "session, seq and ph_est are required for HTTP telemetry")
+    if any(isinstance(packet.get(k), bool) for k in ("ph", "tds", "clarity")):
+        raise HTTPException(422, "sensor values must be numeric")
+    reading, problem = clean_reading(packet)
+    if reading is None:
+        raise HTTPException(422, problem)
+    if NODES.get(reading["node"], {}).get("sim"):
+        raise HTTPException(422, "HTTP telemetry is reserved for hardware nodes")
+    async with remote_ingest_lock:
+        now = time.monotonic()
+        _ingest_tokens = min(float(INGEST_BURST), _ingest_tokens + (now - _ingest_at) * INGEST_RATE_PER_MINUTE / 60)
+        _ingest_at = now
+        if _ingest_tokens < 1:
+            raise HTTPException(429, "ingest rate exceeded; retry later", headers={"Retry-After": "1"})
+        _ingest_tokens -= 1
+        result = await handle_line(json.dumps(packet, separators=(",", ":")), wait_decision=True)
+        if result is None:
+            raise HTTPException(422, "reading was rejected")
+        with db_lock:
+            row = db.execute("SELECT * FROM readings WHERE node=? AND session=? AND test=? AND phase=? ORDER BY id DESC LIMIT 1",
+                             (reading["node"], reading["session"], reading["test"], reading["phase"])).fetchone()
+            latest = db.execute("SELECT id FROM readings WHERE node=? ORDER BY id DESC LIMIT 1", (reading["node"],)).fetchone()
+        result["decision"] = None
+        result["command"] = None
+        if row is not None:
+            result["reading_id"] = row["id"]
+            if row["ai_filter"] is not None:
+                result["decision"] = {"filter": row["ai_filter"], "source": row["source"], "explanation": row["explanation"]}
+                if (reading["ask"] and row["phase"] == "before" and latest["id"] == row["id"]
+                        and row["seq"] == reading["seq"]):
+                    result["command"] = ingest.command(row_to_dict(row), row["ai_filter"])
+    return result
 
 
 @app.get("/api/nodes")
@@ -953,19 +1283,28 @@ def test_pair(node: str, test: int):
                             "ORDER BY id DESC LIMIT 1", (node, test)).fetchone()
         if before is None:
             return []
-        after = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? "
-                           "ORDER BY id LIMIT 1", (node, test, before["id"])).fetchone()
+        after = db.execute("SELECT * FROM readings WHERE node=? AND test=? AND phase='after' AND id>? AND session IS ? "
+                           "ORDER BY id LIMIT 1", (node, test, before["id"], before["session"])).fetchone()
     return [row_to_dict(r) for r in (before, after) if r is not None]
 
 
 @app.post("/api/cmd", dependencies=[Depends(require_control)])
-def manual_cmd(test: int, filter: str):
-    """Manual override from the dashboard: tip the cup for this test."""
+def manual_cmd(test: int, filter: str, node: str = "tank-01"):
+    """Address the latest raw-water test on one real node; stale/unknown targets fail closed."""
     choice = filter.upper()
-    if choice not in ("ZEROWATER", "BRITA", "NONE") or test < 0:
+    if choice not in ("ZEROWATER", "BRITA", "NONE") or not 0 <= test <= 65535:
         raise HTTPException(422, "filter must be ZEROWATER, BRITA or NONE, and test a pour number")
-    send_to_tank({"cmd": "filter", "test": test, "filter": choice})
-    return {"ok": True}
+    choice = ingest.fitted(choice)
+    if node not in NODES or NODES[node]["sim"]:
+        raise HTTPException(404, "unknown real node")
+    with db_lock:
+        row = db.execute("SELECT * FROM readings WHERE node=? ORDER BY id DESC LIMIT 1", (node,)).fetchone()
+    if row is None or row["test"] != test or row["phase"] != "before":
+        raise HTTPException(409, "that node is no longer awaiting this test; use its latest raw-water reading")
+    obj = ingest.command(row_to_dict(row), choice)
+    if not send_to_tank(obj):
+        raise HTTPException(503, "the receiver is not connected")
+    return {"ok": True, "node": node, "test": test}
 
 
 @app.get("/api/filters")
@@ -1054,6 +1393,30 @@ def network():
         raise HTTPException(503, f"the simulated network is not available: {type(e).__name__}")
 
 
+@app.get("/api/network/placement")
+def network_placement(budget: int = 12):
+    """Read-only simulated sensor placement. The algorithm is cached, deterministic and local;
+    this route never rebuilds files, calls a model, changes a database, or operates hardware."""
+    try:
+        import placement
+        result = placement.payload()
+    except (ImportError, OSError, ValueError):
+        # Keep a prepared static example usable when this development-time module is absent.
+        try:
+            path = Path(__file__).parent.parent / "web" / "network" / "placement.json"
+            result = json.loads(path.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(503, "the simulated placement example is not available")
+    if not isinstance(result, dict) or result.get("simulated") is not True or not isinstance(result.get("budgets"), list):
+        raise HTTPException(503, "the simulated placement example is not valid")
+    selected = next((row for row in result["budgets"] if row.get("budget") == budget), None)
+    if selected is None:
+        supported = ", ".join(str(row.get("budget")) for row in result["budgets"])
+        raise HTTPException(422, f"budget must be one of {supported}")
+    # Copy the outer dictionary: choosing a view must not mutate the algorithm's cached payload.
+    return {**result, "selected_budget": budget, "selected": selected}
+
+
 @app.post("/api/network/investigate", dependencies=[Depends(require_control)])
 async def network_investigate(scenario: str):
     """Hand one simulated event to the incident team (a lead agent and three specialists). It is
@@ -1073,19 +1436,28 @@ async def network_investigate(scenario: str):
         except Exception as e:
             raise HTTPException(502, f"the agents did not finish: {type(e).__name__}")
     notice = report.get("notice") if analysis.notice_ok(report.get("notice")) else rules["notice"]
-    return {"simulated": True, "scenario": scenario, "source": "deepagents", "model": AI_MODEL, "ai_name": ai_name(),
+    return {"simulated": True, "scenario": scenario, "source": "deepagents", "model": AGENT_MODEL, "ai_name": ai_name(AGENT_MODEL),
             "summary": report.get("summary"), "findings": report.get("findings", []), "actions": report.get("actions", []),
             "notice": notice, "sections": report.get("sections", [])}
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL, "control": "token" if CONTROL_TOKEN else "local",
+    state = {"ok": True, "mock": MOCK, "input_mode": "remote" if REMOTE_INGEST else "mock" if MOCK else "serial",
+            "remote_ingest": REMOTE_INGEST, "ingest_ready": bool(REMOTE_INGEST and CONTROL_TOKEN and startup_ready), "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
+            "agent_name": ai_name(AGENT_MODEL) if investigator_agent is not None else None, "agent_model": AGENT_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
+            "ph_estimated": PH_ESTIMATED,
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},
             "clients": len(clients),
+            "estimated_history": db.execute("SELECT count(*) FROM readings WHERE session=?", (baseline.SESSION,)).fetchone()[0],
             "cloud": cloud_sync.status() if cloud_sync.enabled else {"enabled": False}}
+    if MOCK:
+        state["simulation"] = {"scenario": getattr(device, "scenario", os.getenv("MOCK_SCENARIO", "cycle")),
+                               "seed": int(os.getenv("MOCK_SEED", "26")),
+                               "background_fault_rate": SIM_FAULT_RATE}
+    return state
 
 
 @app.get("/api/cloud")
@@ -1095,12 +1467,14 @@ def cloud_status():
 
 
 @app.get("/api/cloud/rollup")
-def cloud_rollup(node: str = "tank-01", hours: int = 24):
-    """5-minute buckets for one node, read back from the cloud database (a TimescaleDB continuous aggregate)."""
+def cloud_rollup(node: str = "tank-01", hours: int = 24, bucket: str = "5min"):
+    """Buckets for one node (bucket: 5min, hour or day), read back from the cloud database (TimescaleDB continuous aggregates)."""
+    if bucket not in cloud.BUCKETS:
+        raise HTTPException(422, "bucket must be 5min, hour or day")
     if not cloud_sync.enabled:
         raise HTTPException(404, "the cloud copy is off: set TIGER_DATABASE_URL in .env")
     try:
-        return cloud_sync.rollup(node, max(1, min(hours, 24 * 14)))
+        return cloud_sync.rollup(node, max(1, min(hours, 24 * 60)), bucket)
     except Exception as e:
         raise HTTPException(503, f"the cloud database did not answer ({type(e).__name__})")
 
@@ -1118,9 +1492,17 @@ async def ws_endpoint(ws: WebSocket):
 
 @app.middleware("http")
 async def revalidate_web_files(request, call_next):
-    """Browsers re-check the dashboard files on every load, so edits to web/ show up at once."""
+    """Browsers re-check the pages' own files on every load, so edits to web/ show up at once.
+    The map's large files are the exception: its built bundle has the build in its name, so it
+    can be kept for good, and its map data (18 MB of buildings, roads and water) and the logo
+    are kept for a day. They are fetched once and then come from the browser's own store."""
     response = await call_next(request)
-    if not request.url.path.startswith(("/api", "/ws", "/docs", "/openapi")):
+    path = request.url.path
+    if path.startswith("/map/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith(("/map/data/", "/map/brand/", "/assets/brand/", "/vendor/")):
+        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+    elif not path.startswith(("/api", "/ws", "/docs", "/openapi")):
         response.headers["Cache-Control"] = "no-cache"
     return response
 

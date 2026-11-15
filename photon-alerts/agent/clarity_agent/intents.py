@@ -5,6 +5,7 @@ Keeps Clarity feeling like a chatbot with no API key: status, what the tests mea
 """
 from __future__ import annotations
 
+import os
 import re
 
 from .data import LiveData
@@ -27,25 +28,38 @@ EXPLAIN = {
 }
 
 
+def ph_is_estimated(r: dict) -> bool:
+    flag = r.get("ph_est")
+    if flag is True or flag == 1:
+        return True
+    if flag is False or flag == 0:
+        return False
+    return os.getenv("PH_ESTIMATED", "1").strip() != "0"
+
+
 def _icon(r: dict) -> str:
     tds, ph = r.get("tds", 0), float(r.get("ph", 7))
-    if tds > 500 or not 6.5 <= ph <= 8.5:
+    estimated = ph_is_estimated(r)
+    if tds > 500 or (not estimated and not 6.5 <= ph <= 8.5):
         return "🚨"
-    return "✅" if r.get("verdict") == "SAFE" else "⚠️"
+    cloudy = float(r.get("clarity", 1)) < 0.7 or r.get("verdict") == "CLOUDY"
+    warning = tds > 300 or cloudy or r.get("verdict") == "HIGH_TDS" or (not estimated and r.get("verdict") == "PH_WARN")
+    return "⚠️" if warning else "✅"
 
 
 def _status(data: LiveData) -> str:
     rows = []
     for site in data.sites():
         r, f = site["raw"], site["filtered"]
-        row = f"{_icon(r)} {site['name']}: TDS {round(r.get('tds', 0))} · pH {float(r.get('ph', 0)):.1f}"
+        label = " (estimated from TDS)" if ph_is_estimated(r) else ""
+        row = f"{_icon(r)} {site['name']}: TDS {round(r.get('tds', 0))} · pH {float(r.get('ph', 0)):.1f}{label}"
         if f:
             row += f"\n   ↳ filtered: TDS {round(f.get('tds', 0))} {'✓' if _icon(f) == '✅' else '⚠️'}"
         rows.append(row)
     if not rows:
         return "💧 No test results yet\n\nI'll text you as soon as one comes in."
     bad = any(row.startswith(("🚨", "⚠️")) for row in rows)
-    tail = "Don't drink from 🚨 sites unfiltered." if bad else "All within normal range."
+    tail = "Don't drink from 🚨 sites unfiltered." if bad else "All measured readings within normal range."
     return "💧 Latest tests\n\n" + "\n".join(rows) + f"\n\n{tail}"
 
 
@@ -68,7 +82,7 @@ def _buy(data: LiveData) -> str:
         if float(r.get("tds", 0)) > worst_tds:
             worst_tds = float(r.get("tds", 0))
             after = site["filtered"]
-        low_ph = low_ph or float(r.get("ph", 7)) < 6.5
+        low_ph = low_ph or (not ph_is_estimated(r) and float(r.get("ph", 7)) < 6.5)
     if worst_tds > 500:
         out = (f"🫗 Get a ZeroWater filter\n\nYour water hit TDS {round(worst_tds)} ppm (limit 500).\n"
                + (f"↳ Our retest with {str(after.get('filter') or 'the filter').title().replace('Zerowater', 'ZeroWater')} brought it to {round(after.get('tds', 0))} ppm. " if after else "↳ ")

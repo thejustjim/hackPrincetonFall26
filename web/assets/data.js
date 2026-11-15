@@ -9,11 +9,25 @@
 (function () {
   "use strict";
 
-  function liveSource(base) {
+  function liveSource(base, prototype = false) {
     const req = (path, init) => fetch(base + path, init).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status + " " + path))));
+    let allowReadings = !prototype, socket = null;
+    async function get(path) {
+      try {
+        const data = await req(path);
+        if (prototype && path === "/health" && data.mock !== false) {
+          allowReadings = false;
+          socket?.close();
+        }
+        return data;
+      } catch (err) {
+        if (prototype && path === "/health") { allowReadings = false; socket?.close(); }
+        throw err;
+      }
+    }
     return {
       kind: "live",
-      get: (path) => req(path),
+      get,
       /* Controls (reset a filter, tip the cup) are guarded by the gateway. If it asks for its
          control token, ask the person once and remember it on this device. */
       async post(path) {
@@ -38,18 +52,48 @@
         let wait = 1000;
         const open = () => {
           const ws = new WebSocket(url);
-          ws.onopen = () => { wait = 1000; onStatus("live"); };
-          ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch (err) { console.warn(err); } };
-          ws.onclose = () => { onStatus("down"); setTimeout(open, wait); wait = Math.min(wait * 2, 15000); };
+          socket = ws;
+          allowReadings = !prototype;
+          ws.onopen = async () => {
+            if (prototype) {
+              try {
+                const health = await withTimeout(get("/health"), 2500);
+                if (health.mock !== false) throw new Error("A physical gateway is required");
+                allowReadings = true;
+              } catch {
+                allowReadings = false; onStatus("offline"); ws.close(); return;
+              }
+            }
+            wait = 1000; onStatus("live");
+          };
+          ws.onmessage = (e) => {
+            if (!allowReadings) return;
+            try {
+              const message = JSON.parse(e.data);
+              if (prototype && message.type === "reading" && (message.mock === true || message.mock === 1)) return;
+              onMessage(message);
+            } catch (err) { console.warn(err); }
+          };
+          ws.onclose = () => { allowReadings = !prototype; onStatus(prototype ? "offline" : "down"); setTimeout(open, wait); wait = Math.min(wait * 2, 15000); };
         };
         open();
       },
     };
   }
 
+  function disconnectedPrototype(reason) {
+    return {
+      kind: "offline",
+      get: async (path) => path === "/health" ? { ok: false, prototype: true, prototype_reason: reason, ph_estimated: true } : [],
+      post: async () => { throw new Error("Connect the prototype before using its controls."); },
+      subscribe: (_onMessage, onStatus) => onStatus("offline"),
+    };
+  }
+
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 
   let aiName = null;   // the model the gateway says it is using ("Gemini" or "Claude"), once known
+  const sameSession = (a, b) => (a?.session ?? null) === (b?.session ?? null);
   function pourFromPair(pair, kind) {
     const before = pair.find((r) => r.phase === "before") || null;
     const after = pair.find((r) => r.phase === "after") || null;
@@ -64,18 +108,27 @@
     const params = new URLSearchParams(location.search);
     const api = params.get("api");
     const base = api ? api.replace(/\/$/, "") : location.protocol.startsWith("http") ? "" : null;
-    let source = null, health = {};
-    if (!params.has("demo") && base !== null) {
+    const choice = window.ClaritySetup?.read?.();
+    const mode = params.get("mode") || (params.has("demo") ? "demo" : choice?.mode);
+    const prototype = mode === "prototype";
+    let source = null, health = {}, prototypeReason = "The prototype gateway is unavailable. Open this page from your base station, then retry.";
+    if (mode !== "demo" && !params.has("demo") && base !== null) {
       try {
-        const live = liveSource(base);
+        const live = liveSource(base, prototype);
         health = await withTimeout(live.get("/health"), 2500);
-        source = live;
-      } catch { /* no gateway: demo */ }
+        if (prototype && health.mock !== false) prototypeReason = health.mock === true
+          ? "The gateway is running a simulation. Explore the demo, or start the physical prototype and retry."
+          : "The prototype connection could not be verified. Open this page from your base station, then retry.";
+        else source = live;
+      } catch { /* keep a prototype disconnected; other visitors may explore sample data */ }
     }
-    if (!source) { source = TapSample.create(); health = await source.get("/health"); }
+    if (!source) {
+      source = prototype ? disconnectedPrototype(prototypeReason) : TapSample.create();
+      health = await source.get("/health");
+    }
     aiName = health.ai_name || null;
 
-    const s = { kind: source.kind, conn: source.kind === "live" ? "live" : "demo", health,
+    const s = { kind: source.kind, conn: source.kind === "live" ? "live" : source.kind === "offline" ? "offline" : "demo", health,
                 nodes: new Map(), feed: [], pour: null, filters: [], report: null, reference: [], tank: "tank-01" };
     const subs = new Set();
     const emit = (type, payload) => subs.forEach((fn) => { try { fn(type, payload); } catch (err) { console.error(err); } });
@@ -93,6 +146,7 @@
       if (Array.isArray(list)) { s.filters = mergeFilters(list); emit("filters"); }
     };
     s.isSim = (r) => r.sim ?? s.nodes.get(r.node)?.sim ?? false;
+    s.get = (path) => source.get(path);                       // anything else the gateway can be asked (the cloud rollup)
     s.refreshHealth = () => source.get("/health").then((h) => { s.health = h; aiName = h.ai_name || null; }).catch(() => {});   // e.g. the cloud copy's counts
     s.nodeName = (id) => s.nodes.get(id)?.name || id;
 
@@ -113,15 +167,16 @@
       const out = [];
       for (const r of s.history) {
         if (r.phase === "before") out.push({ test: r.test, before: r, after: null });
-        else { const p = [...out].reverse().find((x) => x.test === r.test && !x.after); if (p) p.after = r; }
+        else { const p = [...out].reverse().find((x) => x.test === r.test && sameSession(x.before, r) && !x.after); if (p) p.after = r; }
       }
       return out;
     };
-    const lastTank = readings.find((r) => r.node === s.tank) || s.nodes.get(s.tank)?.latest;
+    const lastTank = readings.find((r) => r.node === s.tank && r.phase === "before") || s.nodes.get(s.tank)?.latest;
     if (lastTank) s.pour = pourFromPair(await soft(`/api/tests/${s.tank}/${lastTank.test}`, [lastTank]), source.kind);
 
     source.subscribe((m) => {
       if (m.type === "reading") {
+        if (s.feed.some((r) => r.id === m.id && r.node === m.node)) return;
         const n = s.nodes.get(m.node) || { node: m.node, name: m.node, lat: m.lat, lon: m.lon, sim: m.sim };
         n.latest = m;
         s.nodes.set(m.node, n);
@@ -131,7 +186,7 @@
         emit("reading", m);
         if (!m.sim && m.node === s.tank) {
           if (m.phase === "before") { s.pour = { before: m, after: null, decision: null }; emit("pour", "before"); }
-          else if (s.pour?.before?.test === m.test) { s.pour.after = m; emit("pour", "after"); }
+          else if (s.pour?.before?.test === m.test && sameSession(s.pour.before, m)) { s.pour.after = m; emit("pour", "after"); }
         }
       } else if (m.type === "decision") {
         const row = s.feed.find((r) => r.id === m.id);
@@ -145,6 +200,21 @@
       } else if (m.type === "report") {
         s.report = m;
         emit("report");
+      } else if (m.type === "agent") {
+        // the investigator at work: the plan first, then each hand-off, tool call and answer as it happens
+        if (m.event === "plan") {
+          s.swarm = { test: m.test, state: "working", check: null,
+                      rows: new Map((m.plan || []).map((x) => [x.agent, { agent: x.agent, why: x.why, tools: [], state: "waiting" }])) };
+        } else if (s.swarm) {
+          let row = m.agent ? s.swarm.rows.get(m.agent) : null;
+          if (m.agent && !row) s.swarm.rows.set(m.agent, (row = { agent: m.agent, why: "added by the lead", tools: [], state: "waiting" }));
+          if (m.event === "asked" && row) row.state = "asked";
+          else if (m.event === "tool" && row) { row.state = "working"; row.tools.push(m.tool); }
+          else if (m.event === "answered" && row) row.state = "answered";
+          else if (m.event === "check") { s.swarm.state = "checking"; s.swarm.check = m.check; }
+          else if (m.event === "failed" || m.event === "done") s.swarm.state = m.event;
+        }
+        emit("swarm");
       }
     }, (kind) => { s.conn = kind; emit("conn"); });
 

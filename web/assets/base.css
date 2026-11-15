@@ -68,6 +68,8 @@ html.opening .glow { filter: opacity(0); }
 .wordmark { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-family: var(--serif); font-size: 22px; font-weight: 500; }
 .wordmark:hover { text-decoration: none; }
 .wordmark svg { width: 16px; height: 20px; }
+.wordmark .logo { display: block; height: 34px; width: auto; }      /* the team's logo: the drop and the name */
+.bar .tagline { position: relative; top: 5px; }      /* so the words sit on the same line as the name inside the logo */
 .bar .spacer { flex: 1; }
 .conn { display: inline-flex; align-items: center; gap: 7px; color: var(--label2); font-size: 13px; letter-spacing: 0; }
 .conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); }
@@ -156,7 +158,11 @@ html.opening .glow { filter: opacity(0); }
 /* ---- phones: no pinned hero; the notes sit in a grid under the cup */
 @media (max-width: 760px) {
   :root { --cup-h: 56vh; --cup-w: 100vw; --cup-y: 28vh; }
-  .bar { position: static; padding: 12px 16px; }
+  /* the logo and the status share the first row; the links take a row of their own, each on one line */
+  .bar { position: static; padding: 12px 16px; flex-wrap: wrap; row-gap: 8px; }
+  .bar .conn, .bar .links a { white-space: nowrap; }
+  .bar .links { flex: 1 0 100%; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; }
+  .bar .links::-webkit-scrollbar { display: none; }
   .hero { position: relative; height: auto; overflow: visible; }
   #hero-inner { position: relative; }
   .stage { position: relative; }
@@ -171,3 +177,12 @@ html.opening .glow { filter: opacity(0); }
   .leader line { stroke-dashoffset: 0; }
   .leader circle { opacity: 0.8; }
 }
+
+/* the end of the cup page hands over to the map (onward.js) */
+.onward { position: relative; min-height: 64vh; display: grid; place-items: center; margin-top: 56px; border-top: 1px solid var(--hair); text-align: center; }
+.onward-link { display: grid; gap: 12px; color: var(--text); text-decoration: none; }
+.onward-link:hover { text-decoration: none; }
+.onward-word { font-family: var(--serif); font-size: clamp(44px, 6vw, 96px); line-height: 1; letter-spacing: -0.02em; }
+.onward-hint { font: italic 18px var(--serif); color: var(--label2); }
+.onward-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform 0.25s ease; }
+html.leaving body { opacity: 0; transition: opacity 0.45s ease; }

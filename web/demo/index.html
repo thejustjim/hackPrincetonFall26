@@ -5,16 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clarity</title>
   <meta name="description" content="Clarity: what you deserve. The latest cup of water, what was done about it, and whether it worked.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 200'%3E%3Cpath d='M17 60 L25 190 L135 190 L143 60Z' fill='%235A9BBD' fill-opacity='.5'/%3E%3Cpath d='M10 10 L25 190 L135 190 L150 10' fill='none' stroke='%23F7F0F0' stroke-width='14' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" href="../assets/brand/clarity-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
   <link rel="stylesheet" href="../assets/base.css">
   <link rel="stylesheet" href="../assets/demo.css">
   <link rel="stylesheet" href="../assets/pitch.css">
+  <link rel="stylesheet" href="../assets/setup.css">
   <script>
     // Arriving from /pitch: start in the pitch, on black, with the demo hidden until the pitch ends.
     // The address bar shows /pitch until then. (Same folder depth, so relative links still resolve.)
+    if (new URLSearchParams(location.search).get("setup") === "1" && location.hash !== "#pitch") document.documentElement.classList.add("setup-pending");
     if (location.hash === "#pitch") {
       document.documentElement.classList.add("pitching", "opening");
       try { history.replaceState(null, "", "../pitch/" + location.search); } catch (e) { /* opened as a file */ }
@@ -30,8 +32,7 @@
 
   <header class="bar">
     <a class="wordmark" href="./">
-      <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="13" stroke-linejoin="round"/></svg>
-      Clarity
+      <img class="logo" src="../assets/brand/clarity-logo.png" alt="Clarity" width="348" height="132">
     </a>
     <p class="tagline">What you deserve.</p>
     <span class="spacer"></span>
@@ -39,7 +40,8 @@
     <p class="conn" id="conn" data-state="connecting" role="status"><span class="dot"></span><span id="conn-text">Connecting</span></p>
     <nav class="links" aria-label="On this page">
       <a href="#details" data-glide="details">Full account</a>
-      <a href="../network/">Simulated network</a>
+      <a href="../map/" data-map>Map</a>
+      <a href="../network/">Network</a>
     </nav>
   </header>
 
@@ -51,8 +53,9 @@
           <h1 id="verdict">Connecting</h1>
           <p id="sub"></p>
           <p id="standfirst"></p>
+          <p id="proof" hidden></p>
           <p id="when"></p>
-          <p id="about">Clarity measures before it filters, so water that reads in range is left alone. <span id="about-tally"></span></p>
+          <p id="about"><span id="about-tally"></span></p>
         </div>
         <div class="stage" id="stage">
           <svg class="leaders" id="leaders" aria-hidden="true"></svg>
@@ -106,10 +109,18 @@
           <div id="ledger"></div>
         </section>
 
+        <section class="ruled" id="cloud" aria-label="The cloud copy" hidden>
+          <header class="section-head">
+            <h2>In the cloud database</h2>
+          </header>
+          <p class="about" id="cloud-about"></p>
+          <div id="cloud-table"></div>
+        </section>
+
         <footer class="colophon ruled">
           <p class="mark">Clarity</p>
           <p class="tagline">What you deserve.</p>
-          <p class="fine">The tank reads pH, dissolved solids and transparency. It cannot detect lead, bacteria or any specific contaminant. Published figures are USGS and NJ DEP samples from the Water Quality Portal, with dissolved solids estimated as 0.65 × conductance. Simulated nodes show how a network would look and are always labelled.</p>
+          <p class="fine">The tank reads dissolved solids and transparency<span id="ph-fine"> (pH is estimated)</span>. It cannot detect lead, bacteria or any specific contaminant. Published figures are USGS and NJ DEP samples from the Water Quality Portal.</p>
           <p class="fine" id="cloud-line" hidden></p>
           <p class="fine"><a href="#hero" data-glide="top">Back to the cup</a><a href="/docs" id="api-link" hidden>The API</a></p>
         </footer>
@@ -120,6 +131,7 @@
   <div class="tip" id="tip" hidden></div>
   <div id="pitch" hidden></div>
 
+  <script src="../assets/setup.js"></script>
   <script src="../assets/cup.js"></script>
   <script src="../assets/sample.js"></script>
   <script src="../assets/data.js"></script>
@@ -127,7 +139,8 @@
   <script src="../assets/demo-view.js"></script>
   <script src="../assets/app.js"></script>
   <script src="../assets/pitch.js"></script>
-  <script type="module" src="../assets/glass.js"></script>
-  <script type="module" src="../assets/plate3d.js"></script>
+  <script src="../assets/onward.js"></script>
+  <script type="module" src="../assets/glass.js?v=20261115-clean-pitch"></script>
+  <script type="module" src="../assets/plate3d.js?v=20261115-clean-pitch"></script>
 </body>
 </html>

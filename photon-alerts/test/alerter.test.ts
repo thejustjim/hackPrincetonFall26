@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { Alerter } from "../src/alerter.js";
 import { ConsoleSender } from "../src/photon.js";
 import { SubscriberStore, handleCommand, normalizePhone } from "../src/subscribers.js";
-import { assess, type Reading } from "../src/rules.js";
+import { assess, phIsEstimated, type Reading } from "../src/rules.js";
 
 const R = (o: Partial<Reading>): Reading => ({
-  id: 1, ts: "", node: "tank-01", name: "Princeton tank", test: 1, phase: "before", ph: 7.2, tds: 150,
+  id: 1, ts: "", node: "tank-01", name: "Princeton tank", test: 1, phase: "before", ph: 7.2, ph_est: false, tds: 150,
   clarity: 0.95, verdict: "SAFE", filter: "NONE", ai_filter: null, sim: false, explanation: null, ...o,
 });
 const quiet = { log: () => {} };
@@ -165,4 +165,63 @@ test("after-filter readings don't hide a failing tap", async () => {
   const out = readingsSummary([...s.latest.values()], s.filtered);
   assert.match(out, /🚨 .*TDS 780/);
   assert.match(out, /filtered: TDS 8 ✓/);
+});
+
+
+test("estimated pH cannot trigger an alert, but measured pH can", async () => {
+  const estimated = R({ ph: 5.2, ph_est: true, verdict: "PH_WARN", explanation: "x" });
+  assert.deepEqual(assess(estimated), { severity: "ok", reasons: [] });
+  assert.equal(assess({ ...estimated, ph_est: false }).severity, "unsafe");
+  const s = new ConsoleSender();
+  const a = new Alerter(s, new SubscriberStore(null, ["+15550001111"]), quiet);
+  await a.onReading(estimated);
+  assert.equal(s.sent.length, 0);
+  await a.onReading({ ...estimated, id: 2, test: 2, ph_est: false });
+  assert.equal(s.sent.length, 1);
+  a.close();
+});
+
+test("estimated pH does not suppress independent TDS and clarity warnings", () => {
+  assert.equal(assess(R({ ph: 5.2, ph_est: 1, tds: 750, verdict: "PH_WARN" })).severity, "unsafe");
+  assert.equal(assess(R({ ph: 5.2, ph_est: 1, tds: 400, verdict: "PH_WARN" })).severity, "warning");
+  assert.equal(assess(R({ ph: 5.2, ph_est: 1, clarity: 0.4, verdict: "PH_WARN" })).severity, "warning");
+});
+
+test("per-reading pH flags override deployment defaults, with conservative legacy fallback", () => {
+  const old = process.env.PH_ESTIMATED;
+  try {
+    process.env.PH_ESTIMATED = "1";
+    assert.equal(phIsEstimated(R({ ph_est: 0 })), false);
+    assert.equal(phIsEstimated(R({ ph_est: undefined })), true);
+    assert.equal(phIsEstimated(R({ ph_est: null })), true);
+    process.env.PH_ESTIMATED = "0";
+    assert.equal(phIsEstimated(R({ ph_est: 1 })), true);
+    assert.equal(phIsEstimated(R({ ph_est: undefined })), false);
+    assert.equal(assess(R({ ph: 5.2, ph_est: true, verdict: "PH_WARN" })).severity, "ok");
+  } finally {
+    if (old === undefined) delete process.env.PH_ESTIMATED;
+    else process.env.PH_ESTIMATED = old;
+  }
+});
+
+test("estimated pH text is labelled without a probe checkmark or corrosion explanation", async () => {
+  const { contaminationAlert, readingsSummary } = await import("../src/messages.js");
+  const r = R({ ph: 5.2, ph_est: true, tds: 700, verdict: "HIGH_TDS" });
+  const text = contaminationAlert(r, assess(r), null);
+  const line = text.split("\n").find((x) => x.startsWith("pH"))!;
+  assert.equal(line, "pH 5.2 (estimated from TDS)");
+  assert.doesNotMatch(line, /✓|⚠️/);
+  assert.doesNotMatch(text, /acidic|alkaline|pull lead|copper/);
+  assert.match(readingsSummary([r]), /pH 5\.2 \(estimated from TDS\)/);
+  const measured = { ...r, ph_est: false };
+  assert.match(contaminationAlert(measured, assess(measured), null), /pH 5\.2 ⚠️/);
+});
+
+
+test("successful retest does not imply estimated pH was measured", async () => {
+  const { retestMessage } = await import("../src/messages.js");
+  const after = R({ phase: "after", ph: 5.2, ph_est: true, tds: 4, verdict: "PH_WARN", filter: "ZEROWATER" });
+  const text = retestMessage(R({ tds: 780 }), after, assess(after));
+  assert.match(text, /Measured readings are back within normal range/);
+  assert.match(text, /pH remains estimated/);
 });

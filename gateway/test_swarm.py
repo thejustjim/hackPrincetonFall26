@@ -12,6 +12,7 @@ import tempfile
 
 os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "swarm.db")
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["FILTERS"] = "ZEROWATER,BRITA"       # these checks drive both filters; the rig's default is the Brita alone
 os.environ["TIGER_DATABASE_URL"] = ""
 os.environ.pop("DATABASE_URL", None)
 
@@ -61,13 +62,19 @@ class Scripted(BaseChatModel):
             OFFERED["lead"] = self.offered
             if not results:
                 team = investigator.INCIDENT_SPECIALISTS if system.startswith(investigator.INCIDENT_LEAD) else investigator.SPECIALISTS
+                try:                                   # follow the plan in the case, as the real lead is told to
+                    planned = [x["agent"] for x in json.loads(text(next(m for m in messages if isinstance(m, HumanMessage))).split("\n", 1)[1])["plan"]]
+                    team = [s for s in team if s["name"] in planned]
+                except (KeyError, ValueError, IndexError):
+                    pass
                 return AIMessage(content="", tool_calls=[
                     {"name": "task", "id": f"t{i}", "args": {"subagent_type": s["name"],
                      "description": f"Node tank-01, test 21. Scenario five-sensors. Report your findings."}}
                     for i, s in enumerate(team)])
             notice = next(text(m) for m in results if "Clarity reads only" in text(m))
             report = {"summary": "ZeroWater took dissolved solids from 780 ppm to 4 ppm.",
-                      "findings": [text(m)[:80] for m in results[:4]], "actions": ["Pour a second cup."], "notice": notice}
+                      "findings": ["Measured: dissolved solids fell from 780 ppm to 4 ppm.", "Made up: the river nearby read 9999 ppm."],
+                      "actions": ["Pour a second cup.", "Dilute it by 37%."], "notice": notice}
             if self.by_tool:
                 return AIMessage(content="", tool_calls=[{"name": "Report", "id": "final", "args": report}])
             return AIMessage(content=json.dumps(report))
@@ -125,19 +132,37 @@ async def main():
     first, report = [m for m in sent if m["type"] == "report"]
     check("the first report needs no model", first["model"] is None and first["checks"]["kind"] == "local_event" and first["sections"] == [])
     names = [s["agent"] for s in report["sections"]]
-    check("the lead reached all five specialists through the task tool", names == [s["name"] for s in investigator.SPECIALISTS], names)
+    planned = [x["agent"] for x in report["plan"]]
+    check("triage: a salty pour through a filter needs four of the five specialists, each with a reason",
+          planned == ["analyst", "network", "maintenance", "comms"] and all(x["why"] for x in report["plan"]), report["plan"])
+    check("the lead reached exactly the planned specialists through the task tool", names == planned, names)
+    events = [m for m in sent if m["type"] == "agent"]
+    kinds_seen = [(e["event"], e["agent"]) for e in events]
+    check("the page is told the plan first, then each hand-off, tool call and answer as it happens",
+          kinds_seen[0] == ("plan", None) and all(("asked", a) in kinds_seen and ("answered", a) in kinds_seen for a in planned)
+          and any(e["event"] == "tool" and e["agent"] == "analyst" and e["tool"] == "get_baseline" for e in events), kinds_seen[:8])
+    check("it ends with the check and then done", [k for k, _ in kinds_seen[-2:]] == ["check", "done"], kinds_seen[-3:])
+    check("the report keeps each specialist's trail of tool calls", {t["agent"]: set(t["tools"]) for t in report["trail"]}.get("maintenance") == {"get_case", "get_filter_life", "search_guidance"}, report["trail"])
+    check("the check drops a finding and an action whose figures no tool returned",
+          report["findings"] == ["Measured: dissolved solids fell from 780 ppm to 4 ppm."] and report["check"]["dropped"] == 2
+          and {n for u in report["check"]["untraced"] for n in u["numbers"]} == {"9999", "37"}, report["check"])
+    check("and counts the figures it could trace", report["check"]["figures"] > report["check"]["traced"] >= 3, report["check"])
     check("each section carries its title and what the specialist said", all(s["title"] and s["text"] for s in report["sections"]))
     check("the lead has no data tools of its own, only delegation", "task" in OFFERED["lead"] and not set(OFFERED["lead"]) & set(tools), OFFERED["lead"])
-    for s in investigator.SPECIALISTS:
+    check("a specialist the plan left out was never started", "sensor-health" not in OFFERED, sorted(OFFERED))
+    for s in [x for x in investigator.SPECIALISTS if x["name"] in planned]:
         mine = set(OFFERED[s["name"]]) & set(tools)
         check(f"{s['name']} is offered exactly its own tools and cannot delegate",
               mine == set(s["tools"]) and "task" not in OFFERED[s["name"]], sorted(mine))
-    check("every specialist tool was called", {t for t, _ in CALLED} == set(tools), sorted({t for t, _ in CALLED}))
+    wanted = {t for x in investigator.SPECIALISTS if x["name"] in planned for t in x["tools"]}
+    check("every tool of the planned specialists was called, and no other", {t for t, _ in CALLED} == wanted, sorted({t for t, _ in CALLED}))
     check("the structured report came back", report["summary"].startswith("ZeroWater") and report["actions"] == ["Pour a second cup."])
     check("the verdict and severity are the checks', not a model's", report["kind"] == first["kind"] and report["severity"] == first["severity"])
     check("the notice kept its required sentence", gateway.analysis.NOTICE_REQUIRED in report["notice"])
     rows = gateway.reports(node="tank-01", limit=5)
-    check("both reports are stored and served newest first", [r["source"] for r in rows] == ["deepagents", "rules"] and len(rows[0]["sections"]) == 5)
+    check("both reports are stored and served newest first, with the plan, trail and check",
+          [r["source"] for r in rows] == ["deepagents", "rules"] and len(rows[0]["sections"]) == len(planned)
+          and rows[0]["plan"] and rows[0]["trail"] and rows[0]["check"]["dropped"] == 2 and rows[1]["plan"] is None)
 
     check("read-only SQL returns rows", gateway.query_readings("SELECT count(*) AS n FROM readings")[0]["n"] == 22)
     check("it refuses anything but one SELECT", all("error" in gateway.query_readings(q) for q in (
@@ -156,7 +181,7 @@ async def main():
     via_tool = [m for m in sent if m.get("source") == "deepagents"]
     check("on the Gemini path the lead is offered a Report tool for its answer", "Report" in OFFERED.get("lead", []), OFFERED.get("lead"))
     check("and the report and all five sections still come back", len(via_tool) == 1 and via_tool[0]["summary"].startswith("ZeroWater")
-          and [x["agent"] for x in via_tool[0]["sections"]] == [x["name"] for x in investigator.SPECIALISTS], via_tool[:1])
+          and [x["agent"] for x in via_tool[0]["sections"]] == planned, via_tool[:1])
 
     gateway.investigator_agent = investigator.build(tools, lead_model=Scripted(lead=True), specialist_model=Scripted())
 
@@ -166,7 +191,17 @@ async def main():
     sent.clear()
     await gateway.report_on(after, used)
     investigator.investigate = real
-    check("if the investigator fails, the rule-written report still stands", [m["source"] for m in sent] == ["rules"])
+    check("if the investigator fails, the rule-written report still stands, and the page is told it failed",
+          [m["source"] for m in sent if m["type"] == "report"] == ["rules"] and any(m.get("event") == "failed" for m in sent))
+
+    # a specialist cannot call one tool over and over
+    investigator.RUN.reset()
+    looped = investigator.watched("maintenance", gateway.search_guidance)
+    answers = [looped("flushing a main") for _ in range(5)]
+    check("a tool can be called only so many times by one specialist in a run", all(isinstance(a, list) for a in answers[:3])
+          and all(isinstance(a, dict) and "Do not call it again" in a["error"] for a in answers[3:]))
+    check("the refusals are recorded", [e["event"] for e in investigator.RUN.events] == ["tool", "tool", "tool", "refused", "refused"])
+    check("guidance passages handed to an agent are kept short", all(len(h["text"]) <= 600 for h in answers[0]))
 
     # the second team: an event on the simulated network
     CALLED.clear()
@@ -200,9 +235,36 @@ async def main():
     check("Gemini gets the same rules and is asked for JSON", "never say the water is safe" in seen["config"]["system_instruction"]
           and seen["config"]["response_mime_type"] == "application/json" and "filter" in seen["config"]["response_json_schema"]["properties"])
     check("the page is told which model it was", gateway.ai_name() == "Gemini" and gateway.health()["ai_name"] == "Gemini")
+    check("a Gemma model is named as Gemma, and its decisions are recorded as gemma's", gateway.ai_name("gemma-4-26b-a4b-it") == "Gemma")
+
+    class Listing:
+        def __init__(self, names):
+            self.models = self
+            self.names = names
+
+        def list(self, config=None):
+            return [type("M", (), {"name": f"models/{n}"})() for n in self.names]
+    os.environ["GEMINI_MODEL"] = "gemma-4-26b-a4b-it"
+    gateway.GEMINI_CHOICES.insert(0, "gemma-4-26b-a4b-it")
+    picked = gateway.pick_gemini_models(Listing(["gemma-4-26b-a4b-it", "gemini-3.6-flash", "gemini-3.5-flash"]))
+    check("with a Gemma model set, the decision uses it and the agents use a Flash model the key has",
+          picked == ("gemma-4-26b-a4b-it", "gemini-3.6-flash"), picked)
+    gateway.GEMINI_CHOICES.pop(0)
+    check("with a Flash model, the agents use the same one", gateway.pick_gemini_models(Listing(["gemini-3.8-flash"])) == ("gemini-3.8-flash", "gemini-3.8-flash"))
     for bad in ('{"filter": "BLEACH", "explanation": "x"}', "not json", None):
         gateway.gemini = FakeGemini(bad)
         check(f"a bad Gemini answer ({str(bad)[:12]}) leaves it to the tank's rule", await gateway.ask_model(reading, []) is None)
+    gateway.gemini = FakeGemini('{"filter": "NONE", "explanation": "The TDS is 198 ppm, which is normal. You can continue using the water as is."}')
+    out = await gateway.ask_model(reading, [])
+    check("a sentence that says the water can be used is cut from the explanation", out["explanation"] == "The TDS is 198 ppm, which is normal.", out)
+    check("so is one that calls it safe or says to drink it", gateway.no_promises("It is safe. Readings are in range. Drink up!") == "Readings are in range.")
+    check("the decision asks for a short answer, with thinking off on a Gemini model", gateway.gemini.seen["config"]["max_output_tokens"] <= 400
+          and gateway.gemini.seen["config"]["thinking_config"] == {"thinking_budget": 0})
+    gateway.AI_MODEL = "gemma-4-26b-a4b-it"
+    await gateway.ask_model(reading, [])
+    check("and a tighter cap and no thinking setting on Gemma, which refuses one", gateway.gemini.seen["config"]["max_output_tokens"] == 180
+          and "thinking_config" not in gateway.gemini.seen["config"])
+    gateway.AI_MODEL = "gemini-test"
     # a clear call ("ask":0): the tank has already acted, so nothing goes back and the rule is the decision
     radio = []
     gateway.send_to_tank = radio.append
@@ -228,7 +290,7 @@ async def main():
     await gateway.handle_line(json.dumps({**line, "test": 32, "ask": 1}))
     await asyncio.sleep(0.2)
     made = [m for m in sent if m["type"] == "decision"]
-    check("an unsure reading still gets the model's decision, sent to the tank", radio == [{"cmd": "filter", "test": 32, "filter": "ZEROWATER"}]
+    check("an unsure reading still gets the model's decision, sent to the tank", radio == [{"cmd": "filter", "node": "tank-01", "test": 32, "filter": "ZEROWATER"}]
           and made and made[-1]["source"] == "gemini", (radio, made))
     radio.clear()
     await gateway.handle_line(json.dumps({**line, "test": 33}))

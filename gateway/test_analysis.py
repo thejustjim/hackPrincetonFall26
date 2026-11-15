@@ -1,6 +1,9 @@
 """Checks for analysis.py. Run: python test_analysis.py"""
+import importlib
+import os
 import random
 
+os.environ["PH_ESTIMATED"] = "0"      # first the whole of it, with pH as a reading; the estimated case is at the end
 import analysis as A
 
 random.seed(7)
@@ -77,6 +80,124 @@ check("it asks for a second pour and a lab test", any("second cup" in a for a in
 still = {"filter": "BRITA", "before": pour(5, clarity=0.4, verdict="CLOUDY"), "after": pour(5, clarity=0.55, phase="after", verdict="CLOUDY")}
 rep = A.rule_report(still, A.analyse(still["before"], hist), [])
 check("a retest still out of range is acted on", rep["severity"] == 2 and "still out of range" in rep["summary"], rep)
+
+# ---- triage: who a case needs
+salty = A.analyse(spike, hist, [peer("a", 198)])
+agents = lambda c, r: [x["agent"] for x in A.plan(c, r)]
+check("a salty pour through a filter needs the analyst, the network, maintenance and comms", agents(case, salty) == ["analyst", "network", "maintenance", "comms"], agents(case, salty))
+plain = {"filter": "BRITA", "before": pour(40, tds=205), "after": pour(40, tds=198, phase="after")}
+check("an ordinary filtered pour needs only maintenance and comms", agents(plain, A.analyse(plain["before"], hist)) == ["maintenance", "comms"])
+unfiltered = {"filter": "NONE", "before": pour(41, tds=205), "after": pour(41, tds=204, phase="after")}
+check("an ordinary pour that was not filtered needs only the notice", agents(unfiltered, A.analyse(unfiltered["before"], hist)) == ["comms"])
+fault = A.analyse(pour(50, tds=233), stuck)
+check("a sensor fault is looked at first, and the water is not explained", agents({"filter": "NONE", "before": pour(50, tds=233), "after": None}, fault)[:1] == ["sensor-health"]
+      and "analyst" not in agents({"filter": "NONE", "before": pour(50, tds=233), "after": None}, fault))
+check("every planned specialist comes with a reason", all(x["why"] for x in A.plan(case, salty)))
+
+# ---- the check on what the agents wrote
+written = {"summary": "ZeroWater took it from 780 ppm to 4 ppm.", "findings": ["It read 780 ppm against a median of 204 ppm.", "The river read 9999 ppm."],
+           "actions": ["Pour 2 more cups.", "Dilute it by 37%."], "sections": [{"agent": "analyst", "text": "z is 5.5"}, {"agent": "network", "text": "61 km away"}]}
+kept, record = A.ground(written, '{"tds": 780, "after": 4, "median": 204.0, "z": 5.53}')
+check("a finding whose figure no tool returned is dropped, and the others are kept", kept["findings"] == ["It read 780 ppm against a median of 204 ppm."])
+check("so is an action; small counts are not treated as figures", kept["actions"] == ["Pour 2 more cups."])
+check("a figure rounded from a tool's value still counts as traced", kept["sections"][0]["traced"] is True and kept["sections"][1]["traced"] is False)
+check("the record says how many figures there were, how many traced and what was dropped",
+      record["figures"] == 7 and record["traced"] == 4 and record["dropped"] == 2 and record["summary_ok"], record)
+check("the limits the agents are told about are allowed", A.ground({"summary": "", "findings": ["It is above the 500 ppm guideline and outside 6.5 to 8.5."]}, "")[1]["dropped"] == 0)
+
+# ---------------------------------------------------------------- the same time of day
+def at(i, hour, tds, day=1):
+    return {**pour(i, ph=round(random.gauss(7.5, 0.1), 2), tds=tds, clarity=round(min(1, random.gauss(0.95, 0.02)), 2)), "ts": f"2026-11-{day:02d}T{hour:02d}:10:00"}
+
+
+random.seed(11)
+mornings = [at(i, 8, int(random.gauss(420, 12)), day=1 + i) for i in range(14)]
+evenings = [at(100 + i, 20, int(random.gauss(180, 10)), day=1 + i) for i in range(14)]
+both = sorted(mornings + evenings, key=lambda r: r["ts"])
+r = A.analyse(at(300, 8, 428, day=20), both, [])
+check("a morning pour is judged against other mornings once there are enough of them",
+      r["scope"] == {"kind": "time_of_day", "hours": A.SAME_HOURS, "n": 14} and r["kind"] == "normal" and abs(r["lead"]["z"]) < 2, (r["scope"], r["kind"], r["lead"]))
+r = A.analyse(at(301, 20, 428, day=20), both, [])
+check("the same reading in the evening is unusual, and says which pours it was set against",
+      r["kind"] == "local_event" and "at this time of day" in " ".join(r["evidence"]), (r["kind"], r["evidence"][:1]))
+r = A.analyse(at(302, 13, 300, day=20), both, [])
+check("with too few pours at that time of day it falls back to all of them", r["scope"]["kind"] == "all" and r["scope"]["n"] == 28, r["scope"])
+check("a reading with no usable time is judged against all of them", A.analyse(pour(303, tds=205), hist, [])["scope"]["kind"] == "all")
+check("hour_of reads an ISO time, with or without a zone, and gives nothing for anything else",
+      A.hour_of("2026-11-15T07:30:00") == 7.5 and A.hour_of("2026-11-15T07:30:00+00:00") == 7.5 and A.hour_of("2026-11-15T07:30:00Z") == 7.5
+      and A.hour_of("t12") is None and A.hour_of(None) is None)
+
+# ---------------------------------------------------------------- a one-off, seen in hindsight
+spiked = quiet(30) + [pour(40, tds=640)]
+r = A.analyse(pour(41, tds=204), spiked, [])
+check("a lone unusual pour followed by a normal one is called a one-off",
+      r["kind"] == "normal" and r["one_off_before"] and r["one_off_before"]["metric"] == "tds" and "one-off" in " ".join(r["evidence"]), (r["kind"], r["one_off_before"]))
+twice = quiet(30) + [pour(40, tds=640), pour(41, tds=655)]
+check("two unusual pours in a row are not a one-off", A.analyse(pour(42, tds=204), twice, [])["one_off_before"] is None)
+check("an ordinary run has no one-off", A.analyse(pour(43, tds=204), quiet(30), [])["one_off_before"] is None)
+
+# ---------------------------------------------------------------- the isolation forest (the stretch)
+random.seed(5)
+h = quiet(40)
+ordinary = A.analyse(pour(50, tds=203), h, [])["multivariate"]["isolation"]
+far_out = A.analyse(pour(51, tds=640, clarity=0.4, verdict="CLOUDY"), h, [])["multivariate"]["isolation"]
+check("an isolated reading scores higher than an ordinary one", ordinary is not None and far_out is not None and far_out > ordinary + 0.1 and far_out > 0.6, (ordinary, far_out))
+check("the same inputs give the same score", far_out == A.analyse(pour(51, tds=640, clarity=0.4, verdict="CLOUDY"), h, [])["multivariate"]["isolation"])
+check("with little history there is no score", A.analyse(pour(52, tds=640), quiet(3), [])["multivariate"]["isolation"] is None)
+flagged = [A.analyse(pour(60 + i, tds=int(random.gauss(200, 10))), h, []) for i in range(60)]
+check("it never decides: ordinary pours stay ordinary whatever it says", all(x["kind"] == "normal" for x in flagged if not x["multivariate"]["flag"] and abs(x["lead"]["z"]) < A.Z_OUT))
+scores = [x["multivariate"]["isolation"] for x in flagged]
+check("ordinary pours score around a half", 0.35 < sum(scores) / len(scores) < 0.6 and max(scores) < 0.75, (round(sum(scores) / len(scores), 2), max(scores)))
+
+# ---------------------------------------------------------------- pH as an estimate (the tank's current sketch)
+os.environ["PH_ESTIMATED"] = "1"
+A = importlib.reload(A)
+flat = [pour(i, ph=7.0, tds=int(random.gauss(200, 10)), clarity=round(min(1, random.gauss(0.95, 0.02)), 2)) for i in range(30)]
+r = A.analyse(pour(31, ph=7.0, tds=203), flat, [])
+check("an estimated pH that is 7.0 every time is not a stuck sensor", r["kind"] == "normal" and all(s["status"] == "ok" for s in r["sensor"]), (r["kind"], r["sensor"]))
+r = A.analyse(pour(32, ph=9.4, tds=203), quiet(30), [])
+check("an estimated pH cannot be what a verdict rests on", r["kind"] == "normal" and r["lead"]["metric"] != "ph", (r["kind"], r["lead"]))
+r = A.analyse(pour(33, tds=520, verdict="HIGH_TDS"), quiet(30), [])
+check("dissolved solids still lead when they are what moved", r["kind"] == "local_event" and r["lead"]["metric"] == "tds", (r["kind"], r["lead"]))
+case = {"before": pour(34, tds=520, verdict="HIGH_TDS"), "after": pour(34, tds=4, phase="after"), "filter": "ZEROWATER"}
+n = A.notice_for(case, r, "the tank")
+check("a notice does not say pH was read", "pH" not in n and A.notice_ok(n) and "dissolved solids and transparency both read in range" in n, n)
+cloudy = {"before": pour(35, clarity=0.4, verdict="CLOUDY"), "after": pour(35, clarity=0.93, phase="after"), "filter": "BRITA"}
+n = A.notice_for(cloudy, A.analyse(cloudy["before"], quiet(30), []), "the tank")
+check("a cloudy cup's notice says a pitcher filter does not disinfect", "A pitcher filter does not disinfect." in n and A.notice_ok(n), n)
+
+# ---------------------------------------------------------------- mixed per-reading provenance
+measured_hist = [{**r, "ph_est": False} for r in quiet(30)]
+estimated_hist = [{**r, "ph": 9.2, "ph_est": True} for r in quiet(30)]
+measured_low = {**pour(70, ph=4.8, verdict="PH_WARN"), "ph_est": False}
+r = A.analyse(measured_low, estimated_hist + measured_hist, [])
+check("a measured probe overrides the estimated gateway default", r["lead"]["metric"] == "ph" and r["kind"] == "local_event" and r["multivariate"]["dimensions"] == 3, r)
+check("estimated history does not contaminate a measured pH baseline", r["baseline"][0]["n"] == 30 and 7 < r["baseline"][0]["median"] < 8, r["baseline"][0])
+A.PH_ESTIMATED = False
+estimated_low = {**measured_low, "ph_est": True}
+r = A.analyse(estimated_low, measured_hist, [])
+normal_est = A.analyse({**estimated_low, "ph": 7.2}, measured_hist, [])
+check("an explicit estimate overrides a measured gateway default", r["kind"] == "normal" and r["lead"]["metric"] != "ph" and r["measured_metrics"] == ["tds", "clarity"], r)
+check("an estimated pH cannot change the joint distance or diagnostic forest", r["multivariate"] == normal_est["multivariate"] and r["multivariate"]["dimensions"] == 2, r["multivariate"])
+check("estimated control charts are excluded and explicitly marked", r["baseline"][0]["included"] is False and r["baseline"][0]["estimated"] is True and not r["baseline"][0]["ewma_signal"])
+check("the effective verdict ignores estimated-only PH_WARN", A.measured_verdict(estimated_low) == "SAFE" and A.measured_verdict(measured_low) == "PH_WARN")
+peers = [{**peer(k, 200), "reading": {**pour(99, ph=4.7), "ph_est": True}} for k in ("x", "y")]
+r = A.analyse(measured_low, measured_hist, peers)
+check("estimated peer pH cannot corroborate a measured pH event", r["peers"]["n"] == 0 and r["kind"] == "local_event", r["peers"])
+case = {"before": {**pour(71, tds=520, verdict="HIGH_TDS"), "ph_est": True},
+        "after": {**pour(71, tds=4, phase="after"), "ph_est": True}, "filter": "ZEROWATER"}
+notice = A.notice_for(case, A.analyse(case["before"], measured_hist, []), "the tank")
+check("notice claims follow the packet rather than the gateway default", "pH" not in notice and A.notice_ok(notice, case), notice)
+measured_case = {**case, "before": {**case["before"], "ph_est": False}, "after": {**case["after"], "ph_est": False}}
+measured_notice = A.notice_for(measured_case, A.analyse(measured_case["before"], measured_hist, []), "the tank")
+check("a measured-pH claim is rejected for estimated readings", "pH" in measured_notice and not A.notice_ok(measured_notice, case))
+mixed_case = {"before": {**pour(80, ph=2, tds=350, verdict="HIGH_TDS"), "ph_est": False},
+              "after": {**pour(80, ph=7, tds=4, phase="after"), "ph_est": True}, "filter": "ZEROWATER"}
+r = A.analyse(mixed_case["before"], measured_hist, [])
+report = A.rule_report(mixed_case, r, [])
+check("a derived retest cannot imply filtration corrected measured pH", "dissolved solids from 350 ppm to 4 ppm" in report["summary"] and "pH warning is not resolved" in report["summary"] and "back in range" not in report["summary"], report)
+check("an unverified pH warning remains explicit in notices", A.notice_template(mixed_case, r) == "ph_unverified" and "remains unverified" in A.notice_for(mixed_case, r, "the tank"))
+A.PH_ESTIMATED = True
 
 print("\nall passed" if ok else "\nFAILURES")
 raise SystemExit(0 if ok else 1)

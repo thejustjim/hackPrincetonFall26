@@ -16,8 +16,8 @@ from clarity_agent.photos import DECLINE, PhotoVerdict
 from clarity_agent.safety import violates
 
 client = TestClient(server.app)
-server.data.ingest({"type": "reading", "node": "tank-01", "name": "Clarity tank", "phase": "before", "tds": 780, "ph": 7.2, "sim": False})
-server.data.ingest({"type": "reading", "node": "tap-02", "name": "Nassau St tap", "phase": "before", "tds": 140, "ph": 7.4, "sim": False})
+server.data.ingest({"type": "reading", "node": "tank-01", "name": "Clarity tank", "phase": "before", "tds": 780, "ph": 7.2, "ph_est": False, "sim": False})
+server.data.ingest({"type": "reading", "node": "tap-02", "name": "Nassau St tap", "phase": "before", "tds": 140, "ph": 7.4, "ph_est": False, "sim": False})
 
 
 def V(**kw):
@@ -67,3 +67,16 @@ def test_quota_error_says_try_later(monkeypatch):
     monkeypatch.setattr(server, "classify", boom)
     r = client.post("/photo", json={"phone": "+1", "image_b64": "aGk=", "mime": "image/jpeg", "node": None, "text": ""}).json()
     assert "can't check it right now" in r["reply"]
+
+
+def test_estimated_ph_does_not_turn_a_clear_photo_into_a_failed_sensor_test():
+    from clarity_agent.photos import _failing, reply_for
+    r = {"tds": 140, "ph": 5.1, "clarity": 0.95, "ph_est": True}
+    assert not _failing(r)
+    out = reply_for(V(), "the tank", r)
+    assert "pH 5.1 (estimated from TDS)" in out
+    assert "🚨" not in out and "Clear water can still fail" not in out
+    assert _failing({**r, "ph_est": False})
+    assert _failing({**r, "tds": 780})
+    independent = reply_for(V(), "the tank", {**r, "tds": 780})
+    assert "TDS 780 ppm 🚨 · pH 5.1 (estimated from TDS)" in independent

@@ -24,6 +24,9 @@
 #pitch .slide.in .w { opacity: 1; transform: none; transition: opacity 1.3s ease, transform 1.7s var(--lux); transition-delay: calc(200ms + var(--w, 0) * 60ms); }
 #pitch [data-rise] { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
 #pitch .slide.in [data-rise] { opacity: 1; transform: none; transition: opacity 1.5s ease, transform 1.9s var(--lux); transition-delay: calc(var(--after, 700ms) + var(--i, 0) * 170ms); }
+/* Only the title rises. Every other slide just appears, and sooner: two minutes is short, and one entrance is enough. */
+#pitch .slide:not(.s-title) [data-rise] { transform: none; }
+#pitch .slide.in:not(.s-title) [data-rise] { transition: opacity 0.7s ease; transition-delay: calc(300ms + var(--i, 0) * 90ms); }
 
 /* ---- furniture: the wordmark where the demo's bar will put it, and a quiet page count */
 #pitch .p-mark { position: absolute; left: var(--page-x); top: 12px; z-index: 2; opacity: 0; transition: opacity 1.2s ease; }
@@ -38,6 +41,8 @@
 #pitch .p-title h1 { font-size: clamp(96px, 11vw, 216px); line-height: 0.92; letter-spacing: -0.04em; margin-left: -0.04em; }
 #pitch .tagline { margin: 0; font-style: italic; color: var(--accent); }
 #pitch .p-title .tagline { margin-top: 0.5em; font-size: clamp(28px, 2.9vw, 54px); line-height: 1.1; }
+#pitch .p-turn { margin: -8px 0 0; max-width: 30em; font-style: italic; font-size: clamp(19px, 1.7vw, 30px); line-height: 1.35; color: var(--label2); }
+#pitch.stacked .p-turn { font-size: 18px; margin-top: 0; }
 #pitch .p-lede { margin: 1.5em 0 0; max-width: 19em; font-size: clamp(18px, 1.5vw, 27px); line-height: 1.45; color: var(--label2); }
 #pitch .s-title { --after: 900ms; }
 #pitch .s-title .p-hint { position: absolute; left: var(--page-x); bottom: 30px; }
@@ -133,7 +138,8 @@
 #pitch .s-close .frame { align-items: center; justify-content: center; text-align: center; }
 #pitch .s-close h2 { font-size: 236px; line-height: 0.92; letter-spacing: -0.04em; margin-bottom: 0; }
 #pitch .s-close .tagline { margin-top: 30px; font-size: 60px; line-height: 1.1; }
-#pitch .s-close .team { margin: 54px 0 0; font-size: 29px; color: var(--label2); }
+#pitch .s-close .built { margin: 46px 0 0; max-width: 30em; font-size: 22px; line-height: 1.45; color: var(--text); text-wrap: balance; }
+#pitch .s-close .team { margin: 26px 0 0; font-size: 22px; color: var(--label2); }
 #pitch .s-close .p-hint { position: absolute; left: 50%; bottom: 84px; translate: -50% 0; font-size: 16px; white-space: nowrap; }
 
 /* ---- narrow screens: one scrolling column. Reaching the end hands over to the demo. */
@@ -185,7 +191,8 @@
 #pitch.stacked .s-close { text-align: center; padding-bottom: 40px; }
 #pitch.stacked .s-close h2 { font-size: clamp(72px, 22vw, 150px); }
 #pitch.stacked .s-close .tagline { margin-top: 12px; font-size: clamp(24px, 6vw, 38px); }
-#pitch.stacked .s-close .team { margin-top: 28px; font-size: 19px; }
+#pitch.stacked .s-close .built { margin-top: 26px; font-size: 17px; }
+#pitch.stacked .s-close .team { margin-top: 18px; font-size: 17px; }
 #pitch.stacked .s-close .p-hint { position: static; translate: none; margin-top: 44px; font-size: 14px; }
 #pitch.stacked .p-end { display: block; height: 46vh; background: var(--deep); }
 
@@ -208,7 +215,8 @@
   #pitch .says li { padding: 16px 0 18px; font-size: 23px; }
 
   /* the problem */
-  #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 176px; gap: 34px; align-items: end; }
+  #pitch .s-problem .split { grid-template-columns: minmax(0, 1fr) 260px; gap: 34px; align-items: end; }
+  #pitch .p-turn { font-size: 24px; }
   #pitch #sample-chart text { font-size: 25px; }
   #pitch #sample-chart .note { font-size: 29px; }
   #pitch .src { font-size: 13px; }
@@ -220,9 +228,11 @@
   #pitch .loop li { display: grid; grid-template-columns: 62px 200px minmax(0, 1fr); column-gap: 18px; align-items: baseline; padding: 20px 0 22px; }
   #pitch .loop .n { font-size: 56px; }
   #pitch .loop h3 { margin-top: 0; font-size: 36px; }
-  #pitch .loop p { margin: 0; font-size: 23px; }
-  #pitch .slide.in .loop li[data-step]:not(.is) { opacity: 0.32; }
-  #pitch .slide.in .loop li[data-step].done { opacity: 0.6; }
+  #pitch .loop p { margin: 0; font-size: 25px; }
+  /* the step being shown is at full strength; the others stay readable from the back of a room */
+  #pitch .slide.in .loop li[data-step]:not(.is) { opacity: 0.58; }
+  #pitch .slide.in .loop li[data-step].done { opacity: 0.8; }
+  #pitch .slide.in .loop li[data-step].is p { color: var(--text); }
   #pitch .slide.in.stepping .loop li[data-step] { transition: opacity 0.7s ease 0s; }
 
   /* what measuring first saves */
@@ -270,6 +280,7 @@
   #pitch .s-close .frame { align-items: flex-start; justify-content: center; text-align: left; }
   #pitch .s-close h2 { font-size: 170px; }
   #pitch .s-close .tagline { margin-top: 22px; font-size: 46px; }
-  #pitch .s-close .team { margin-top: 40px; font-size: 25px; }
+  #pitch .s-close .built { margin-top: 34px; font-size: 20px; }
+  #pitch .s-close .team { margin-top: 22px; font-size: 20px; }
   #pitch .s-close .p-hint { left: calc(var(--page-x) / var(--s, 1)); translate: 0 0; }
 }

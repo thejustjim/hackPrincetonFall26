@@ -27,11 +27,13 @@ export const CITIES = [
 ].map(([name, lon, lat, pop]) => ({ name, pos: [lon, lat], pop }));
 
 // TDS bands (mg/L = ppm). EPA's secondary guideline for drinking water is 500 mg/L.
+// Colours: blue under the EPA line, rose over it, the same blue and rose the tanks use for "In range" and
+// "High TDS". (Yellow is not used here: on this map yellow means cloudy.)
 export const TDS_BANDS = [
   { max: 300, rgb: [90, 155, 189], label: 'Under 300' },
-  { max: 500, rgb: [143, 176, 160], label: '300–500' },
-  { max: 1000, rgb: [224, 164, 88], label: '500–1,000' },
-  { max: Infinity, rgb: [209, 73, 91], label: 'Over 1,000' },
+  { max: 500, rgb: [152, 170, 184], label: '300–500' },
+  { max: 1000, rgb: [232, 160, 174], label: '500–1,000' },
+  { max: Infinity, rgb: [217, 102, 126], label: 'Over 1,000' },
 ];
 export const tdsColor = v => TDS_BANDS.find(b => v < b.max).rgb;
 
@@ -41,40 +43,46 @@ export async function loadUS() {
   try {
     const j = await (await fetch('./data/us_tds.json')).json();
     us.meta = j.source;
-    us.sites = j.rows.map(([lon, lat, tds, date, name, type, org]) => ({ pos: [lon, lat], tds, date, name, type, org }));
+    // Fresh water as it is found: rivers, lakes, reservoirs, wells, springs, canals. The portal's rows also hold
+    // estuaries, the ocean, sewage and industrial outfalls, mines and stormwater, which say nothing about the
+    // water a town draws on, so they are left out.
+    const NOT_SOURCE = /estuar|ocean|facility|sewer|mine|leachate|wetland|runoff|stormwater|effluen|beach|cercla|pipe/i;
+    us.sites = j.rows.filter(r => !NOT_SOURCE.test(r[5] || '')).map(([lon, lat, tds, date, name, type, org]) => ({ pos: [lon, lat], tds, date, name, type, org }));
   } catch { us.sites = []; }
   return us;
 }
 
 export function usTooltip(object) {
   const v = object.tds;
-  const note = v < 500 ? 'Within the EPA 500 mg/L guideline' : v < 1000 ? 'Above the EPA 500 mg/L guideline' : 'Well above the EPA guideline';
-  return { html: `<b>${object.name}</b><br/>TDS ${v.toLocaleString()} ppm · ${note}<br/><span style="opacity:.7">${object.type} · ${object.date}<br/>${object.org} · Water Quality Portal</span>` };
+  const note = v < 500 ? 'under 500, the EPA guideline for drinking water' : v < 1000 ? 'over 500, the EPA guideline for drinking water' : 'far over the EPA guideline for drinking water';
+  return { html: `<b>${object.name}</b><br/>TDS ${v.toLocaleString()} ppm, ${note}. Untreated water, not tap water.<br/><span style="opacity:.7">${object.type} · ${object.date}<br/>${object.org} · Water Quality Portal</span>` };
 }
 
-const ink = [11, 32, 39, 255];
-// Called from main.js renderMap.
-export function usLayers({ zoom, on, onClick, place }) {
+// Called from main.js renderMap. Place names are light on the dark map and dark on the light one, like every other label.
+export function usLayers({ zoom, on, onClick, place, light }) {
   if (!on) return [];
+  const ink = light ? [11, 32, 39, 255] : [247, 240, 240, 225];
+  const halo = light ? [247, 240, 240, 230] : [9, 22, 34, 230];
   const fade = zoom > 11 ? Math.max(0, 1 - (zoom - 11) / 2) : 1;
   return [
     us.sites.length && fade > 0 && new ScatterplotLayer({
       id: 'us-tds', data: us.sites, pickable: true, opacity: 0.85 * fade,
-      getPosition: d => d.pos, getFillColor: d => tdsColor(d.tds), getLineColor: [247, 240, 240, 220],
+      getPosition: d => d.pos, getFillColor: d => tdsColor(d.tds), getLineColor: light ? [247, 240, 240, 220] : [9, 22, 34, 210],
       stroked: true, lineWidthMinPixels: 0.5, radiusUnits: 'pixels',
       getRadius: d => (d.tds >= 1000 ? 4.5 : d.tds >= 500 ? 3.8 : 3), radiusScale: zoom < 5 ? 0.9 : zoom < 8 ? 1.3 : 1.8,
+      updateTriggers: { getLineColor: light },
       onClick,
     }),
     zoom < 9 && new TextLayer({
       id: 'us-cities', data: place(CITIES.filter(c => zoom >= 5.2 || c.pop >= (zoom < 4.3 ? 1.2 : 0.45)), { pos: d => d.pos, text: d => d.name, size: d => (d.pop > 1 ? 14 : 12), priority: d => d.pop, dy: -10, anchor: 'bottom' }),
       getPosition: d => d.pos, getText: d => d.name, getSize: d => (d.pop > 1 ? 14 : 12), getColor: ink,
-      fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600, outlineWidth: 3, outlineColor: [247, 240, 240, 230], fontSettings: { sdf: true },
+      fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600, outlineWidth: 3, outlineColor: halo, fontSettings: { sdf: true },
       getPixelOffset: [0, -10], characterSet: 'auto',
     }),
     zoom >= 15.3 && us.tileLabels.length && new TextLayer({
       id: 'tile-labels', data: place(us.tileLabels, { pos: d => d.pos, text: d => d.text, size: d => (d.kind === 'road' ? 11 : 12), priority: d => (d.kind === 'road' ? 0 : 1) }), getPosition: d => d.pos, getText: d => d.text, getSize: d => (d.kind === 'road' ? 11 : 12),
-      getColor: d => (d.kind === 'road' ? [70, 74, 84, 255] : ink), fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
-      outlineWidth: 3, outlineColor: [247, 240, 240, 235], fontSettings: { sdf: true }, characterSet: 'auto', billboard: true,
+      getColor: d => (d.kind === 'road' ? (light ? [70, 74, 84, 255] : [150, 154, 163, 235]) : ink), fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
+      outlineWidth: 3, outlineColor: halo, fontSettings: { sdf: true }, characterSet: 'auto', billboard: true,
     }),
   ].filter(Boolean);
 }

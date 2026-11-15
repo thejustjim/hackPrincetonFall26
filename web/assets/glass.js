@@ -12,6 +12,8 @@
        flat as surface tension rings down;
      - it opens a crater in the surface, which rebounds as a small jet that throws up one
        secondary droplet, while a train of fine rings spreads to the glass and comes back.
+   The glass holds what has reached the cup: the water as poured while no filter is used, and what
+   came through the filter once one is (app.js decides which and calls setWater).
    Nothing clears by itself. When the pour was sent through a filter, a funnel with a paper cone
    swings in under the tip on a returning arc, catches the drop, lets a clear one fall from its
    stem into the glass, and swings back out the way it came. Water that read in range gets no
@@ -44,9 +46,12 @@ function lookFor(r) {
   if (!r) return { color: C.blue.clone(), body: 0.24, surf: 0.42, speck: 0, sink: 1 };
   const mineral = clamp((r.tds - 60) / 740, 0, 1);
   const murk = clamp(Math.pow(1 - clamp(r.clarity, 0, 1), 1.3) * 1.5, 0, 1);
+  // In range (under 300 ppm) the water stays clear and blue. Past that it takes on an amber, tea-like tint,
+  // fully by 700 ppm: water that read high should look it, not look like clean water with glitter in it.
+  const stain = clamp((r.tds - 250) / 450, 0, 1);
   return {
-    color: C.blue.clone().lerp(C.amber, mineral * 0.4).lerp(C.murk, clamp(murk * 1.4, 0, 1)),
-    body: clamp(0.24 + 0.22 * mineral + 0.5 * murk, 0, 0.82),
+    color: C.blue.clone().lerp(C.amber, 0.12 * mineral + 0.78 * stain).lerp(C.murk, clamp(murk * 1.4, 0, 1)),
+    body: clamp(0.24 + 0.1 * mineral + 0.34 * stain + 0.5 * murk, 0, 0.82),
     surf: clamp(0.42 + 0.2 * mineral + 0.4 * murk, 0, 0.88),
     speck: 0.9 * mineral,
     sink: 1 - mineral,
@@ -306,6 +311,7 @@ function mount(host) {
   const src = { tint: C.murk.clone(), clear: 0, filter: true };
   const tintNow = C.murk.clone(), pipeColor = new THREE.Color();
   let clearNow = 0;
+  let easeOver = 1.3;                                 // seconds for the water to ease to a new look
   let hurry = false;                                  // a drop was asked for while one was in the air
   let walk = null;                                    // the pitch's step, while it is walking one drop through the filter
   let splashPace = PACE;                              // the pace of the drop that last landed: its splash keeps it
@@ -396,8 +402,9 @@ function mount(host) {
   const slosh = { x: 0, z: 0, vx: 0, vz: 0 };
   let active = true, last = performance.now(), lastEase = last;
 
-  function setWater(reading, immediate) {
+  function setWater(reading, immediate, swift) {
     target = lookFor(reading);
+    easeOver = swift ? 0.45 : 1.3;                     // a cup just poured arrives quickly; water clearing takes its time
     if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
   }
   /* The water as it was before the filter, to set beside the water as it is now (null: nothing to compare). */
@@ -432,7 +439,11 @@ function mount(host) {
      Going back a step starts the drop again from the tip. null hands the drops back to their own timing. */
   function step(phase) {
     walk = phase || null;
-    if (!walk) { nextDrip = performance.now() + 900; return; }
+    if (!walk) {                                       // back to its own timing; with no filter in use, nothing is left waiting for one
+      nextDrip = performance.now() + 900;
+      if (!src.filter) { fun.want = false; fun.leaveAt = 0; drop.caught = false; }
+      return;
+    }
     if (still) return;
     const atTip = drop.state === "gather" || drop.state === "neck";
     const again = () => {
@@ -526,6 +537,8 @@ function mount(host) {
 
   // ---------------------------------------------------------------- frame
   function frame() {
+    // The pitch uses an unbranded glass; the demo keeps its etched wordmark.
+    wordmark.visible = !document.documentElement.classList.contains("pitching");
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -533,7 +546,7 @@ function mount(host) {
 
     // ease the water toward the latest reading (a few seconds, never a snap). Uses real elapsed
     // time, so a slow machine still arrives on schedule.
-    const k = still ? 1 : 1 - Math.exp(-Math.min(1, (now - lastEase) / 1000) / 1.3);
+    const k = still ? 1 : 1 - Math.exp(-Math.min(1, (now - lastEase) / 1000) / easeOver);
     lastEase = now;
     cur.color.lerp(target.color, k);
     for (const key of ["body", "surf", "speck", "sink"]) cur[key] += (target[key] - cur[key]) * k;
@@ -559,7 +572,7 @@ function mount(host) {
 
     // ---- the funnel: in along its arc, held under the tip, back out along the same arc
     if (fun.leaveAt && now >= fun.leaveAt) { fun.want = false; fun.leaveAt = 0; }
-    fun.p = clamp(fun.p + (fun.want ? dt / F_IN : -dt / F_OUT), 0, 1);
+    fun.p = clamp(fun.p + (fun.want ? dt / (walk ? 0.7 : F_IN) : -dt / F_OUT), 0, 1);   // it snaps in when the pitch calls for it
     fun.held = fun.p >= 1 ? fun.held + dt : 0;
     funnel.visible = fun.p > 0;
     if (funnel.visible) {
@@ -788,7 +801,7 @@ function mount(host) {
 export { C, lookFor, glassMaterial, waterMaterial };   // the before and after glasses (plate3d.js) are made the same way
 
 const host = document.querySelector("[data-hero3d]");
-if (host) {
+if (host && !window.TapHero) {
   try {
     window.TapHero = mount(host);
     host.classList.add("has-3d");

@@ -1,14 +1,15 @@
 /* The pitch. It runs on top of the live /demo page, which is already loaded underneath.
 
    Arriving at /pitch lands here (see pitch/index.html and the script in demo/index.html's head):
-     1. The page opens on black, on a glass of clear water. One dirty drop gathers; a filter swings
-        in and catches it; a clear drop falls from the filter and lands.
-     2. On impact the page colour comes up and the title rises beside the glass.
-        In a wide window the glass then stays on stage for the whole deck, doing the same thing over
-        and over, and the "One cup, one loop" slide walks one drop through it a step at a time.
+     1. The page opens on black, on a glass of clear water. One dirty drop gathers and falls in.
+     2. On impact the page colour comes up, the title rises beside the glass, and the water turns
+        brown. In a wide window the glass then stays on stage for the whole deck. With no filter it
+        stays as measured. "One cup, one loop" keeps the original water while it is interpreted,
+        adds the filter for Act, then shows the retest at Compare, a step per press. The savings
+        slide shows a different, in-range cup passing through without a filter.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
-     4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
-        is removed from the page at that point, so there is no way back up to it.
+     4. Going on past the last slide opens the setup chooser, then enters the chosen prototype
+        or demo view. The fallback without setup.js retains the original transition into /demo.
 
    Wide screens show one slide at a time. Narrow ones get a scrolling column that hands over when
    its end is reached. */
@@ -30,15 +31,26 @@
   let holdUntil = 0, armed = true, lastWheel = 0, pile = 0, restTimer = 0;
 
   // ---------------------------------------------------------------- handing over to the demo
-  /* The glass stays on stage through the whole deck (in a wide window). It always holds clear water:
-     the dirt is in the drop. A dirty drop comes down, meets the filter, and a clear drop falls into the
-     clear water. Each slide names its scene in data-scene. "run" lets that happen by itself, over and
-     over. A slide that names several scenes has that many steps, and walks one drop through by hand:
-     hang (the dirty drop gathers at the tip and waits), filter (the funnel swings in under it), catch
-     (it falls in, and a clear drop forms beneath and waits), release (the clear drop falls). */
-  const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };     // what the dropper holds
-  const scene = (phase) => (g) => { g.setSource(DIRTY, true); g.setWater(null); g.step?.(phase); };
-  const SCENES = { run: scene(null), hang: scene("hang"), filter: scene("filter"), catch: scene("catch"), release: scene("release") };
+  /* The wide-screen glass follows the loop's four steps. Keep the measured water until Compare:
+       raw      the cup as poured, with no filter.
+       hang     Interpret: hold the untreated drop while a filter is chosen.
+       catch    Act: the filter snaps in and the water clears; the clear drop is held, since the retest is still to come.
+       release  Compare: show the retested water and release the filtered drop.
+       bypass   a separate, in-range cup: no filter is needed.
+       run      the filtered example repeats on the optional detail slides.
+     A slide that names several scenes has that many steps: each press moves on one. */
+  const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };
+  const RETEST = { ph: 7.1, tds: 8, clarity: 0.98, verdict: "SAFE" };
+  const IN_RANGE = { ph: 7.2, tds: 136, clarity: 0.96, verdict: "SAFE" };
+  const raw = (g) => { g.setSource(DIRTY, false); g.setWater(DIRTY, false, true); g.step?.(null); };
+  const scene = (phase, water, filtered = true) => (g) => {
+    g.setSource(DIRTY, filtered); g.setWater(water); g.step?.(phase);
+  };
+  const SCENES = {
+    raw, hang: scene("hang", DIRTY, false), catch: scene("catch", null),
+    release: scene("release", RETEST), run: scene(null, RETEST),
+    bypass: (g) => { g.setSource(IN_RANGE, false); g.setWater(IN_RANGE); g.step?.(null); },
+  };
   let sub = 0;                                                  // which step of the current slide
   const stepsOf = (s) => (s.dataset.scene || "").split(" ").filter(Boolean);
   function stage() {
@@ -50,11 +62,19 @@
     if (window.TapHero?.setSource && wide.matches && !done) SCENES[names[Math.min(sub, names.length - 1)]]?.(TapHero);
   }
 
-  function finish(instant) {
+  async function finish(instant) {
     if (done) return;
     done = true;
     doneAt = performance.now();
     clearTimeout(restTimer);
+    // Choose the source before entering the demo: a prototype must not inherit preloaded sample data.
+    // The chooser stores a browser preference only; a fresh page initializes the chosen data source.
+    if (window.ClaritySetup) {
+      removeEventListener("wheel", onWheel, true);  // the modal owns its scroll, even during the final gesture
+      const choice = await ClaritySetup.choose({ afterPitch: true });
+      location.replace(ClaritySetup.destination(choice));
+      return;
+    }
     root.classList.remove("opening", "pitching");
     try { history.replaceState(null, "", DEMO_PATH + location.search); } catch (e) { /* opened as a file */ }
     window.scrollTo(0, 0);
@@ -171,7 +191,7 @@
     const start = () => {
       document.body.classList.add("ready");          // the glass fades up out of the dark
       TapHero.setWater(null, true);                  // clear water, whatever the latest reading is
-      TapHero.setSource?.(DIRTY, true);              // and a first dirty drop, which the filter will catch
+      TapHero.setSource?.(DIRTY, false);             // and a first dirty drop, with nothing to catch it
       if (reduced) { reveal(); return; }
       addEventListener("hero3d:impact", reveal, { once: true });
       setTimeout(() => TapHero.drip(0.5), 1300);    // the first drop, at half speed
@@ -207,7 +227,6 @@
     }
     s += `<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/>`;
     [1960, 1970, 1980, 1990, 2000, 2010, 2020].forEach((yr) => { s += `<text x="${(x(yr) + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle">${yr}</text>`; });
-    s += `<text class="note" x="${(x(1996) + bw / 2).toFixed(1)}" y="${(y(19) - 12).toFixed(1)}" text-anchor="middle">19 days in 1996</text>`;
     const bx0 = x(2000) + 2, bx1 = x(y1) + bw - 2, by = y(7.5);
     s += `<path class="bracket" d="M${bx0.toFixed(1)} ${by + 8} V${by} H${bx1.toFixed(1)} V${by + 8}"/><text class="note" x="${((bx0 + bx1) / 2).toFixed(1)}" y="${by - 12}" text-anchor="middle">2000 to today</text>`;
     s += `</svg>`;
@@ -278,6 +297,10 @@
   function build(html) {
     const mark = document.querySelector(".bar .wordmark");
     host.innerHTML = html + `<p class="p-mark wordmark" aria-hidden="true">${mark ? mark.innerHTML : "Clarity"}</p><p class="p-count" aria-hidden="true"></p><div class="p-end" aria-hidden="true"></div>`;
+    // two minutes, demo included: the short deck leaves out the slides marked data-extra. ?full keeps them.
+    if (!new URLSearchParams(location.search).has("full")) {
+      host.querySelectorAll(".slide[data-extra]").forEach((el) => el.remove());
+    }
     slides = [...host.querySelectorAll(".slide")];
     if (!slides.length) throw new Error("no slides");
     nameModel();

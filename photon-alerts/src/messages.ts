@@ -1,4 +1,4 @@
-import { assess, type Assessment, type FilterName, type Reading } from "./rules.js";
+import { assess, phIsEstimated, type Assessment, type FilterName, type Reading } from "./rules.js";
 
 // Texts are read on a phone lock screen: short lines, one status emoji, no repeated ids.
 const FILTER_LABEL: Record<FilterName, string> = { ZEROWATER: "ZeroWater", BRITA: "Brita", NONE: "none" };
@@ -17,10 +17,11 @@ const WHY = {
 
 function metricLines(r: Reading, explain = true): string[] {
   const tdsBad = r.tds > 300;
-  const phBad = r.ph < 6.5 || r.ph > 8.5;
+  const estimated = phIsEstimated(r);
+  const phBad = !estimated && (r.ph < 6.5 || r.ph > 8.5);
   const lines = [`TDS ${Math.round(r.tds)} ppm ${tdsBad ? `⚠️ (limit ${r.tds > 500 ? 500 : 300})` : "✓"}`];
   if (tdsBad && explain) lines.push(WHY.tds);
-  lines.push(`pH ${r.ph.toFixed(1)} ${phBad ? "⚠️ (normal 6.5–8.5)" : "✓"}`);
+  lines.push(estimated ? `pH ${r.ph.toFixed(1)} (estimated from TDS)` : `pH ${r.ph.toFixed(1)} ${phBad ? "⚠️ (normal 6.5–8.5)" : "✓"}`);
   if (phBad && explain) lines.push(r.ph < 6.5 ? WHY.phLow : WHY.phHigh);
   if (r.verdict === "CLOUDY") {
     lines.push(`Clarity ${Math.round(r.clarity * 100)}% ⚠️ cloudy`);
@@ -35,7 +36,7 @@ export const INFO_TEXT = [
   "",
   "TDS (ppm): dissolved salts & metals. Normal under 300, EPA limit 500. High = bad taste, scale, possible contaminants.",
   "",
-  "pH: acidity. Normal 6.5–8.5. Low pH can pull lead & copper from pipes.",
+  "pH: acidity. Normal 6.5–8.5. Some readings estimate pH from TDS; those estimates are labelled and cannot independently show acidity or corrosion.",
   "",
   "Clarity (%): how clear it is. Cloudy water has particles that can hide bacteria.",
   "",
@@ -62,7 +63,7 @@ export function retestMessage(before: Reading | undefined, after: Reading, a: As
   const delta = before ? `TDS ${Math.round(before.tds)} → ${Math.round(after.tds)} ppm with ${filter}` : `TDS ${Math.round(after.tds)} ppm after ${filter}`;
   const pct = before && before.tds > 0 ? Math.round((1 - after.tds / before.tds) * 100) : null;
   const removed = pct !== null && pct > 0 ? [`↳ the filter removed ${pct}% of dissolved solids`] : [];
-  if (a.severity === "ok") return [`✅ Retest · Clarity${after.sim ? " (simulated)" : ""}`, "", delta, ...removed, "Back within normal range."].join("\n");
+  if (a.severity === "ok") return [`✅ Retest · Clarity${after.sim ? " (simulated)" : ""}`, "", delta, ...removed, phIsEstimated(after) ? "Measured readings are back within normal range. pH remains estimated." : "Back within normal range."].join("\n");
   return [`🚨 Still failing · Clarity${after.sim ? " (simulated)" : ""}`, "", delta, ...metricLines(after, false).filter((l) => l.includes("⚠️") && !l.startsWith("TDS")), "", "Don't drink it. Try another filter or replace the cartridge."]
     .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
     .join("\n");
@@ -75,7 +76,7 @@ export function readingsSummary(readings: Reading[], filtered: Map<string, Readi
     const icon = assess(r).severity === "ok" ? "✅" : assess(r).severity === "unsafe" ? "🚨" : "⚠️";
     const f = filtered.get(r.node);
     const after = f ? `\n   ↳ filtered: TDS ${Math.round(f.tds)} ${assess(f).severity === "ok" ? "✓" : "⚠️"}` : "";
-    return `${icon} ${site(r)}: TDS ${Math.round(r.tds)} · pH ${r.ph.toFixed(1)}${after}`;
+    return `${icon} ${site(r)}: TDS ${Math.round(r.tds)} · pH ${r.ph.toFixed(1)}${phIsEstimated(r) ? " (estimated from TDS)" : ""}${after}`;
   });
   return ["💧 Latest readings", "", ...rows].join("\n");
 }

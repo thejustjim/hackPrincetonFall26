@@ -13,11 +13,14 @@ const GREEN = ['park', 'grass', 'pitch', 'garden', 'playground', 'recreation_gro
 const GOLF = ['golf_course', 'fairway', 'green', 'tee', 'rough'];
 
 export const THEMES = {
+  // Dark: the site's ink blue (web/assets/base.css), not the teal it started as, so the map and the panels round it are one colour family.
   dark: {
-    bg: '#0B2027', green: '#0f2c2c', golf: '#11322f', wood: '#0d2828', farm: '#0e252a', wet: '#0e2a33', sand: '#2b2b26',
-    water: '#163f52', waterLine: '#2c6d8f', road: '#173743', roadMajor: '#2a4c58', path: '#14313a', rail: '#3b5058',
-    bLow: '#16343e', bHigh: '#2e4f5b', bOpacity: 0.95, hill: 0.3, hillShadow: '#000000', hillHigh: '#2c4a55',
-    ocean: '#03090c', other: '#0a1c22', usLand: '#123540', border: '#4f7a88',
+    // Land sits a step above the page's ink, roads a clear step above the land, roofs between the two, and
+    // water is the one saturated blue, so a street reads at a glance instead of as one dark field.
+    bg: '#0f2233', green: '#143039', golf: '#16353d', wood: '#11293a', farm: '#102536', wet: '#102c44', sand: '#24313c',
+    water: '#1b4a7c', waterLine: '#4a8fd0', road: '#2a4660', roadMajor: '#47657f', path: '#1d3449', rail: '#5a6c7d',
+    bLow: '#1d3448', bHigh: '#36536d', bOpacity: 0.95, hill: 0.3, hillShadow: '#000000', hillHigh: '#2f4658',
+    ocean: '#03060a', other: '#09141d', usLand: '#0f2537', border: '#4f6e88',
   },
   light: {
     bg: '#F7F0F0', green: '#e3e6dc', golf: '#d8e1d2', wood: '#d6ddd0', farm: '#f0ebe5', wet: '#d9e6ea', sand: '#ece4d2',
@@ -26,6 +29,7 @@ export const THEMES = {
     ocean: '#cfe2ec', other: '#ebe6e2', border: '#b9b3b6',
   },
   // Storybook "game map" look: grass, warm brick and cream walls, tiled roofs, teal water, cobble roads.
+  // Kept, but no button opens it now: the Light button is the paper theme above, which is in the site's colours.
   game: {
     bg: '#9fbf7a', green: '#86b562', golf: '#93c46c', wood: '#6f9f52', farm: '#b9c98d', wet: '#8fb79a', sand: '#e6d7a3',
     water: '#4f9fc4', waterLine: '#4f9fc4', road: '#c9c2b6', roadMajor: '#b8afa1', path: '#d9cdb4', rail: '#7a6f66',
@@ -61,13 +65,13 @@ export const BUCKET = ['case', ['has', 'id'], ['index-of', ['slice', ['to-string
 export const WALL_SETS = {
   g: ['#e9dcc3', '#d9b38c', '#c97b5a', '#efe6d2', '#b8664a', '#d8c7a6', '#e4cfa8', '#a9a39a'],
   l: ['#ece6e6', '#e2dcdc', '#d9d3d4', '#efeaea', '#d2cccd', '#e6e0e0', '#dcd6d7', '#cfc9cb'],
-  d: ['#1d3c47', '#21424d', '#264852', '#1a3741', '#2b4e59', '#203f4a', '#24454f', '#2e5260'],
+  d: ['#243c52', '#2a445b', '#304b63', '#20374c', '#36536c', '#28415a', '#2c4760', '#3a5873'],
   s: ['#c8ccd2', '#d4d6da', '#bfc4cb', '#e0e2e5', '#c3c7cd', '#d9dbde', '#b8bdc4', '#ccd0d5'],
 };
 export const ROOF_SETS = {
   g: ['#a4553f', '#8a4a3a', '#6f6a6a', '#b4683f', '#5f6670', '#94503c', '#7b7470', '#a35b48'],
   l: ['#cfc8ca', '#c6bfc2', '#bdb7ba', '#d4cdcf', '#b9b3b6', '#c8c1c4', '#c1babd', '#b5afb2'],
-  d: ['#12303a', '#163541', '#183843', '#102b34', '#1b3c48', '#142f39', '#173640', '#1d404c'],
+  d: ['#1a3146', '#1e374d', '#213b52', '#172d41', '#254159', '#1b3348', '#1f3950', '#28465f'],
   s: ['#9ea3aa', '#a8acb2', '#959aa2', '#b1b5ba', '#9a9fa6', '#a4a8ae', '#8f949c', '#abafb4'],
 };
 export const themeKey = t => (t.walls ? 'g' : t === THEMES.light ? 'l' : t === THEMES.satellite ? 's' : 'd');

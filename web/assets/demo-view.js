@@ -5,24 +5,34 @@
   "use strict";
 
   /* A short account of the pour: what was wrong, what was done, how it turned out.
-     The numbers themselves are in the notes around the glass, so they aren't repeated here. */
+     One key reading is repeated beneath it, so the result needs no hover or scroll. */
   function account(store) {
     const { FILTER_NAME } = TapUI;
     const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
+    if (store.kind === "offline") return store.health.prototype_reason;
     if (!b) return "No cup has been poured yet. Pour one into the tank and press its button.";
-    const what = { SAFE: "All three readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
+    const what = { SAFE: "The measured readings came back in range.", HIGH_TDS: "This cup is high in dissolved solids: minerals and salts.",
                    CLOUDY: "This cup is cloudy.", PH_WARN: "This cup's pH is outside the usual range." }[b.verdict];
-    if (!d) return `${what} ${b.verdict === "SAFE" ? "It may not need a filter; that is being decided." : "A filter is being chosen."}`;
+    // The headline has the verdict and the line under it the filter and the reading, so this says only
+    // what they do not: who chose, and what to do next.
+    if (!d) return what;
     const f = d.ai_filter;
     const who = TapUI.AI[d.source] || (d.source === "sample" ? "The demo data" : "The tank's own rule");
-    if (f === "NONE") {
-      return b.verdict === "SAFE"
-        ? `${what} No filter was needed. That is not a safety test: these readings can't show lead or bacteria.`
-        : `${what} Neither filter corrects pH, so none was used.`;
-    }
-    const did = `${who} sent it through ${FILTER_NAME[f] || f}`;
-    if (!a) return `${what} ${did}. Pour it back to see whether that helped.`;
-    return a.verdict === "SAFE" ? `${what} ${did}, and the retest came back in range.` : `${what} ${did}, but the retest is still out of range.`;
+    if (f === "NONE") return b.verdict === "SAFE" ? `${who} chose no filter.` : "The filter does not correct pH, so it was not used.";
+    const did = `${who} chose ${FILTER_NAME[f] || f}`;
+    if (!a) return `${did}. Pour the cup back to retest.`;
+    return a.verdict === "SAFE" ? `${did}, and the retest came back in range.` : `${did}, but the retest is still out of range.`;
+  }
+
+  /* One line under the headline once there is a result: the reading the chosen filter was for, before
+     and after. Until the retest there is nothing to add to the headline and the sentence under it. */
+  function proof(store) {
+    const { FILTER_NAME, fmt } = TapUI;
+    const p = store.pour, b = p?.before, a = p?.after, f = p?.decision?.ai_filter;
+    if (!b || !a) return { text: "", state: "waiting" };
+    const clarity = b.verdict === "CLOUDY";        // the reading the cup was filtered for
+    const pair = clarity ? `Transparency ${fmt(b.clarity, 2)} → ${fmt(a.clarity, 2)}` : `${fmt(b.tds, 0)} → ${fmt(a.tds, 0)} ppm`;
+    return { text: `${pair} on the retest`, state: a.verdict === "SAFE" ? "retested" : "out-of-range" };
   }
 
   /* What the pours in the history chart add up to: how many were left alone because they read in
@@ -63,34 +73,78 @@
      of the investigator's agents found, and the draft notice. All three are optional. */
   const NAMES = { ph: "pH", tds: "Dissolved solids", clarity: "Transparency" };
   const shown = (m, v) => (m === "tds" ? `${Math.round(v)} ppm` : Number(v).toFixed(m === "clarity" ? 2 : 1));
-  function checkRows(c) {
-    const faults = c.sensor.filter((x) => x.status !== "ok");
+  function checkRows(c, estimated) {
+    // while the tank only estimates pH, it is not one of the sensors that get checked
+    estimated = c.measured_metrics ? !c.measured_metrics.includes("ph") : (c.reading?.ph_est == null ? estimated : TapUI.phEstimated(c.reading));
+    const real = (x) => x.included !== false && !(estimated && x.metric === "ph");
+    const faults = c.sensor.filter((x) => x.status !== "ok" && real(x));
     const lead = c.baseline.find((x) => x.metric === c.lead.metric);
-    const drift = c.baseline.filter((x) => x.ewma_signal || x.cusum_signal);
+    const drift = c.baseline.filter((x) => (x.ewma_signal || x.cusum_signal) && real(x));
     const far = Math.abs(lead.z) >= 3, p = c.peers;
     return [
-      ["Sensors", faults.length ? faults.map((x) => x.note).join(" ") : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
+      ["Sensors", faults.length ? faults.map((x) => x.note).join(" ")
+        : estimated ? "Dissolved solids and transparency read plausibly: neither is stuck, out of range or trending. pH is an estimate, so it is not checked."
+        : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
       ["This site", `${NAMES[lead.metric]} read ${shown(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} ${
-        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
+        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours${c.scope?.kind === "time_of_day" ? " at this time of day" : ""}` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
         far ? (c.repeat > 1 ? `${c.repeat} pours in a row have been unusual the same way.` : "Three or more is unusual; this is the only one in a row.") : "Three or more would be unusual."}`, far],
       ["Trend", drift.length ? `${drift.map((x) => NAMES[x.metric]).join(" and ")} ${drift.length > 1 ? "have" : "has"} run ${drift[0].direction === "up" ? "high" : "low"} for several pours: a small shift that persists.`
         : "No small shift has persisted across recent pours.", drift.length > 0],
+      ...(c.multivariate?.isolation != null ? [["Isolation forest", `An experiment that decides nothing: ${Number(c.multivariate.isolation).toFixed(2)}, where about 0.5 is ordinary and toward 1 is isolated.`, false]] : []),
       ["Neighbours", !p.n ? "No nodes nearby to compare with." : !far ? "Not needed: this pour was ordinary for the site."
         : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
     ];
   }
+  /* Opening the map means fetching 18 MB of map data. On a wide screen, and not on a metered
+     connection, the main page fetches it quietly once things have settled, so the map opens at
+     once. The files are kept by the browser afterwards (see the Cache-Control rules). */
+  let warmed = false;
+  function warmMap() {
+    if (warmed || !matchMedia("(min-width: 1181px)").matches || navigator.connection?.saveData) return;
+    warmed = true;
+    const files = ["", "data/buildings.json", "data/roads.json", "data/land.json", "data/landuse.json", "data/us_tds.json",
+                   "data/trees.json", "data/water.json", "data/places.json", "data/road_labels.json", "data/water_wide.json", "data/water_infra.json"];
+    setTimeout(() => files.forEach((f) => {
+      const link = document.createElement("link");
+      link.rel = "prefetch";
+      link.href = `../map/${f}`;
+      document.head.appendChild(link);
+    }), 6000);
+  }
+
+  const AGENT = { "sensor-health": "Sensor health", analyst: "This site's history", network: "Nearby and published",
+                  maintenance: "Filters and upkeep", comms: "Draft notice" };
+  const toolName = (n) => String(n).replace(/^get_/, "").replace(/_/g, " ");
+  /* The investigator while it works: which specialists the checks chose, and what each is doing. */
+  function swarmBlock(sw) {
+    if (!sw || sw.state === "done") return "";
+    const { esc } = TapUI;
+    const head = sw.state === "failed" ? "The investigator's agents did not finish, so the report here is the one written from the checks."
+      : sw.state === "checking" ? "The agents have answered. Their figures are being checked against what the tools returned."
+      : `The investigator is working: ${sw.rows.size} of its five specialists, chosen by the checks.`;
+    const rows = sw.state === "failed" ? "" : [...sw.rows.values()].map((r) => `
+      <li class="${r.state}"><b>${esc(AGENT[r.agent] || r.agent)}</b><span>${esc(r.state === "waiting" ? "waiting" : r.tools.map(toolName).concat(r.state === "answered" ? "answered" : "working").join(" · "))}</span></li>`).join("");
+    return `<div class="swarm" aria-live="polite"><p class="by">${esc(head)}</p>${rows ? `<ul>${rows}</ul>` : ""}</div>`;
+  }
   function reportExtras(rep, health) {
     const { esc, t } = TapUI;
-    const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and five specialists${health.ai_name ? ` on ${health.ai_name}` : ""}, working from the base station's checks.`
+    const trail = new Map((rep.trail || []).map((x) => [x.agent, x])), why = new Map((rep.plan || []).map((x) => [x.agent, x.why]));
+    const left = rep.plan ? Object.keys(AGENT).filter((a) => !why.has(a)).map((a) => AGENT[a]) : [];
+    const c = rep.check;
+    const checked = c ? `Checked ${c.figures} figure${c.figures === 1 ? "" : "s"} against what the tools returned: ${c.traced === c.figures ? "all traced" : `${c.traced} traced`}${
+      c.dropped ? `, and ${c.dropped} statement${c.dropped === 1 ? " was" : "s were"} dropped for giving a figure no tool returned` : ""}.${rep.seconds ? ` The agents took ${Math.round(rep.seconds)} seconds.` : ""}` : "";
+    const by = rep.source === "deepagents" ? `Written by LangChain deep agents: a lead and the specialists the checks called for${health.agent_name ? `, on ${health.agent_name}` : ""}.`
       : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With a model key, the investigator's agents add to it."}`
-      : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
+      : rep.source === "sample" ? "A sample of the investigator's report." : "";
     return {
       by: by ? `<p class="${rep.source === "sample" ? "sample-note" : "by"}">${esc(by)}</p>` : "",
       verdict: rep.kind_words ? `<p class="rep-verdict sev-${rep.severity || 0}"><b>${t(rep.kind_words)}.</b> ${t(rep.severity_words || "")}.</p>` : "",
-      checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks).map(([k, v, warn]) =>
+      checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks, health.ph_estimated !== false).map(([k, v, warn]) =>
         `<tr${warn ? ' class="warn"' : ""}><th scope="row">${k}</th><td>${t(v)}</td></tr>`).join("")}</tbody></table>` : "",
-      agents: rep.sections?.length ? `<h3>What each agent found</h3><dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
-        `<div><dt>${t(x.title)}</dt><dd>${t(x.text)}</dd></div>`).join("")}</dl>` : "",
+      agents: rep.sections?.length ? `<h3>What each agent found</h3>${checked ? `<p class="by checked">${esc(checked)}</p>` : ""}<dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
+        `<div><dt>${t(x.title)}${why.get(x.agent) ? `<small>asked because ${t(why.get(x.agent))}</small>` : ""}</dt><dd>${t(x.text)}${x.traced === false ? ' <em class="untraced">This gives a figure no tool returned.</em>' : ""}</dd>${
+          trail.get(x.agent)?.tools?.length ? `<dd class="trail">called ${esc(trail.get(x.agent).tools.map(toolName).join(" · "))}</dd>` : ""}</div>`).join("")}</dl>${
+        left.length ? `<p class="by">Not asked this time: ${esc(left.join(", "))}. The checks found no reason to.</p>` : ""}` : "",
       notice: rep.notice ? `<h3>Draft notice</h3><blockquote class="notice">${t(rep.notice)}</blockquote><p class="by">Filled in from fixed templates. Nothing sends it.</p>` : "",
     };
   }
@@ -184,6 +238,24 @@
       const now = `${v?.title}|${v?.sub}|${text}`, moved = heroWas != null && now !== heroWas;
       heroWas = now;
       TapUI.swapText(document.getElementById("standfirst"), text);
+      let help = document.getElementById("prototype-help");
+      if (store.kind === "offline" && !help) {
+        help = document.createElement("p"); help.id = "prototype-help";
+        help.className = "prototype-help";
+        const retry = document.createElement("a"); retry.href = location.href; retry.textContent = "Retry connection";
+        const setup = document.createElement("a"), setupUrl = new URL(location.href);
+        setupUrl.searchParams.set("setup", "1"); setupUrl.hash = "";
+        setup.href = setupUrl.pathname + setupUrl.search; setup.textContent = "Change setup";
+        help.append(retry, document.createTextNode(" · "), setup);
+        document.getElementById("standfirst").after(help);
+      }
+      if (help) help.hidden = store.kind !== "offline";
+      const result = proof(store), resultEl = document.getElementById("proof");
+      if (resultEl) {
+        resultEl.hidden = !result.text;
+        resultEl.textContent = TapUI.typo(result.text);
+        resultEl.dataset.state = result.state;
+      }
       // the headline and account above can change height: what sits under them steps out while they do
       const when = document.getElementById("when"), about = document.getElementById("about");
       if (moved && when && when.dataset.text === when.textContent) dip(when);   // unless its own text is already fading over
@@ -192,26 +264,73 @@
       if (moved && about) dip(about, put); else put();
     },
 
+    /* The cloud copy, read back: the last day by the hour, from the database's own rollup (a TimescaleDB
+       continuous aggregate over the readings hypertable). Shown only when the gateway has a cloud database
+       and is connected to it; asked for at most every twenty seconds. */
+    cloudAt: 0,
+    cloud(store) {
+      const box = document.getElementById("cloud"), c = store.health?.cloud;
+      if (!box) return;
+      const live = store.kind === "live" && store.conn === "live" && c?.enabled && c.connected && store.get;
+      // With no gateway behind the page (the hosted site), the site's own read-only endpoints answer
+      // from the same database (web/api/index.py).
+      const hosted = !live && store.kind === "demo" && location.protocol.startsWith("http");
+      if (!live && !hosted) { box.hidden = true; return; }
+      if (performance.now() - this.cloudAt < 20000 && this.cloudAt) return;
+      this.cloudAt = performance.now();
+      const { esc, fmt } = TapUI, n = (v) => Number(v || 0).toLocaleString();
+      const ask = live ? (path) => store.get(path) : (path) => fetch(path).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))));
+      const slash = live ? "" : "/";                     // the hosted site serves every address with a trailing slash
+      Promise.all([live ? c : ask("/api/cloud/"), ask(`/api/cloud/rollup${slash}?node=${encodeURIComponent(store.tank)}&hours=24&bucket=hour`)]).then(([c, r]) => {
+        const rows = c?.enabled ? (r.buckets || []).slice(-8).reverse() : [];
+        box.hidden = !rows.length;
+        if (!rows.length) return;
+        document.getElementById("cloud-about").textContent = `${n(c.cloud_rows)} readings are kept in ${c.timescale ? "Tiger Cloud (TimescaleDB)" : "a cloud database"}${
+          c.pending ? `, with ${n(c.pending)} waiting to go` : ""}. This is the last day by the hour, read back from ${
+          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.${
+          ""}`;
+        document.getElementById("cloud-table").innerHTML = `<table class="ledger"><thead><tr><th>Hour</th><th class="n">Readings</th><th class="n">Solids, average</th><th class="n">Solids, highest</th><th class="n">Transparency</th></tr></thead><tbody>${
+          rows.map((b) => `<tr><td>${esc(new Date(b.bucket).toLocaleString(undefined, { weekday: "short", hour: "numeric" }))}</td><td class="n">${n(b.readings)}</td><td class="n">${
+            b.tds_avg == null ? "" : `${Math.round(b.tds_avg)} ppm`}</td><td class="n">${b.tds_max == null ? "" : `${Math.round(b.tds_max)} ppm`}</td><td class="n">${
+            b.clarity_avg == null ? "" : fmt(b.clarity_avg, 2)}</td></tr>`).join("")}</tbody></table>`;
+      }).catch(() => { box.hidden = true; });
+    },
     render(store, what) {
+      window.TapView.cloud(store);
       const { $, esc, t, fmt, ago, clock, filterLife, cloudLine, FILTER_NAME, VERDICT, STATUS } = TapUI;
       const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
 
       if (what === "all" || what === "conn") {
+        const phFine = $("#ph-fine");
+        if (phFine) phFine.textContent = TapUI.phEstimated(a || b, store.health) ? " (pH is estimated)" : " and pH";
         const line = cloudLine(store), el = $("#cloud-line");
         if (el) { el.hidden = !line; el.textContent = line ? `Readings are stored on the base station first. ${line}` : ""; }
       }
 
       if (what === "all") {
-        $("#dateline").textContent = `Princeton, ${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
+        const setup = window.ClaritySetup?.read?.();
+        const place = store.kind !== "demo" && setup?.mode === "prototype" ? setup.location.name : "Princeton";
+        $("#dateline").textContent = `${place}, ${new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}`;
         if (store.kind === "live") { const api = $("#api-link"); api.hidden = false; }
       }
       if (what === "all" || what === "conn") {
         const [short, long] = {
-          live: store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} picks filters`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
+          live: store.health.ai ? [`Live, ${store.health.ai_name || "AI"} on`, `Live from the gateway; ${store.health.ai_name || "the AI model"} decides whether to filter`] : ["Live, local rule", "Live from the gateway; no model key, so the tank's own rule picks filters"],
           down: ["Reconnecting", "Lost the gateway; reconnecting"],
+          offline: ["Prototype offline", "No live measurements are available; sample readings are not shown in prototype mode"],
           demo: ["Demo data", "No gateway reachable, so this is demo data"],
         }[store.conn] || ["Connecting", ""];
         $("#conn").dataset.state = store.conn;
+        // the map dashboard shows only what a gateway sends; with none, open it on its own labelled demo data
+        const mapUrl = new URL("../map/", location.href);
+        if (store.kind === "demo") mapUrl.searchParams.set("mock", "1");
+        else {
+          mapUrl.searchParams.set("mode", "prototype");
+          const api = new URLSearchParams(location.search).get("api");
+          if (api) mapUrl.searchParams.set("api", api);
+        }
+        document.querySelector("a[data-map]")?.setAttribute("href", mapUrl.pathname + mapUrl.search);
+        warmMap();
         $("#conn").title = long;
         $("#conn-text").textContent = short;
       }
@@ -226,27 +345,26 @@
         $("#plate").innerHTML = !b ? "" : untouched ? `
           <div class="pair single">${TapCup.svg(b)}</div>
           <div class="pair-labels single"><div><b>As poured</b><span>${esc(clock(b.ts))}</span></div></div>
-          <figcaption>No filter was used, so there is no retest. The amber tint and specks follow dissolved solids; the brown murk follows transparency.</figcaption>` : `
+          <figcaption>No filter was used, so there is no retest. Tint and specks follow dissolved solids; murk follows transparency.</figcaption>` : `
           <div class="pair">${TapCup.svg(b)}<svg class="arrow" viewBox="0 0 54 12" aria-hidden="true"><path d="M0 6 H52 M46 1 L52 6 L46 11"/></svg>${TapCup.svg(a)}</div>
           <div class="pair-labels"><div><b>Before</b><span>${esc(clock(b.ts))}</span></div><i></i><div><b>After</b><span>${esc(afterNote)}</span></div></div>
-          <figcaption>Drawn from the readings. The amber tint and specks follow dissolved solids; the brown murk follows transparency.</figcaption>`;
+          <figcaption>Drawn from the readings: tint and specks follow dissolved solids, murk follows transparency.</figcaption>`;
         // the same two cups in 3D, laid over the flat ones (plate3d.js); `after` undefined means no second glass
         window.TapPlateState = !b ? null : { before: b, after: untouched ? undefined : a || null };
         window.TapPlate?.set(window.TapPlateState);
 
         $("#why").innerHTML = !b
           ? `<p class="lede">No cup has been poured yet.</p>`
-          : `<p class="lede">${t(!d ? (b.verdict === "SAFE" ? "Whether it needs a filter is being decided." : "A filter is being chosen.") : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "No filter would help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
-             <p>${t(!d ? `The tank waits a few seconds for ${store.health.ai_name || "the AI model"}, then falls back on its own thresholds.` : d.explanation || "There is no AI explanation for this pour: the tank used its built-in thresholds, ZeroWater above 300 ppm and Brita below 0.70 transparency.")}</p>
-             ${d?.source === "sample" ? '<p class="sample-note">Sample explanation written for the demo data, not by a model.</p>' : ""}`;
+          : `<p class="lede">${t(!d ? "Whether it needs the filter is being decided." : f === "NONE" ? (b.verdict === "SAFE" ? "No filter was needed." : "The filter would not help.") : `It went through ${FILTER_NAME[f] || f}.`)}</p>
+             <p>${t(!d ? `The tank waits a few seconds for ${store.health.ai_name || "the AI model"}, then falls back on its own thresholds.` : d.explanation || (f === "BRITA" && b.tds > 300 ? `Dissolved solids read ${b.tds} ppm. Over 300 counts as high, so the cup goes to the Brita. The retest shows what it changed.` : f === "BRITA" ? `Transparency read ${fmt(b.clarity, 2)}. Under 0.70 counts as cloudy, and cloudy water goes to Brita.` : f === "ZEROWATER" ? `Dissolved solids read ${b.tds} ppm. Over 300 counts as high, and ZeroWater takes dissolved solids out.` : b.verdict === "SAFE" ? "Every reading was in range, so the cup was left alone." : "The filter does not correct pH, so the cup was left alone."))}</p>`;
 
-        const warn = { tds: (r) => r && r.tds > 300, ph: (r) => r && (r.ph < 6.5 || r.ph > 8.5), clarity: (r) => r && r.clarity < 0.7 };
+        const warn = { tds: (r) => r && r.tds > 300, ph: (r) => r && !TapUI.phEstimated(r, store.health) && (r.ph < 6.5 || r.ph > 8.5), clarity: (r) => r && r.clarity < 0.7 };
         const cell = (r, key, digits) => `<td class="n${warn[key](r) ? " warn" : ""}">${r ? (digits == null ? esc(r[key]) : fmt(r[key], digits)) : "–"}</td>`;
         $("#figures").innerHTML = !b ? "" : `<table class="figures">
           <thead><tr><th></th><th class="n">Before</th><th class="n">After</th></tr></thead>
           <tbody>
             <tr><td>Dissolved solids <span class="unit">ppm</span></td>${cell(b, "tds")}${cell(a, "tds")}</tr>
-            <tr><td>Acidity <span class="unit">pH</span></td>${cell(b, "ph", 1)}${cell(a, "ph", 1)}</tr>
+            <tr><td>Acidity <span class="unit">pH${TapUI.phEstimated(b, store.health) ? ", estimated" : ""}</span></td>${cell(b, "ph", 1)}${cell(a, "ph", 1)}</tr>
             <tr><td>Transparency <span class="unit">0 to 1</span></td>${cell(b, "clarity", 2)}${cell(a, "clarity", 2)}</tr>
             <tr><td>Verdict</td><td class="n word${b.verdict !== "SAFE" ? " warn" : ""}">${esc(VERDICT[b.verdict] || b.verdict)}</td><td class="n word${a && a.verdict !== "SAFE" ? " warn" : ""}">${a ? esc(VERDICT[a.verdict] || a.verdict) : "–"}</td></tr>
           </tbody></table>`;
@@ -265,18 +383,20 @@
       }
 
       if (what === "all" || what === "report") {
-        const rep = store.report;
-        const earlier = rep && b && rep.test !== b.test;
-        $("#report").innerHTML = `<h2>From the investigator</h2>${rep ? `<p class="about">On pour ${esc(rep.test)}${earlier ? ", the one before this" : ""}${rep.ts ? `, ${esc(ago(rep.ts))}` : ""}</p>` : ""}` + (!rep
-          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>`
-          : (() => { const x = reportExtras(rep, store.health); return `${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
+        // Until this tank has a report of its own, a sample one (written from the sample data) can be shown on request.
+        const own = store.report, rep = own || store.sampleReport || null;
+        const earlier = own && b && own.test !== b.test;
+        $("#report").innerHTML = `<h2>From the investigator</h2>${own ? `<p class="about">On pour ${esc(own.test)}${earlier ? ", the one before this" : ""}${own.ts ? `, ${esc(ago(own.ts))}` : ""}</p>` : ""}` + (!rep
+          ? `<p class="quiet" style="margin-top:16px">${store.health.investigator ? "After each retest, the investigator sets out what changed, how this site compares, and what to do next." : "A report follows each retest: what changed, how this site compares, and what to do next."}</p>
+             ${store.kind === "live" && window.TapSample ? '<p style="margin-top:14px"><button class="link-btn" type="button" id="sample-report">See a sample report</button></p>' : ""}`
+          : (() => { const x = reportExtras(rep, store.health); return `${swarmBlock(store.swarm)}${x.by}<p class="pull">${t(rep.summary)}</p>${x.verdict}
              ${rep.findings?.length ? `<h3>Findings</h3><ul>${rep.findings.map((f) => `<li>${t(f)}</li>`).join("")}</ul>` : ""}
              ${rep.actions?.length ? `<h3>What to do next</h3><ol>${rep.actions.map((f) => `<li>${t(f)}</li>`).join("")}</ol>` : ""}
              ${x.checks}${x.agents}${x.notice}`; })());
       }
 
       if (what === "all" || what === "filters") {
-        $("#filters").innerHTML = `<h3>Filters</h3>` + (store.filters.length ? `<table><tbody>${store.filters.map((f) => {
+        $("#filters").innerHTML = `<h3>${store.filters.length === 1 ? "The filter" : "Filters"}</h3>` + (store.filters.length ? `<table><tbody>${store.filters.map((f) => {
           const [label, cls] = STATUS[f.status] || [f.status, "ok"];
           const life = filterLife(f);
           return `<tr><td>${esc(f.name || FILTER_NAME[f.filter])}<br><span class="unit">${t(life.line)}</span>
@@ -318,6 +438,15 @@
           if (!confirm(`Mark ${name} as replaced? Its liters and status start over.`)) return;
           try { await store.replaceFilter(btn.dataset.replace); }
           catch (err) { alert(`Couldn't mark ${name} as replaced: ${err.message}`); }
+        });
+        // a sample report, on request, while this tank has none of its own: the sample data's report on a cup that was not clear
+        $("#report").addEventListener("click", async (e) => {
+          if (!e.target.closest("#sample-report")) return;
+          try {
+            const all = await TapSample.create({ seed: 26 }).get("/api/reports?limit=30");
+            store.sampleReport = all.find((r) => r.checks?.lead?.metric === "clarity") || all[0] || null;
+            window.TapView.render(store, "report");
+          } catch (err) { console.warn("no sample report:", err); }
         });
         // context notes: a tap pins one open; a tap elsewhere or Escape closes it
         document.addEventListener("click", (e) => {

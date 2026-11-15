@@ -18,6 +18,12 @@ simulated pipe network (localize.py, incident.py): build(..., incident=True).
 The agents explain and decide what to do next. They do not compute: every number comes from
 a tool, and the verdict and severity come from analysis.py, not from a model.
 
+Three things happen around the specialists (the "chain"):
+    triage   analysis.plan decides which specialists this run needs, and why; the lead is given that plan
+    watch    every hand-off, tool call and answer is recorded as it happens, for the page to show
+    check    analysis.ground compares every figure in the report with what the tools returned,
+             and drops any finding or action whose figure cannot be traced
+
 The tools are plain functions the gateway passes in, so this file has no database code.
 
 The agents run on Gemini (through langchain-google-genai) when the gateway has a Google key,
@@ -30,8 +36,12 @@ Env vars:
     INVESTIGATOR_SUBAGENT_MODEL  the specialists' model, default the same as the lead's
     INVESTIGATOR_EFFORT          Claude: low | medium | high (default low: fast, and it still uses every tool)
 """
+import functools
 import json
 import os
+import time
+
+import analysis
 
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import ProviderStrategy, ToolStrategy
@@ -65,18 +75,33 @@ RULES = """Rules, which have no exceptions:
 - Write for someone who is not an expert: one plain sentence per point, with the numbers that
   matter."""
 
+# Provenance belongs to a reading, not to the process-wide default or the identity of a node.
+RULES += """
+- Check each reading's ph_est and the case's measured_metrics. If ph_est is true, pH is estimated
+  from dissolved solids: label it estimated, never count it as an independent measurement or
+  use it as evidence of corrosion, sensor failure or filter performance. Explicit packet flags
+  take precedence over the gateway's default; missing flags use the case's conservative default.
+- Never compare a measured pH with an estimated pH as a before/after improvement. Neither filter
+  is intended to correct pH. An estimated retest cannot resolve an earlier measured pH warning.
+- Use the case-specific notice templates and required sentence returned by the tools.
+"""
+
 LEAD = """You lead the investigation inside Clarity, a low-cost water tester near Princeton, NJ.
-A cup of water was measured (the "before" test), tipped through a filter (ZEROWATER removes
-dissolved solids; BRITA is activated carbon for colour, cloudiness and taste), then poured
+A cup of water was measured (the "before" test), tipped through a filter (BRITA is activated
+carbon for colour, cloudiness and taste, and is not built to remove dissolved solids, so never
+say it does; ZEROWATER, where a record names it, removes dissolved solids), then poured
 back and measured again (the "after" test). You get both readings, plus the verdict of the
 gateway's own statistical checks.
 
-You have five specialists. Start by calling the task tool five times in one message, once for
-each of: sensor-health, analyst, network, maintenance, comms. Each specialist sees only the
-description you write, so give every one the node id and the test number and ask for its
-findings on this filter run. Do not do their work yourself and do not skip any of them.
+You have five specialists: sensor-health, analyst, network, maintenance, comms. The case comes
+with a plan: the ones the gateway's checks say this run needs, and why. Start by calling the
+task tool once for each specialist in the plan, all in one message. Each specialist sees only
+the description you write, so give every one the node id and the test number and ask for its
+findings on this filter run. Do not do their work yourself. Do not call a specialist that is
+not in the plan unless an answer raises a question only it can settle; if you do, say why in
+the findings.
 
-When all five have answered, write the report: a summary (before to after, and whether the
+When they have answered, write the report: a summary (before to after, and whether the
 filter did its job), findings drawn from the specialists (keep each one's source label and
 numbers exactly), actions (most important first) and the notice, copied from the comms
 specialist without changes. If a specialist says the sensor is at fault, say so first: a
@@ -115,8 +140,9 @@ SPECIALISTS = [
      "description": "Reports filter life and what upkeep the case calls for, from the makers' rules and published "
                     "EPA and AWWA guidance. Give it the node id and test number.",
      "prompt": "You look after the filters and the sensor's upkeep. Call get_case and get_filter_life for the node "
-               "and test you are given, then search_guidance once or twice for what the case calls for (for example "
-               "the filter that was used, confirming a reading with a lab sample, or sensor calibration). Say whether "
+               "and test you are given, then search_guidance at most twice for what the case calls for (for example "
+               "the filter that was used, confirming a reading with a lab sample, or sensor calibration). If the "
+               "passages do not fit, do not keep searching: say that the guidance has nothing for this case. Say whether "
                "the filter that was used needs replacing and why, and name one upkeep step that a passage supports, "
                "citing its document and page. The guidance was written for water utilities, so say plainly when a "
                "passage is about a utility's network and not a household cup."},
@@ -150,6 +176,9 @@ INCIDENT_RULES = """Rules, which have no exceptions:
   dissolved solids and transparency, so no one can say what the change is until a lab has.
 - When you use a guidance passage, name its document and page.
 - Write for someone who is not an expert: one plain sentence per point."""
+if analysis.PH_ESTIMATED:
+    INCIDENT_RULES = INCIDENT_RULES.replace("The sensors read only pH,\n  dissolved solids and transparency", "The sensors read only dissolved solids\n  and transparency", 1)
+
 
 INCIDENT_LEAD = """You lead the response to a simulated water-quality event on a simulated pipe
 network. Several simulated sensor nodes alerted, and the gateway's tracing code has already
@@ -191,11 +220,72 @@ INCIDENT_SPECIALISTS = [
 TITLES = {s["name"]: s["title"] for s in SPECIALISTS + INCIDENT_SPECIALISTS}
 
 
-def chat(model, provider="anthropic", key=None):
-    """A chat model for the lead or a specialist: Gemini (provider "google") or Claude."""
+class Run:
+    """What happened in one investigation: every event in order (for the page to show the agents
+    working), and the text of everything a tool returned (to check the report's figures against).
+    One investigation runs at a time, so one of these is enough."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.t0, self.events, self.evidence = time.time(), [], []
+
+    def event(self, kind, agent=None, **more):
+        self.events.append({"event": kind, "agent": agent, "t": round(time.time() - self.t0, 1), **more})
+
+    def trail(self):
+        """Per specialist: the tools it called, in order, and when it answered."""
+        out = {}
+        for e in self.events:
+            if not e["agent"]:
+                continue
+            row = out.setdefault(e["agent"], {"agent": e["agent"], "tools": [], "seconds": None})
+            if e["event"] == "tool":
+                row["tools"].append(e["tool"])
+            elif e["event"] == "answered":
+                row["seconds"] = e["t"]
+        return list(out.values())
+
+
+RUN = Run()
+
+
+# Said to every specialist. (Run live, one wandered into the file tools every deep agent is given and never came back.)
+FOCUS = ("Your tools are: {tools}. Call each one you need once, then answer. Do not list, search, read or write "
+         "files, do not make a to-do list, and do not call a tool again to re-check what it already told you.")
+LIMITS = {"search_guidance": 3, "query_readings": 3}     # calls per specialist in one run; any other tool: 2
+
+
+def watched(agent, fn):
+    """A specialist's own copy of a tool: the same function, but each call is noted against its name,
+    and it can only be called so many times. (Run live, one specialist searched the guidance ten
+    times over until a model call timed out. A refusal that says "answer now" stops that.)"""
+    limit = LIMITS.get(fn.__name__, 2)
+
+    @functools.wraps(fn)
+    def call(*args, **kwargs):
+        used = sum(1 for e in RUN.events if e["event"] == "tool" and e["agent"] == agent and e.get("tool") == fn.__name__)
+        if used >= limit:
+            RUN.event("refused", agent, tool=fn.__name__)
+            return {"error": f"{fn.__name__} has been called {used} times in this run, which is the limit. "
+                             "Do not call it again. Write your answer now from what you already have."}
+        out = fn(*args, **kwargs)
+        RUN.evidence.append(json.dumps(out, default=str))
+        RUN.event("tool", agent, tool=fn.__name__)
+        return out
+    return call
+
+
+def chat(model, provider="anthropic", key=None, thinking=None):
+    """A chat model for the lead or a specialist: Gemini (provider "google") or Claude.
+    `thinking` is Gemini's thinking budget in tokens. Run live, a specialist spent three to five
+    thousand thinking tokens (20 to 30 seconds) before a three-sentence answer, so specialists
+    get none and the lead gets a little."""
     if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.2, timeout=60, max_retries=2)
+        more = {} if thinking is None else {"thinking_budget": thinking}
+        return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.2, timeout=60, max_retries=1, **more)
     extra = {}
     if not model.startswith("claude-haiku"):
         # if a safety classifier declines, the API retries on a fallback model by itself
@@ -213,11 +303,12 @@ def build(tools, provider="anthropic", model=None, key=None, lead_model=None, sp
     google = provider == "google"
     lead_name = (model or "gemini-3.5-flash") if google else MODEL
     worker_name = os.getenv("INVESTIGATOR_SUBAGENT_MODEL") or lead_name
-    lead = lead_model or chat(lead_name, provider, key)
-    worker = specialist_model or (lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
+    lead = lead_model or chat(lead_name, provider, key, thinking=512 if google else None)
+    worker = specialist_model or (chat(worker_name, provider, key, thinking=0) if google
+                                  else lead if worker_name == lead_name and lead_model is None else chat(worker_name, provider, key))
     subagents = [{"name": s["name"], "description": s["description"],
-                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + rules,
-                  "tools": [tools[t] for t in s["tools"]], "model": worker} for s in team]
+                  "system_prompt": s["prompt"] + " Answer in at most three sentences.\n\n" + FOCUS.format(tools=", ".join(s["tools"])) + "\n\n" + rules,
+                  "tools": [watched(s["name"], tools[t]) for t in s["tools"]], "model": worker} for s in team]
     # How the lead hands back the structured report. Claude: its native structured output
     # (the tool strategy would force tool_choice="any", which Opus 5.5 rejects). Gemini: a
     # final call to a "Report" tool, which works on any model that can call tools.
@@ -246,13 +337,25 @@ def sections_from(messages):
     return out
 
 
-async def investigate(agent, case: dict, ask="Investigate this filter run:") -> dict:
+async def investigate(agent, case: dict, ask="Investigate this filter run:", config=None) -> dict:
     """case: {"node", "site", "test", "filter", "before", "after", "checks"}, or for the incident
     team {"scenario", ...} -> {"summary", "findings", "actions", "notice", "sections"}."""
-    result = await agent.ainvoke({"messages": [{
-        "role": "user",
-        "content": ask + "\n" + json.dumps(case, indent=1),
-    }]})
+    RUN.reset()
+    RUN.evidence.append(json.dumps(case, default=str))
+    asked, seen, result = {}, 0, {}
+    # The run is followed as it happens: each time the lead hands out work or gets answers back,
+    # the state grows by some messages, and those are turned into events.
+    async for state in agent.astream({"messages": [{"role": "user", "content": ask + "\n" + json.dumps(case, indent=1)}]},
+                                     stream_mode="values", config=config):
+        messages = state.get("messages", [])
+        for m in messages[seen:]:
+            for call in getattr(m, "tool_calls", None) or []:
+                if call.get("name") == "task":
+                    asked[call["id"]] = (call.get("args") or {}).get("subagent_type")
+                    RUN.event("asked", asked[call["id"]])
+            if asked.get(getattr(m, "tool_call_id", None)):
+                RUN.event("answered", asked[m.tool_call_id])
+        seen, result = len(messages), state
     report = result.get("structured_response")
     if isinstance(report, BaseModel):
         report = report.model_dump()
@@ -260,4 +363,5 @@ async def investigate(agent, case: dict, ask="Investigate this filter run:") -> 
         # no structured answer: keep its last message as the summary
         report = {"summary": text_of(result["messages"][-1]), "findings": [], "actions": [], "notice": ""}
     report["sections"] = sections_from(result["messages"])
+    report["trail"] = RUN.trail()
     return report

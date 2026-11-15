@@ -1,27 +1,29 @@
 <!-- The pitch. Loaded by assets/pitch.js and laid over the /demo page when you arrive at /pitch.
      In a wide window the 3D glass stays on stage beside every slide, and `data-scene` says what it
-     is doing there: `run` lets a dirty drop meet the filter and a clear one fall, over and over;
-     `hang filter catch release` walks one drop through by hand, a step per name, and `data-step`
-     marks the item each step lights. Scrolling past the last slide hands over to
-     /demo. `data-rise` marks what floats in, in order. -->
+     is doing there: `raw hang catch release` measure, interpret, filter, then show the retest,
+     a step per name (`data-step` marks the item each step lights); `bypass` shows an in-range cup
+     with no filter, and `run` repeats the filtered example. Scrolling past the last slide hands over to
+     /demo. `data-rise` marks what floats in, in order.
+     The judged presentation is two minutes, demo included, so the deck is five slides. The ones
+     marked `data-extra` (hardware, AI, filter life, sources, open questions) are left out unless
+     the address has ?full, for questions afterwards: /pitch/?full -->
 
-<section class="slide s-title" aria-label="Clarity" data-clear data-scene="run">
+<section class="slide s-title" aria-label="Clarity" data-clear data-scene="raw">
   <div class="p-title">
     <h1>Clarity</h1>
     <p class="tagline" data-rise>What you deserve.</p>
-    <p class="p-lede" data-rise>Affordable water monitoring that leads to action.</p>
+    <p class="p-lede" data-rise>A cup that tests your water, filters it if needed, and shows what changed.</p>
   </div>
-  <p class="p-hint" data-rise>Scroll<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
 </section>
 
-<section class="slide s-problem" aria-label="The problem" data-scene="run">
+<section class="slide s-problem" aria-label="The problem" data-scene="raw">
   <div class="frame">
     <h2>Stony Brook's flow is measured every fifteen minutes. Its dissolved solids were last sampled in 2023.</h2>
     <div class="split">
       <figure class="p-chart" data-rise>
-        <figcaption>Days each year with a published conductance sample, the usual stand-in for dissolved solids. Stony Brook at Princeton.</figcaption>
+        <figcaption>Days each year with a published conductance sample, the stand-in for dissolved solids.</figcaption>
         <div id="sample-chart"></div>
-        <p class="src">USGS and NJ DEP records, from the Water Quality Portal and the USGS gauge at Princeton.</p>
+        <p class="src">USGS and NJ DEP, from the Water Quality Portal.</p>
       </figure>
       <div class="p-stat" data-rise>
         <p class="num">17</p>
@@ -31,30 +33,30 @@
   </div>
 </section>
 
-<section class="slide s-loop" aria-label="How Clarity works" data-scene="hang filter catch release">
+<section class="slide s-loop" aria-label="How Clarity works" data-scene="raw hang catch release">
   <div class="frame">
     <h2>One cup, one loop</h2>
     <ol class="loop">
-      <li data-rise data-step><span class="n">1</span><h3>Measure</h3><p>pH, dissolved solids and transparency, from one pour.</p></li>
-      <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p><span data-ai>Gemini</span> explains the reading against this site's history.</p></li>
-      <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter that fits.</p></li>
-      <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows whether it worked.</p></li>
+      <li data-rise data-step><span class="n">1</span><h3>Measure</h3><p>Three sensors, one pour.</p></li>
+      <li data-rise data-step><span class="n">2</span><h3>Interpret</h3><p>Read against this site's history. <span data-ai>Gemini</span> settles the close calls.</p></li>
+      <li data-rise data-step><span class="n">3</span><h3>Act</h3><p>The cup tips itself into the filter, or skips it.</p></li>
+      <li data-rise data-step><span class="n">4</span><h3>Compare</h3><p>Pour it back. The retest shows what changed, and a team of agents writes the report.</p></li>
     </ol>
   </div>
 </section>
 
-<section class="slide s-why" aria-label="What it saves" data-scene="run">
+<section class="slide s-why" aria-label="What it saves" data-scene="bypass">
   <div class="frame">
     <h2>Measure first, and less is wasted</h2>
     <ul class="why">
-      <li data-rise><h3>Water left alone</h3><p>A cup that reads in range skips the filter. Nothing is spent on water that didn't need it.</p></li>
-      <li data-rise><h3>Filters used to the end</h3><p>The page says when a cartridge is spent, from its retest or its litre count, so it isn't binned early or kept too long.</p></li>
-      <li data-rise><h3>Places nobody samples</h3><p>Hobby boards and a radio link with no router or cell, so a cup can sit where the last published sample is years old.</p></li>
+      <li data-rise><h3>Water left alone</h3><p>A cup that reads in range skips the filter.</p></li>
+      <li data-rise><h3>Filters used to the end</h3><p>The page says when a cartridge is spent, so it isn't binned early or kept too long.</p></li>
+      <li data-rise><h3>Places nobody samples</h3><p>Hobby boards and a direct radio link, so a cup can sit where the last published sample is years old.</p></li>
     </ul>
   </div>
 </section>
 
-<section class="slide s-hardware" aria-label="Hardware" data-scene="run">
+<section class="slide s-hardware" aria-label="Hardware" data-scene="run" data-extra>
   <div class="frame">
     <h2>The cup reaches the base station by direct radio. No router, no cell.</h2>
     <ol class="chain" data-rise>
@@ -75,35 +77,30 @@
   </div>
 </section>
 
-<section class="slide s-ai" aria-label="AI" data-scene="run">
+<section class="slide s-ai" aria-label="AI" data-scene="run" data-extra>
   <div class="frame">
     <h2>AI that explains, inside limits</h2>
     <div class="split">
       <figure class="p-plate" data-rise>
         <span class="lab">Sent through</span>
-        <span class="val">ZeroWater</span>
-        <span class="txt">Dissolved solids read 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline. ZeroWater removes dissolved solids, so the cup goes there.</span>
+        <span class="val">Brita Elite</span>
+        <span class="txt">Dissolved solids read 782 ppm, above the 300 ppm comfort level and over the EPA's 500 ppm guideline, so the cup goes to the Brita. The retest shows what it changed.</span>
         <figcaption>An example of the explanation <span data-ai>Gemini</span> is asked for.</figcaption>
       </figure>
       <ul class="says">
-        <li data-rise><span data-ai>Gemini</span> chooses the filter if it answers within six seconds. If not, the tank's own rule does, so the cup always moves.</li>
-        <li data-rise>After each retest, a team of LangChain deep agents, a lead and five specialists, reads the base station's own checks, this site's history, nearby nodes, filter life and published EPA and AWWA guidance, and writes what to do next.</li>
+        <li data-rise><span data-ai>Gemini</span> decides whether to filter if it answers within six seconds. If not, the tank's own rule does, so the cup always moves.</li>
+        <li data-rise>After each retest, a team of LangChain deep agents, a lead and five specialists, writes what to do next from the base station's checks, this site's history and published EPA and AWWA guidance.</li>
         <li data-rise>Neither will call water safe. Three readings can't show that.</li>
       </ul>
     </div>
   </div>
 </section>
 
-<section class="slide s-filters" aria-label="Filter life" data-scene="run">
+<section class="slide s-filters" aria-label="Filter life" data-scene="run" data-extra>
   <div class="frame">
-    <h2>Filters that say when they're done</h2>
+    <h2>A filter that says when it's done</h2>
     <div class="split">
       <div class="p-filters" data-rise>
-        <div class="f">
-          <p class="name">ZeroWater<span class="st now">Replace now</span></p>
-          <p class="line">The retest read 6 ppm. Its maker says replace at 6.</p>
-          <div class="life status-now"><span style="width:100%"></span></div>
-        </div>
         <div class="f">
           <p class="name">Brita Elite<span class="st ok">Fine</span></p>
           <p class="line">41 of about 450 L used.</p>
@@ -111,14 +108,14 @@
         </div>
       </div>
       <ul class="says">
-        <li data-rise>Every tip sends about a tenth of a litre through a filter, and the base station keeps count.</li>
-        <li data-rise>Next: estimate life from the solids each cup removes, and offer the right cartridge to reorder.</li>
+        <li data-rise>Every tip sends about a tenth of a litre through the filter, and the base station keeps count against its rated 450 litres.</li>
+        <li data-rise>Next: estimate life from what each cup carries, and offer the cartridge to reorder.</li>
       </ul>
     </div>
   </div>
 </section>
 
-<section class="slide s-sources" aria-label="Where the data comes from" data-scene="run">
+<section class="slide s-sources" aria-label="Where the data comes from" data-scene="run" data-extra>
   <div class="frame">
     <h2>Every point says where it came from</h2>
     <div class="split">
@@ -134,7 +131,7 @@
   </div>
 </section>
 
-<section class="slide s-open" aria-label="Open questions" data-scene="run">
+<section class="slide s-open" aria-label="Open questions" data-scene="run" data-extra>
   <div class="frame">
     <h2>What we're still deciding</h2>
     <dl class="open">
@@ -150,7 +147,8 @@
   <div class="frame">
     <h2>Clarity</h2>
     <p class="tagline" data-rise>What you deserve.</p>
+    <p class="built" data-rise><span data-ai>Gemini</span> settles the close calls. LangChain deep agents write the report. Tiger Cloud keeps the history. Photon texts the alert.</p>
     <p class="team" data-rise>Jim, Ethan, Bharath and Verna</p>
-    <p class="p-hint" data-rise>Keep scrolling for the live demo<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
+    <p class="p-hint" data-rise>Keep scrolling for the live demo</p>
   </div>
 </section>

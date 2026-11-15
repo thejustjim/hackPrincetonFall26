@@ -17,7 +17,14 @@ import { buildStyle, applyTheme, THEMES, LAYER_GROUPS, MODE, ARTIFACT } from './
 import { Protocol } from 'pmtiles';
 import { installFacades } from './facades.js';
 import { renderOverview, ring, tdsBar } from './overview.js';
-import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us } from './national.js';
+import { usLayers, loadUS, US_VIEW, usTooltip, refreshTileLabels, CITIES, us, TDS_BANDS, tdsColor } from './national.js';
+import { runIntro } from './intro.js';
+import { installSimulation } from './simulation.js';
+import { createSimulationOverlay, simulationTooltip, projectNetwork } from './sim-overlay.js';
+import { readPrototypeLocation, readMapMode } from './map-settings.js';
+import { isSimulatedNode } from './provenance.js';
+import simulationNetwork from '../../web/network/data.json';
+import simulationPlacement from '../../web/network/placement.json';
 
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
 // Building fields differ between the bundled Princeton GeoJSON (h, n, c) and Overture tiles (height, @name, class).
@@ -35,8 +42,13 @@ const BASE = (params.get('base') || '40.3504,-74.652').split(',').map(Number); /
 // Optional: ?style=<MapLibre style URL> replaces the bundled Princeton basemap.
 const BASE_STYLE = params.get('style');
 // Palette: #5A9BBD steel, #F7F0F0 paper, #0B2027 ink, #717580 slate (+ warm warning tones that sit with it).
-const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [209, 73, 91], CLOUDY: [224, 164, 88], PH_WARN: [159, 134, 192] };
-const VERDICT_LABEL = { SAFE: 'Safe', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };
+const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [217, 102, 126], CLOUDY: [226, 190, 94], PH_WARN: [168, 146, 200] };   // the site's colours
+// Labels on the map speak in three voices. Ours, a real reading: full white, a size up. Simulated: grey, and
+// says so. Context (the water system and other people's published readings): the site's light blue, the colour
+// of the route line and the stream rings. REF_ZOOM is where the stream readings start to show.
+const CONTEXT = light => (light ? [44, 96, 126, 235] : [141, 189, 216, 225]);
+const REF_ZOOM = 9.5;
+const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };   // SAFE only means the three readings are in range
 const FILTER_LABEL = { ZEROWATER: 'ZeroWater', BRITA: 'Brita Elite', NONE: 'No filter' };
 const BRITA_RATED_L = 450;
 const BRITA_SOON_L = 360;
@@ -70,8 +82,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmtTime = ts => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 // Who wrote a filter decision: the gateway sends source "gemini" (AI) or "local_rule" (no AI used).
 const AI_NAME = 'Gemini';
-const sourceLabel = src => (src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : AI_NAME);
+const sourceLabel = src => (src === 'sample' ? 'Explanation' : src === 'local_rule' ? 'Local rule' : src === 'claude' ? 'Claude' : src === 'gemma' ? 'Gemma' : AI_NAME);
 const nodeName = id => state.nodes.get(id)?.name || id;
+const simulatedNode = n => isSimulatedNode(n, state.mode);
+// Missing provenance is conservative for legacy hardware; new readings carry the flag themselves.
+const phEstimated = r => r?.ph_est == null || r.ph_est === true || r.ph_est === 1;
 
 // ---------- data ingest ----------
 function addReading(r) {
@@ -101,25 +116,52 @@ function applyDecision(d) {
   if (r) { r.ai_filter = d.ai_filter; r.explanation = d.explanation; }
 }
 
-function testPair(node, test) {
+function testPair(node, test, session) {
   const list = state.readings.get(node) || [];
-  return {
-    before: list.find(r => r.test === test && r.phase === 'before') || null,
-    after: list.find(r => r.test === test && r.phase === 'after') || null,
-  };
+  const before = [...list].reverse().find(r => r.test === test && r.phase === 'before'
+    && (session === undefined || (r.session ?? null) === session)) || null;
+  const after = before ? list.find(r => r.test === test && r.phase === 'after' && r.id > before.id
+    && (r.session ?? null) === (before.session ?? null)) || null : null;
+  return { before, after };
 }
 
 // ---------- map ----------
-const HOME = { center: [-74.66, 40.35], zoom: 11.75, pitch: 55, bearing: -20 };
+// Home is framed on the one real tank (tank-01, 40.3467 N 74.6553 W) with its network round it: the sites
+// that report to the base station, the arcs between them, and the route coming down from the ridge tower.
+const HOME = { center: [-74.6556, 40.3520], zoom: 11.9, pitch: 52, bearing: -18 };
+let prototypeLocation = null, mapDemoMode = ARTIFACT;
+try { mapDemoMode ||= readMapMode(localStorage, params) === 'demo'; prototypeLocation = readPrototypeLocation(localStorage, mapDemoMode); } catch { mapDemoMode ||= readMapMode(null, params) === 'demo'; }
+const START = prototypeLocation ? { ...HOME, center: [prototypeLocation.lon, prototypeLocation.lat] } : HOME;
+if (prototypeLocation) document.getElementById('btn-reset')?.classList.remove('on');
+// The simulated network is looked at from straight above, fitted to the space beside the panel and under its heading.
+const simPadding = () => (innerWidth <= 760 ? { top: 104, bottom: 84, left: 22, right: 22 } : { top: 132, bottom: 104, left: 56, right: 56 });
+const SIM_CAMERA = { pitch: 0, bearing: 0, maxZoom: 14.1 };
+const simStartBounds = params.has('simulation') ? projectNetwork(simulationNetwork).bounds : null;
 const map = new maplibregl.Map({
   container: 'map',
   style: BASE_STYLE ? BASE_STYLE : buildStyle(THEMES.dark),
-  ...HOME,
+  // ?simulation opens on the network itself: the camera starts where it will stay, so nothing flies in over half-loaded tiles.
+  ...(simStartBounds ? { bounds: simStartBounds, fitBoundsOptions: { padding: simPadding(), maxZoom: SIM_CAMERA.maxZoom }, pitch: 0, bearing: 0 } : START),
   maxPitch: 75,
   // Opens on Princeton; you can zoom out past the whole country.
-  maxBounds: [[-180, 5], [-40, 75]],
+  ...(prototypeLocation ? {} : { maxBounds: [[-180, 5], [-40, 75]] }),
   antialias: true,
   attributionControl: { compact: true },
+});
+// The start screen: a globe, one line about the country's water worked out from the public samples the map
+// carries, and two ways in. The demo goes to Princeton, where the one real tank is; the other shows the country.
+const intro = runIntro(map, START, import.meta.env.BASE_URL + 'data/', THEMES.dark, {
+  description: prototypeLocation ? 'From your prototype to a wider view of what changes.' : null,
+  line: () => {
+    if (!us.sites.length) return 'Published samples of rivers, lakes and wells give the wider picture.';
+    const days = us.sites.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((a, b) => a - b);
+    return `Half of the ${us.sites.length.toLocaleString()} public sites sampled for dissolved solids since 2024 have gone ${Math.round(days[Math.floor(days.length / 2)] / 30.4)} months or more without a new sample.`;
+  },
+  choices: [
+    { label: prototypeLocation ? 'Open the prototype map' : 'Start the Princeton demo', name: prototypeLocation?.name || 'Princeton, New Jersey', view: START },
+    { label: 'Look across the country', name: 'United States', view: US_VIEW, pin: false },
+  ],
+  chose: c => { const usa = c.view === US_VIEW; document.getElementById('btn-usa')?.classList.toggle('on', usa); document.getElementById('btn-reset')?.classList.toggle('on', !usa && !prototypeLocation); },
 });
 const desktop = () => window.innerWidth > 1100;
 // Start the before/after card folded on short screens and phones, so it doesn't cover the map.
@@ -137,7 +179,8 @@ map.setPadding(desktop() ? { left: 40, right: 40, top: 40, bottom: 120 } : { top
   let saved = null; try { saved = localStorage.getItem('clarity-panel'); } catch {}
   if (saved === 'closed') set(true);
   btn.addEventListener('click', () => set(!document.body.classList.contains('panel-closed')));
-  new ResizeObserver(() => map.resize()).observe(document.querySelector('.mapwrap'));
+  // The simulated network stays fitted when the space for it changes, until someone moves the map themselves.
+  new ResizeObserver(() => { map.resize(); if (simulationMapActive && !simUserMoved) fitSimulation(0); }).observe(document.querySelector('.mapwrap'));
 }
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
@@ -149,6 +192,30 @@ map.on('error', e => console.debug('[map]', String(e?.error?.message || e?.error
 
 const overlay = new MapboxOverlay({ interleaved: true, layers: [], getTooltip: tooltip });
 map.addControl(overlay);
+let simulationMapActive = false, mapSettled = false, simUserMoved = false;
+map.on('movestart', e => { if (e.originalEvent) simUserMoved = true; });
+function fitSimulation(duration) {
+  const bounds = simulationOverlay.bounds();
+  if (!bounds) return;
+  map.resize();                                   // the layout may have just changed (the panel, the heading)
+  // fitBounds adds its padding to the map's standing padding (set for the time bar), so pass only the difference.
+  const standing = map.getPadding(), want = simPadding();
+  const padding = Object.fromEntries(Object.entries(want).map(([k, v]) => [k, Math.max(0, v - (standing[k] || 0))]));
+  map.fitBounds(bounds, { padding, ...SIM_CAMERA, duration });
+}
+const SIM_HIDES = new Set(['flow', 'towers', 'plants', 'plant-labels', 'hydrants', 'misc-labels', 'building-labels']);
+// With no intro in front of it, the map waits under plain ink until its first tiles are in, then fades up,
+// so a half-loaded patchwork is never on show. (?simulation dismisses the intro at once, so it counts too.)
+{
+  const wrap = document.querySelector('.mapwrap');
+  const lift = () => { if (mapSettled) return; mapSettled = true; wrap?.classList.remove('veiled'); };
+  if (!intro?.active || params.has('simulation')) wrap?.classList.add('veiled');
+  map.once('idle', lift);
+  setTimeout(lift, 5000);
+}
+const simulationOverlay = createSimulationOverlay({ PathLayer, ScatterplotLayer, TextLayer }, {
+  onPick: (kind, id) => simulation.pick(kind, id),
+});
 
 // Which deck.gl layers are on (toggled from the Layers menu).
 const show = { ustds: true, columns: true, links: true, usgs: true, businesses: false, range: false, trees: true, labels: true, route: true, infra: true };
@@ -207,14 +274,16 @@ function nodeView(n) {
 
 function tooltip({ object, layer }) {
   if (!object) return null;
+  const simulated = simulationTooltip(object);
+  if (simulated) return { text: simulated };
   if (layer.id === 'reference') {
     return { html: `<b>${esc(object.site)}</b> · USGS<br/>Est. TDS ${object.tds_est} ppm<br/><span style="opacity:.7">${esc(object.date)} · TDS ≈ 0.65 × conductance</span>` };
   }
   if (layer.id === 'us-tds') return usTooltip(object);
   if (layer.id === 'towers') return { html: `<b>${esc(object.n && object.n !== 'water_tower' ? object.n : 'Water tower')}</b><br/>Holds treated water up high. Gravity pushes it down<br/>into the mains, which keeps pressure steady and<br/>covers busy hours. Location from OpenStreetMap.` };
   if (layer.id === 'route-trunk') return { html: '<b>Main water route (illustrative)</b><br/>Treated water leaves the Raritan-Millstone and<br/>Canal Road plants and heads south to the<br/>Princeton Ridge tower. Real main locations<br/>are not public, so this path is approximate.' };
-  if (layer.id === 'route-branches') { const n = state.nodes.get(object.node); return { html: `<b>To ${esc(n?.name || 'a test site')} (illustrative)</b><br/>From the ridge tower down to this test site.` }; }
-  if (layer.id === 'links') { const r = nodeView(object).lt; return { html: `<b>Radio link: ${esc(object.name)}</b><br/>The node sends each reading to the base station<br/>by LoRa radio.${r ? ` Signal ${r.rssi} dBm (stronger is closer to 0).` : ''}` }; }
+  if (layer.id === 'route-branches') { const n = state.nodes.get(object.node); return { html: `<b>To ${esc(n?.name || 'a test site')}</b><br/>From the ridge tower down to this test site.` }; }
+  if (layer.id === 'links') { const r = nodeView(object).lt; return { html: `<b>Radio link: ${esc(object.name)}</b><br/>The node sends each reading to the base station<br/>by radio.${r ? ` Signal ${r.rssi} dBm (stronger is closer to 0).` : ''}` }; }
   if (layer.id === 'hydrants') return { html: '<b>Fire hydrant</b><br/>Connected to the water main under the street.' };
   if (layer.id === 'plants') return { html: `<b>${esc(object.name)}</b><br/>${esc(object.note)}<br/><span style="opacity:.75">Treatment plants settle, filter and disinfect river<br/>water before it goes into the mains.</span>` };
   if (layer.id === 'base') return { html: '<b>Base station</b><br/>LoRa receiver plus the gateway computer. It collects<br/>every reading, runs the checks and the AI, and<br/>feeds this dashboard.' };
@@ -227,12 +296,12 @@ function tooltip({ object, layer }) {
   const n = object.node ? state.nodes.get(object.node) : null;
   if (!n) return null;
   const r = nodeView(n).lb || nodeView(n).lt;
-  const what = n.sim ? 'Simulated test site: made up by the gateway to<br/>show how a bigger network would look. Not real hardware.'
+  const what = simulatedNode(n) ? 'Simulated test site.'
     : 'Clarity test station: real hardware that tests tap water<br/>before and after a filter and radios the results here.';
   if (!r) return { html: `<b>${esc(n.name)}</b><br/>${what}` };
   return {
-    html: `<b>${esc(n.name)}</b>${n.sim ? ' <span style="opacity:.7">· simulated</span>' : ''}<br/>` +
-      `TDS ${r.tds} ppm · pH ${r.ph} · clarity ${r.clarity}<br/>` +
+    html: `<b>${esc(n.name)}</b><br/>` +
+      `TDS ${r.tds} ppm · pH ${r.ph}${phEstimated(r) ? ' (estimated)' : ''} · clarity ${r.clarity}<br/>` +
       `${VERDICT_LABEL[r.verdict] || r.verdict} · RSSI ${r.rssi} dBm<br/>` +
       `<span style="opacity:.75">${what}<br/>Water height inside the tank = TDS (full at 1,000 ppm).<br/>Water color = verdict.</span><br/><span style="opacity:.7">Click for history</span>`,
   };
@@ -254,6 +323,20 @@ map.on('zoom', scheduleRender);
 map.on('moveend', scheduleRender);
 
 function renderMap(fromAnim = false) {
+  if (simulationMapActive) {
+    const zoom = map.getZoom(), now = performance.now();
+    const light = ['light', 'game'].includes(document.body.dataset.theme);
+    const place = makePlacer(map);
+    // Keep actual geographic scenery; the illustrative route, the tower, the plants and their labels
+    // would describe a different network (and sit across this one), so omit them here.
+    const plantLabels = [];
+    const context = extraLayers({ zoom, light, now, place, plantLabels })
+      .filter(layer => layer && !layer.id.startsWith('route-') && !SIM_HIDES.has(layer.id));
+    const layers = [...context, ...simulationOverlay.layers(light, zoom)];
+    layers.sort((a, b) => (a instanceof TextLayer) - (b instanceof TextLayer));
+    overlay.setProps({ layers });
+    return;
+  }
   const nodes = [...state.nodes.values()].filter(n => n.lat != null && n.lon != null);
   const now = performance.now();
   const views = new Map(nodes.map(n => [n.node, nodeView(n)]));
@@ -276,13 +359,15 @@ function renderMap(fromAnim = false) {
   const place = makePlacer(map);
   const pitchK = Math.sin((map.getPitch() * Math.PI) / 180);
   const tankTopPx = (elev() / metersPerPixel(zoom, 40.35)) * pitchK;
-  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${n.sim ? ' · simulated' : ''}`;
-  const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (n.sim ? 11 : 13),
-    priority: n => (n.sim ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
+  // A site is tagged simulated only where simulated and measured sites share the map; when all are, the Demo data chip says so once.
+  const mixed = nodes.some(n => !simulatedNode(n));
+  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${mixed && simulatedNode(n) ? ', simulated' : ''}`;
+  const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (simulatedNode(n) ? 11 : 13),
+    priority: n => (simulatedNode(n) ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
   const miscLabels = [
-    ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'BASE STATION' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
+    ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'Base station' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
     ...(show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }).map(d => ({ ...d, plant: true })) : []),
-    ...place(show.usgs ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site} · USGS ${r.tds_est} ppm` })) : [],
+    ...place(show.usgs && zoom >= REF_ZOOM ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site}, USGS ${r.tds_est} ppm`, ref: true })) : [],
       { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
   ];
   const layers = [
@@ -293,13 +378,14 @@ function renderMap(fromAnim = false) {
     }),
     show.links && new ArcLayer({
       id: 'links',
-      // LoRa reaches a few miles, so only nodes near the base station link to it; other cities have their own gateways.
+      // On by default, and quiet: thin arcs in the site's steel blue, listed before the site markers so they sit under them.
+      // Only nodes near the base station link to it; other cities would have their own. The tooltip carries the signal strength.
       data: nodes.filter(n => Math.abs(n.lat - BASE[0]) < 0.5 && Math.abs(n.lon - BASE[1]) < 0.5),
       getSourcePosition: n => [n.lon, n.lat],
       getTargetPosition: [BASE[1], BASE[0]],
-      getSourceColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, n.sim ? 90 : 220),
-      getTargetColor: n => rssiColor(views.get(n.node).lt?.rssi ?? -90, n.sim ? 60 : 200),
-      getWidth: n => (n.sim ? 1.5 : 3),
+      getSourceColor: n => [90, 155, 189, simulatedNode(n) ? 105 : 190],
+      getTargetColor: n => [90, 155, 189, simulatedNode(n) ? 45 : 110],
+      getWidth: n => (simulatedNode(n) ? 1.1 : 2),
       getHeight: 0.6,
       greatCircle: false,
       pickable: true,
@@ -324,6 +410,13 @@ function renderMap(fromAnim = false) {
       pickable: true,
       updateTriggers: { getRadius: key },
     }),
+    // A stream reading is a small open ring, in the colour of everything on the map that is context and not ours.
+    show.usgs && zoom >= REF_ZOOM && new ScatterplotLayer({
+      id: 'reference-ring', data: state.reference, getPosition: d => [d.lon, d.lat],
+      radiusUnits: 'pixels', getRadius: 4.5, lineWidthUnits: 'pixels', getLineWidth: 1.5, stroked: true, filled: true,
+      getFillColor: light ? [247, 240, 240, 200] : [9, 22, 34, 200], getLineColor: CONTEXT(light),
+      parameters: { depthTest: false }, updateTriggers: { getFillColor: light, getLineColor: light },
+    }),
     // Water inside the tank: height = TDS (0-1000 ppm), color = verdict.
     show.columns && new ColumnLayer({
       id: 'tds',
@@ -334,7 +427,7 @@ function renderMap(fromAnim = false) {
       pickable: true,
       getPosition: n => [n.lon, n.lat, wallBase],
       getElevation: n => fill(n) * wallH,
-      getFillColor: n => [...colRGB(n), n.sim ? 150 : 255],
+      getFillColor: n => [...colRGB(n), simulatedNode(n) ? 150 : 255],
       material: { ambient: 0.55, diffuse: 0.55, shininess: 60 },
       updateTriggers: { getElevation: key, getFillColor: key, getPosition: key },
       onClick: ({ object }) => object && openDrawer(object.node),
@@ -345,7 +438,7 @@ function renderMap(fromAnim = false) {
       mesh: tankSolid,
       getPosition: n => [n.lon, n.lat, 0],
       getScale: [ts, ts, ts],
-      getColor: n => (n.sim ? [113, 117, 128, 255] : light ? [90, 96, 108, 255] : [222, 216, 216, 255]),
+      getColor: n => (simulatedNode(n) ? [113, 117, 128, 255] : light ? [90, 96, 108, 255] : [222, 216, 216, 255]),
       material: { ambient: 0.45, diffuse: 0.65, shininess: 24, specularColor: [40, 40, 40] },
       pickable: true,
       autoHighlight: true,
@@ -359,7 +452,7 @@ function renderMap(fromAnim = false) {
       mesh: tankGlass,
       getPosition: n => [n.lon, n.lat, 0],
       getScale: [ts, ts, ts],
-      getColor: n => (light ? [11, 32, 39, 60] : [247, 240, 240, n.sim ? 40 : 70]),
+      getColor: n => (light ? [11, 32, 39, 60] : [247, 240, 240, simulatedNode(n) ? 40 : 70]),
       material: { ambient: 0.8, diffuse: 0.3, shininess: 80 },
       parameters: { depthMask: false, depthWriteEnabled: false },
       updateTriggers: { getScale: key, getColor: key },
@@ -379,11 +472,11 @@ function renderMap(fromAnim = false) {
       data: nodeLabels,
       getPosition: n => [n.lon, n.lat, elev(n)],
       getText: nodeText,
-      getSize: n => (n.sim ? 11 : 13),
-      getColor: n => (light ? (n.sim ? [113, 117, 128, 240] : [11, 32, 39, 255]) : (n.sim ? [150, 154, 163, 230] : [247, 240, 240, 255])),
+      getSize: n => (simulatedNode(n) ? 11 : 13),
+      getColor: n => (light ? (simulatedNode(n) ? [113, 117, 128, 240] : [11, 32, 39, 255]) : (simulatedNode(n) ? [150, 154, 163, 230] : [247, 240, 240, 255])),
       fontFamily: 'Inter, system-ui, sans-serif',
       fontWeight: 600,
-      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [11, 32, 39, 230],
+      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230],
       fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'bottom',
@@ -396,15 +489,15 @@ function renderMap(fromAnim = false) {
       getPosition: d => d.pos,
       getText: d => d.text,
       getSize: 11,
-      getColor: d => (d.text === 'BASE STATION' ? (light ? [11, 32, 39, 255] : [247, 240, 240, 255]) : (light ? [11, 32, 39, 220] : [247, 240, 240, 200])),
+      getColor: d => (d.ref ? CONTEXT(light) : (light ? [11, 32, 39, 255] : [247, 240, 240, 255])),
       getPixelOffset: [0, 16],
       fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
-      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [11, 32, 39, 230], fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
+      outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230], fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
       getAlignmentBaseline: 'top',
       updateTriggers: { getText: key, getColor: light },
     }),
     ...extraLayers({ zoom, light, now, place, plantLabels: miscLabels.filter(d => d.plant) }),
-    ...usLayers({ zoom, place, on: show.ustds, onClick: ({ object }) => object && flyTo(object.pos, 12.5, { pitch: 50 }) }),
+    ...usLayers({ zoom, place, light, on: show.ustds, onClick: ({ object }) => object && flyTo(object.pos, 12.5, { pitch: 50 }) }),
   ].filter(Boolean);
   // Text goes last so labels sit on top of tanks and route lines.
   layers.sort((a, b) => (a instanceof TextLayer) - (b instanceof TextLayer));
@@ -421,6 +514,7 @@ function cached(key, deps, fn) {
   const v = fn(); memo.set(key, { deps, v }); return v;
 }
 const PLANT_LABELS = [...PLANTS.map(p => ({ pos: p.pos, text: p.short })), { pos: RIDGE_TOWER, text: 'Water tower (Princeton Ridge)' }];
+const onRoute = pos => Math.abs(pos[0] - RIDGE_TOWER[0]) < 0.004 && Math.abs(pos[1] - RIDGE_TOWER[1]) < 0.004;
 const TREE_GREENS = [[86, 140, 64], [104, 156, 70], [73, 122, 58], [122, 168, 82], [95, 133, 60]];
 function extraLayers({ zoom, light, now, place, plantLabels }) {
   const t = performance.now() / 1000;
@@ -428,7 +522,7 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
   const towerScale = Math.max(1, (mpp * 7) / 8);
   const textBase = {
     fontFamily: 'Inter, Helvetica, Arial, sans-serif', fontWeight: 600, fontSettings: { sdf: true }, characterSet: 'auto',
-    outlineWidth: 3, outlineColor: light ? [255, 252, 245, 240] : [11, 32, 39, 235], parameters: { depthTest: false },
+    outlineWidth: 3, outlineColor: light ? [255, 252, 245, 240] : [9, 22, 34, 235], parameters: { depthTest: false },
   };
   const ink = light ? [11, 32, 39, 255] : [247, 240, 240, 255];
   const cut = state.cutaway;
@@ -445,14 +539,17 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
       getColor: (d, { index }) => TREE_GREENS[index % TREE_GREENS.length],
       material: { ambient: 0.55, diffuse: 0.6, shininess: 8 },
     }),
+    // The water route (illustrative): one quiet line in the site's blue from the plants to the tower, and a
+    // hairline on to each site. Only the site that is open is picked out, so the map is not a web of spokes.
     show.route && new PathLayer({
-      id: 'route-trunk', opacity: 0.5, data: TRUNK_PATHS, getPath: d => d.points, getColor: [18, 110, 235, 255],
-      getWidth: 6, widthMinPixels: 3, widthMaxPixels: 9, capRounded: true, jointRounded: true, pickable: true,
+      id: 'route-trunk', data: TRUNK_PATHS, getPath: d => d.points, getColor: [90, 155, 189, 190],
+      getWidth: 6, widthMinPixels: 2, widthMaxPixels: 8, capRounded: true, jointRounded: true, pickable: true,
     }),
     show.route && new PathLayer({
-      id: 'route-branches', opacity: 0.5, data: branchPaths, getPath: d => d.points, getColor: [40, 140, 245, 235],
-      getWidth: 4, widthMinPixels: 2.5, widthMaxPixels: 6, capRounded: true, jointRounded: true, pickable: true,
-      updateTriggers: { getPath: branchPaths.length },
+      id: 'route-branches', data: branchPaths, getPath: d => d.points,
+      getColor: d => (d.node === state.selected ? [141, 189, 216, 255] : [90, 155, 189, 105]),
+      getWidth: d => (d.node === state.selected ? 3 : 1.2), widthUnits: 'pixels', capRounded: true, jointRounded: true, pickable: true,
+      updateTriggers: { getPath: branchPaths.length, getColor: state.selected, getWidth: state.selected },
     }),
     cut && new ScatterplotLayer({
       id: 'flow', data: cutFlow, getPosition: d => d.pos, getRadius: 0.35,
@@ -461,7 +558,8 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
       updateTriggers: { getRadius: !!cut },
     }),
     show.infra && new SimpleMeshLayer({
-      id: 'towers', data: cached('tw', [state.infra], () => state.infra.filter(d => d.k === 'water_tower')), mesh: towerMesh,
+      // The tower on the route is always there. The other mapped towers are scenery, so they wait until the map is close in.
+      id: 'towers', data: cached('tw', [state.infra, zoom >= 13], () => state.infra.filter(d => d.k === 'water_tower' && (zoom >= 13 || onRoute(d.pos)))), mesh: towerMesh,
       getPosition: d => [...d.pos, 0], getScale: [towerScale, towerScale, towerScale],
       getColor: light ? [214, 222, 228] : [180, 196, 204], material: { ambient: 0.5, diffuse: 0.65, shininess: 30 },
       pickable: true, updateTriggers: { getScale: towerScale },
@@ -479,7 +577,7 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
     show.infra && new TextLayer({
       id: 'plant-labels',
       data: plantLabels,
-      getPosition: d => d.pos, getText: d => d.text, getSize: 13, getColor: ink, getPixelOffset: [0, -22],
+      getPosition: d => d.pos, getText: d => d.text, getSize: 12, getColor: CONTEXT(light), getPixelOffset: [0, -22],
       ...textBase, updateTriggers: { getColor: light },
     }),
     show.labels && zoom >= 15.8 && new TextLayer({
@@ -517,7 +615,7 @@ async function followTheWater() {
     { center: [-74.5700, 40.5480], zoom: 13.2, pitch: 55, bearing: -30, say: 'The Millstone River meets the Raritan here. Both rivers, plus the D&R Canal and 98 wells, supply the system.' },
     { center: PLANTS[0].pos, zoom: 14.6, pitch: 60, bearing: 10, say: `${PLANTS[0].name}: river water is filtered and treated with chloramines.` },
     { center: PLANTS[1].pos, zoom: 14.4, pitch: 60, bearing: 40, say: `${PLANTS[1].name}: a second plant on the canal.` },
-    { center: [-74.6145, 40.3830], zoom: 13, pitch: 55, bearing: 70, say: 'Treated water travels south toward Princeton through large transmission mains (route shown is illustrative).' },
+    { center: [-74.6145, 40.3830], zoom: 13, pitch: 55, bearing: 70, say: 'Treated water travels south toward Princeton through large transmission mains.' },
     { center: RIDGE_TOWER, zoom: 16, pitch: 62, bearing: 120, say: 'Storage tanks on the Princeton Ridge hold water high up, so gravity keeps the pressure steady in town.' },
     ...(tank ? [{ center: [tank.lon, tank.lat], zoom: 17.3, pitch: 64, bearing: 160, say: `${tank.name}: Clarity tests the water at the tap, before and after the filter.` }] : []),
   ];
@@ -537,18 +635,36 @@ async function followTheWater() {
   motion = null;
 }
 
+/* What EPA's public records say about the system that serves Princeton: collected ahead of time by
+   scripts/public_record.py and stored, so nothing is looked up while the page is being shown. */
+let publicRecord = null;
+fetch(import.meta.env.BASE_URL + 'data/public_record.json').then(r => (r.ok ? r.json() : null)).then(j => { publicRecord = j; renderSourcePanel(); }).catch(() => {});
+function recordHTML() {
+  const r = publicRecord;
+  if (!r) return '';
+  const day = new Date(r.fetched + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return `<h3>On the public record <span class="h3note">EPA, fetched ${day}</span></h3>
+    <table class="facts record">
+      <tr><td>Who it serves</td><td>${Number(r.system.population).toLocaleString()} people through ${Number(r.system.connections).toLocaleString()} connections, Princeton among many towns.
+        <a href="${esc(r.system.url)}" target="_blank" rel="noopener">${esc(r.system.source)}</a></td></tr>
+      ${r.facts.map(f => `<tr><td>${esc(f.label)}</td><td>${esc(f.text)} <a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.source)}</a></td></tr>`).join('')}
+    </table>
+    <p class="muted small">${esc(r.caveat)}</p>`;
+}
 function renderSourcePanel() {
+  const wells = publicRecord ? `wells: ${SYSTEM.wells} by the utility's report, ${publicRecord.wells_active} active on EPA's record` : `${SYSTEM.wells} wells`;
   const ref = state.reference.map(r => `<tr><td>${esc(r.site)}</td><td>${r.tds_est} ppm</td><td class="muted">${esc(String(r.date).slice(0, 4))}</td></tr>`).join('');
   $('#tab-src').innerHTML = `
-    <p class="lede">Princeton's tap water comes from <b>${SYSTEM.utility}</b>, ${SYSTEM.system}. About ${SYSTEM.surfacePct}% is river and canal water and ${SYSTEM.groundPct}% comes from ${SYSTEM.wells} wells.</p>
+    <p class="lede">Princeton's tap water comes from <b>${SYSTEM.utility}</b>, ${SYSTEM.system}. About ${SYSTEM.surfacePct}% is river and canal water and ${SYSTEM.groundPct}% comes from wells.</p>
     <button id="btn-follow" class="btn">Follow the water</button>
     <ol class="journey">
-      <li data-fly="-74.5700,40.5480,13.2"><b>Sources</b><span>${SYSTEM.sources.join(', ')}, plus ${SYSTEM.wells} wells</span></li>
+      <li data-fly="-74.5700,40.5480,13.2"><b>Sources</b><span>${SYSTEM.sources.join(', ')}, plus ${wells}</span></li>
       <li data-fly="${PLANTS[0].pos.join(',')},14.6"><b>${PLANTS[0].short}</b><span>${esc(PLANTS[0].note)}</span></li>
       <li data-fly="${PLANTS[1].pos.join(',')},14.4"><b>${PLANTS[1].short}</b><span>${esc(PLANTS[1].note)}</span></li>
       <li data-fly="${RIDGE_TOWER.join(',')},16"><b>Storage towers</b><span>${state.infra.filter(d => d.k === 'water_tower').length} mapped water towers in the area keep pressure up by gravity.</span></li>
       <li data-fly="-74.6555,40.347,17"><b>Your tap</b><span>Clarity tests it before and after the filter.</span></li>
     </ol>
+    ${recordHTML()}
     <h3>From the utility's ${SYSTEM.report}</h3>
     <table class="facts">${SYSTEM.results.map(r => `<tr><td>${r.k}</td><td>${r.v}</td><td class="muted">${r.note}</td></tr>`).join('')}</table>
     <p class="muted small">Average supply ${SYSTEM.supplyMgd} million gallons a day (2023 report). ${SYSTEM.treatment} The report does not list TDS. PWSID ${SYSTEM.pwsid}. <a href="${SYSTEM.reportUrl}" target="_blank" rel="noopener">Read the report</a></p>
@@ -626,7 +742,7 @@ function startTour() {
     if (!on) return;
     const n = stops[i % stops.length];
     i += 1;
-    map.flyTo({ center: [n.lon, n.lat], zoom: n.sim ? 14.6 : 15.6, pitch: 64, bearing: (i * 47) % 360 - 180, duration: 3500, essential: true });
+    map.flyTo({ center: [n.lon, n.lat], zoom: simulatedNode(n) ? 14.6 : 15.6, pitch: 64, bearing: (i * 47) % 360 - 180, duration: 3500, essential: true });
     map.once('moveend', () => { if (on) timer = setTimeout(next, 2200); });
   };
   next();
@@ -734,33 +850,47 @@ function refreshTimeRange() {
 }
 
 async function loadExtras() {
-  const get = async (f, dflt) => { try { return await (await fetch(`./data/${f}`)).json(); } catch { return dflt; } };
-  const [trees, roadLabels, infra] = await Promise.all([get('trees.json', []), get('road_labels.json', []), get('water_infra.json', [])]);
-  state.trees = trees; state.roadLabels = roadLabels; state.infra = infra;
+  const get = async (f, dflt) => {
+    try { const r = await fetch(`./data/${f}`); return r.ok ? await r.json() : dflt; } catch { return dflt; }
+  };
+  let detailStarted = false;
+  const loadDetail = () => {
+    if (detailStarted) return;
+    detailStarted = true;
+    const idle = fn => window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 0);
+    idle(async () => {
+      const [trees, roadLabels] = await Promise.all([get('trees.json', []), get('road_labels.json', [])]);
+      // The source is already shuffled deterministically: keep a stable third for
+      // the decorative canopy without constructing 60,000 mesh instances.
+      state.trees = trees.filter((_, i) => i % 3 === 0);
+      state.roadLabels = roadLabels;
+      renderMap();
+    });
+  };
+  if (intro?.active) window.addEventListener('clarity:map-arrived', loadDetail, { once: true });
+  else loadDetail(); // ?nointro and reduced-motion: decorate once startup is idle.
+  // Infrastructure is useful immediately and must not wait for decorative trees.
+  state.infra = await get('water_infra.json', []);
   renderSourcePanel();
   renderMap();
 }
 
 async function loadPlaces() {
-  try {
-    const fc = await (await fetch('./data/places.json')).json();
-    state.places = fc.features.map(f => ({ pos: f.geometry.coordinates, n: f.properties.n, c: f.properties.c }));
-  } catch { state.places = []; }
-  try {
-    const b = await (await fetch('./data/buildings.json')).json();
-    state.namedBuildings = b.features.filter(f => f.properties.n).map(f => {
-      const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
-      const c = ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
-      return { label: f.properties.n, pos: c, zoom: 17, h: (f.properties.h || 8) + (f.properties.b ? 0 : 0) };
-    });
-  } catch { state.namedBuildings = []; }
+  const get = async f => {
+    try { const r = await fetch(`./data/${f}`); return r.ok ? await r.json() : null; } catch { return null; }
+  };
+  const [places, labels] = await Promise.all([get('places.json'), get('building-labels.json')]);
+  state.places = places?.features?.map(f => ({ pos: f.geometry.coordinates, n: f.properties.n, c: f.properties.c })) || [];
+  // The generator keeps only named points; full building polygons are fetched
+  // separately by the map when their geometry is actually needed.
+  state.namedBuildings = Array.isArray(labels) ? labels : [];
   buildSearchIndex();
   renderMap();
 }
 
 function buildSearchIndex() {
   const idx = [
-    ...[...state.nodes.values()].filter(n => n.lat != null).map(n => ({ label: `${n.name}${n.sim ? ' (simulated node)' : ' (Clarity node)'}`, pos: [n.lon, n.lat], zoom: 15.5, node: n.node })),
+    ...[...state.nodes.values()].filter(n => n.lat != null).map(n => ({ label: `${n.name}${simulatedNode(n) ? ' (simulated node)' : ' (Clarity node)'}`, pos: [n.lon, n.lat], zoom: 15.5, node: n.node })),
     ...state.reference.map(r => ({ label: `${r.site} (USGS)`, pos: [r.lon, r.lat], zoom: 15 })),
     ...(state.namedBuildings || []),
     ...(state.places || []).map(p => ({ label: p.n, pos: p.pos, zoom: 17.5 })),
@@ -777,45 +907,98 @@ function heroTest() {
   const all = [...state.byId.values()].sort((a, b) => b.id - a.id);
   const real = all.find(r => !r.sim);
   const r = real || all[0];
-  return r ? { node: r.node, test: r.test } : null;
+  return r ? { node: r.node, test: r.test, session: r.session ?? null } : null;
 }
 
+/* Away from Princeton there is no Clarity site, so the card says what is publicly known about the water in
+   view instead: the Water Quality Portal samples the map already carries. It is worked out here from that
+   data, with no model and nothing fetched. These are rivers, lakes and wells, not tap water, and it says so. */
+const atHome = c => c.lng > -74.95 && c.lng < -74.35 && c.lat > 40.2 && c.lat < 40.65;
+let areaShown = false;
+function renderArea(el) {
+  const b = map.getBounds(), c = map.getCenter();
+  const km = (lon, lat) => { const R = 6371, r = Math.PI / 180, dy = (lat - c.lat) * r, dx = (lon - c.lng) * r * Math.cos(c.lat * r); return R * Math.hypot(dx, dy); };
+  // Zoomed out, it is what is in view. Zoomed in to a town or a street, the view holds too little to
+  // say anything, so it is everything within 25 km, and the card says which.
+  const close = km(b.getEast(), b.getNorth()) < 25;
+  const seen = close ? us.sites.filter(d => km(d.pos[0], d.pos[1]) <= 25)
+    : us.sites.filter(d => d.pos[0] >= b.getWest() && d.pos[0] <= b.getEast() && d.pos[1] >= b.getSouth() && d.pos[1] <= b.getNorth());
+  const near = map.getZoom() >= 6.5 ? CITIES.map(x => ({ x, d: km(x.pos[0], x.pos[1]) })).sort((p, q) => p.d - q.d)[0] : null;
+  const place = near && near.d < 60 ? `Near ${near.x.name}` : map.getZoom() < 5 ? 'United States' : 'This view';
+  const away = Math.round(km(HOME.center[0], HOME.center[1]) / 10) * 10;
+  const home = `<div class="explain"><div class="who rule">No Clarity site here yet</div>
+      <p class="muted">The nearest is the Princeton demo, ${away.toLocaleString()} km away. <button class="area-home">Go to the demo</button></p></div>`;
+  const head = `<div class="hero-head">
+      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Public water samples ${close ? 'within 25 km' : 'in view'}</div>
+      <div class="area-place">${esc(place)}</div>
+    </div>`;
+  if (!seen.length) {
+    el.innerHTML = `${head}<p class="area-line">No public sample of dissolved solids ${close ? 'within 25 km' : 'in view'} since 2024.</p>${home}`;
+  } else {
+    const tds = seen.map(d => d.tds).sort((p, q) => p - q), median = tds[Math.floor(tds.length / 2)];
+    const over = seen.filter(d => d.tds >= 500).length, share = over / seen.length;
+    const days = seen.map(d => (Date.now() - Date.parse(d.date)) / 864e5).sort((p, q) => p - q);
+    const latest = new Date(Math.max(...seen.map(d => Date.parse(d.date)))).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const months = Math.round(days[Math.floor(days.length / 2)] / 30.4);
+    const bands = TDS_BANDS.map(x => ({ ...x, n: seen.filter(d => tdsColor(d.tds) === x.rgb).length }));
+    el.innerHTML = `${head}
+      <div class="hero-big">
+        <div><span class="num" style="color:rgb(${tdsColor(median).join(',')})">${median.toLocaleString()}</span><span class="unit">${seen.length === 1 ? 'ppm at the one site' : 'ppm, the median'}</span></div>
+        <div class="pct">${ring(share, { size: 62, label: `${Math.round(share * 100)}%` })}<span>over 500 ppm</span></div>
+      </div>
+      <div class="usbar">${bands.map(x => `<i style="flex:${x.n};background:rgb(${x.rgb.join(',')})" title="${x.label} ppm: ${x.n.toLocaleString()}"></i>`).join('')}</div>
+      <p class="area-line">${seen.length.toLocaleString()} ${seen.length === 1 ? 'site' : 'sites'} sampled since 2024, the latest on ${latest}.
+        ${seen.length > 2 ? `Half have gone ${months} months or more without a new sample.` : ''}</p>
+      <p class="muted small">Rivers, lakes and wells, from the Water Quality Portal (USGS, EPA and state agencies). Untreated water, not tap water: 500 ppm is the EPA's drinking-water guideline, shown for scale.</p>
+      ${home}`;
+  }
+  el.querySelector('.area-home')?.addEventListener('click', () => document.getElementById('btn-reset')?.click());
+}
+
+// The card follows the map: redraw when the view settles somewhere other than home, or comes back.
+map.on('moveend', () => { if (areaShown || !atHome(map.getCenter())) renderHero(); });
+
 function renderHero() {
-  const h = heroTest();
   const el = $('#hero');
+  areaShown = us.sites.length > 0 && !atHome(map.getCenter());
+  if (areaShown) { renderArea(el); return; }
+  const h = heroTest();
   if (!h) { el.innerHTML = '<div class="hero-title">Waiting for the first test…</div>'; return; }
-  const { before, after } = testPair(h.node, h.test);
+  const { before, after } = testPair(h.node, h.test, h.session ?? null);
   const n = state.nodes.get(h.node);
   const filter = (after || before)?.ai_filter || (after || before)?.filter;
-  const src = state.sources.get(after?.id) || state.sources.get(before?.id);
+  const src = state.sources.get(after?.id) || state.sources.get(before?.id) || after?.source || before?.source;   // the gateway also stores who chose
   const pct = before && after && before.tds ? Math.round((1 - after.tds / before.tds) * 100) : null;
   const color = r => `rgb(${(VERDICT_RGB[r?.verdict] || [113, 117, 128]).join(',')})`;
-  const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}</div></div>`;
+  const noFilter = !!before && !after && before.ai_filter === 'NONE';
+  const metric = (k, key, d = 0) => `<div><div class="k">${k}</div><div class="v">${before ? Number(before[key]).toFixed(d) : '–'}${noFilter ? '' : `<span class="to">→</span>${after ? Number(after[key]).toFixed(d) : '…'}`}</div></div>`;
   const expl = [before?.explanation, after?.explanation].filter(Boolean);
   el.innerHTML = `
     <div class="hero-head">
-      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Before / after · test #${h.test}</div>
-      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${n?.sim ? '<span class="chip sim">simulated</span>' : ''} ›</div>
+      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>${noFilter ? 'As poured' : 'Before and after'}, test ${h.test}</div>
+      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${simulatedNode(n) && [...state.nodes.values()].some(x => !simulatedNode(x)) ? '<span class="chip sim">simulated</span>' : ''}</div>
     </div>
     <div class="hero-big">
       <div><span class="num" style="color:${color(before)}">${before ? before.tds : '–'}</span><span class="unit">ppm</span></div>
-      <div class="arrow">→</div>
+      ${noFilter ? '' : '<div class="arrow">→</div>'}
       ${after
         ? `<div><span class="num" style="color:${color(after)}">${after.tds}</span><span class="unit">ppm</span></div>
            <div class="pct">${ring(pct / 100, { size: 62, label: `${pct}%` })}<span>TDS removed</span></div>`
-        : '<div class="pending">Retest pending…<br/><span class="muted small">Pour the filtered water</span></div>'}
+        : noFilter ? '<div class="pending">No filter needed<br/><span class="muted small">No retest required</span></div>' : '<div class="pending">Retest pending…<br/><span class="muted small">Pour the filtered water</span></div>'}
     </div>
     ${before ? `<div class="hero-bars">
       <div class="hb"><span>Before</span>${tdsBar(before.tds, color(before))}<b>${before.tds}</b></div>
-      <div class="hb"><span>After</span>${after ? tdsBar(after.tds, color(after)) : tdsBar(0, 'transparent')}<b>${after ? after.tds : '…'}</b></div>
+      ${noFilter ? '' : `<div class="hb"><span>After</span>${after ? tdsBar(after.tds, color(after)) : tdsBar(0, 'transparent')}<b>${after ? after.tds : '…'}</b></div>`}
       <div class="hb-scale"><span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span></div>
     </div>` : ''}
-    ${filter ? `<div class="filter-tag">Filter used: ${FILTER_LABEL[filter] || filter}</div>` : ''}
-    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric('pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
+    ${filter ? `<div class="filter-tag">${noFilter ? 'Filter skipped' : filter === 'NONE' ? 'Choosing whether to filter' : `Filter chosen: ${FILTER_LABEL[filter] || filter}`}</div>` : ''}
+    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric([before, after].filter(Boolean).some(phEstimated) ? 'pH, estimated' : 'pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
     ${expl.length ? `<div class="explain">
         <div class="who ${src === 'local_rule' ? 'rule' : ''}">${sourceLabel(src)}</div>
         ${expl.map(t => `<p>${esc(t)}</p>`).join('')}
-      </div>` : before ? `<div class="explain"><div class="who">${AI_NAME}</div><p class="muted">Thinking…</p></div>` : ''}
+      </div>` : before ? (before.ai_filter
+        ? `<div class="explain"><div class="who rule">Local rule</div><p class="muted">The tank's own rule chose this. There is no model explanation for this pour.</p></div>`
+        : `<div class="explain"><div class="who">${AI_NAME}</div><p class="muted">Thinking…</p></div>`) : ''}
   `;
   el.querySelector('.hero-node')?.addEventListener('click', () => openDrawer(h.node));
 }
@@ -834,9 +1017,9 @@ function feedItem(html, cls, node) {
 function feedReading(r) {
   const n = state.nodes.get(r.node);
   feedItem(`<div class="item-top"><span class="nodename">${esc(nodeName(r.node))}</span>
-      ${n?.sim ? '<span class="chip sim">sim</span>' : ''}<span class="chip ${r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
+      ${simulatedNode(n) ? '<span class="chip sim">sim</span>' : ''}<span class="chip ${r.verdict}">${VERDICT_LABEL[r.verdict] || r.verdict}</span>
       <span class="t">${fmtTime(r.ts)}</span></div>
-    <div class="body">Test #${r.test} ${r.phase === 'after' ? 'retest (after filter)' : 'first pour'}: TDS <b>${r.tds}</b> ppm · pH ${r.ph} · clarity ${r.clarity}</div>
+    <div class="body">Test #${r.test} ${r.phase === 'after' ? 'retest (after filter)' : 'first pour'}: TDS <b>${r.tds}</b> ppm · pH ${r.ph}${phEstimated(r) ? ' (estimated)' : ''} · clarity ${r.clarity}</div>
     ${tdsBar(r.tds, `rgb(${(VERDICT_RGB[r.verdict] || [113, 117, 128]).join(',')})`)}`, `reading v-${r.verdict}`, r.node);
 }
 
@@ -847,7 +1030,7 @@ function feedDecision(d) {
 }
 
 function reportHTML(rep) {
-  return `<div class="item-top"><span class="chip PH_WARN">Investigator</span><span class="nodename">${esc(nodeName(rep.node))}</span><span class="t">test #${rep.test}</span></div>
+  return `<div class="item-top"><span class="chip PH_WARN">${rep.source === 'sample' ? 'Demo report' : 'Investigator'}</span><span class="nodename">${esc(nodeName(rep.node))}</span><span class="t">test #${rep.test}</span></div>
     <div class="body">${esc(rep.summary)}</div>
     ${rep.findings?.length ? `<div class="lbl">Findings</div><ul>${rep.findings.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
     ${rep.actions?.length ? `<div class="lbl">Actions</div><ul>${rep.actions.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}`;
@@ -918,17 +1101,17 @@ function renderKpis() {
   const befores = all.filter(r => r.phase === 'before');
   const afters = all.filter(r => r.phase === 'after');
   const safeAfter = afters.length ? Math.round((afters.filter(r => r.verdict === 'SAFE').length / afters.length) * 100) : 0;
-  const drops = afters.map(a => { const b = testPair(a.node, a.test).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
+  const drops = afters.map(a => { const b = testPair(a.node, a.test, a.session ?? null).before; return b && b.tds ? 1 - a.tds / b.tds : null; }).filter(x => x != null);
   const avgDrop = drops.length ? Math.round((drops.reduce((s, x) => s + x, 0) / drops.length) * 100) : 0;
   const liters = state.filters.reduce((s, f) => s + (f.liters || 0), 0);
-  const real = [...state.nodes.values()].filter(n => !n.sim).length;
+  const real = [...state.nodes.values()].filter(n => !simulatedNode(n)).length;
   $('#kpis').innerHTML = [
     [befores.length, 'water tests run'],
-    [`${safeAfter}%`, 'safe after filtering'],
+    [`${safeAfter}%`, 'in range after filtering'],
     [`−${avgDrop}%`, 'avg TDS removed'],
     [`${liters.toFixed(1)} L`, 'water filtered'],
-    [state.nodes.size, `sites (${real} real, ${state.nodes.size - real} sim)`],
-    [befores.filter(r => r.verdict !== 'SAFE').length, 'unsafe first pours'],
+    [state.nodes.size, real && real < state.nodes.size ? `sites (${real} real, ${state.nodes.size - real} simulated)` : 'sites'],
+    [befores.filter(r => r.verdict !== 'SAFE').length, 'first pours out of range'],
   ].map(([v, k]) => `<div class="kpi"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
 }
 
@@ -945,10 +1128,10 @@ async function exportCSV() {
     rows = [...state.byId.values()];
   } catch { /* export what we have */ }
   rows.sort((a, b) => a.id - b.id);
-  const cols = ['id', 'ts', 'node', 'name', 'sim', 'test', 'phase', 'ph', 'tds', 'clarity', 'verdict', 'filter', 'ai_filter', 'ai_source', 'anomaly', 'rssi', 'lat', 'lon', 'explanation'];
+  const cols = ['id', 'ts', 'node', 'name', 'sim', 'mock', 'test', 'phase', 'ph', 'ph_est', 'tds', 'clarity', 'verdict', 'filter', 'ai_filter', 'ai_source', 'anomaly', 'rssi', 'lat', 'lon', 'explanation'];
   const cell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [cols.join(',')].concat(rows.map(r => cols.map(c =>
-    cell(c === 'name' ? nodeName(r.node) : c === 'ai_source' ? state.sources.get(r.id) : r[c])).join(','))).join('\n');
+    cell(c === 'name' ? nodeName(r.node) : c === 'sim' ? isSimulatedNode(r, state.mode) : c === 'mock' ? (state.mode === 'mock' || !!r.mock) : c === 'ai_source' ? (state.sources.get(r.id) || r.source) : r[c])).join(','))).join('\n');
   const filename = `clarity-water-log-${new Date().toISOString().slice(0, 10)}.csv`;
   // Inside a claude.ai artifact, files are handed over through the viewer's downloads capability.
   if (ARTIFACT && window.claude?.use) {
@@ -993,10 +1176,10 @@ function lineChart(canvas, labels, series, opts) {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, band: opts.band || {}, tooltip: { backgroundColor: '#13313C' } },
+      plugins: { legend: { display: false }, band: opts.band || {}, tooltip: { backgroundColor: '#0F1B27', borderColor: 'rgba(247,240,240,.28)', borderWidth: 1 } },
       scales: {
-        x: { ticks: { color: '#6b7a84', maxTicksLimit: 5, font: { size: 10 } }, grid: { display: false } },
-        y: { min: opts.min, max: opts.max, ticks: { color: '#6b7a84', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: 'rgba(19,49,60,.08)' } },
+        x: { ticks: { color: 'rgba(247,240,240,.55)', maxTicksLimit: 5, font: { size: 10 } }, grid: { display: false } },
+        y: { min: opts.min, max: opts.max, ticks: { color: 'rgba(247,240,240,.55)', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: 'rgba(247,240,240,.08)' } },
       },
     },
     plugins: [bandPlugin],
@@ -1005,6 +1188,7 @@ function lineChart(canvas, labels, series, opts) {
 
 async function openDrawer(node) {
   state.selected = node;
+  renderMap();                       // the open site's branch of the water route is picked out
   $('#drawer').classList.remove('hidden');
   const n = state.nodes.get(node);
   if (n?.lat != null) {
@@ -1023,6 +1207,7 @@ async function openDrawer(node) {
 
 function closeDrawer() {
   state.selected = null;
+  renderMap();
   $('#drawer').classList.add('hidden');
   charts.splice(0).forEach(c => c.destroy());
 }
@@ -1041,15 +1226,15 @@ function renderDrawer() {
     <div class="meta"><span>${esc(node)}</span>
       ${n.lastBefore ? `<span>Source water</span><span class="chip ${n.lastBefore.verdict}">${VERDICT_LABEL[n.lastBefore.verdict] || n.lastBefore.verdict}</span>` : ''}
       ${latest ? `<span>RSSI ${latest.rssi} dBm</span><span>Last ${fmtTime(latest.ts)}</span>` : ''}</div>
-    ${n.sim ? '<div class="sim-banner">Simulated node. Readings are generated, not measured.</div>' : ''}
+    ${simulatedNode(n) ? '<div class="sim-banner">Simulated node. Readings are generated, not measured.</div>' : ''}
     <div class="anomaly">
       <div><div class="lbl">Anomaly score</div><div class="score" style="color:${anomaly > 0.66 ? 'var(--high)' : anomaly > 0.33 ? 'var(--cloudy)' : 'var(--safe)'}">${anomaly.toFixed(2)}</div></div>
       <div style="flex:1"><div class="bar"><i style="left:${anomaly * 100}%"></i></div>
         <div class="small muted" style="margin-top:8px">${anomaly > 0.66 ? 'Very unusual for this site' : anomaly > 0.33 ? 'Somewhat unusual for this site' : 'Normal for this site'}</div></div>
     </div>
-    <h3>TDS (ppm) · first pour vs. after filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
-    <h3>pH · safe range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
-    <h3>Clarity · 1 = clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
+    <h3>Dissolved solids in ppm, first pour and after the filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
+    <h3>${rs.some(phEstimated) ? 'pH, estimated values shown separately' : 'pH'}, usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
+    <h3>Clarity, where 1 is clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
     <h3>Anomaly score over time</h3><div class="chart" style="height:90px"><canvas id="c-an"></canvas></div>
     ${reps.length ? `<h3>Investigator</h3>${reps.map(r => `<div class="report-card" style="margin-bottom:8px">${reportHTML(r)}</div>`).join('')}` : ''}
     ${latest?.explanation ? `<h3>Latest AI note</h3><div class="explain"><p>${esc(latest.explanation)}</p></div>` : ''}
@@ -1058,11 +1243,11 @@ function renderDrawer() {
   const labels = rs.map(r => fmtTime(r.ts));
   const pick = (phase, key) => rs.map(r => (r.phase === phase ? r[key] : null));
   charts.push(lineChart($('#c-tds'), labels, [
-    { label: 'First pour', data: pick('before', 'tds'), color: '#D1495B' },
+    { label: 'First pour', data: pick('before', 'tds'), color: '#D9667E' },
     { label: 'After filter', data: pick('after', 'tds'), color: '#5A9BBD' },
   ], { min: 0, band: { min: 0, max: 300, line: 500 } }));
-  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH', data: rs.map(r => r.ph), color: '#9F86C0' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
-  charts.push(lineChart($('#c-cl'), labels, [{ label: 'Clarity', data: rs.map(r => r.clarity), color: '#13313C' }], { min: 0, max: 1, band: { min: 0.6, max: 1 } }));
+  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH measured', data: rs.map(r => phEstimated(r) ? null : r.ph), color: '#A892C8' }, { label: 'pH estimated', data: rs.map(r => phEstimated(r) ? r.ph : null), color: '#717580' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
+  charts.push(lineChart($('#c-cl'), labels, [{ label: 'Clarity', data: rs.map(r => r.clarity), color: '#F7F0F0' }], { min: 0, max: 1, band: { min: 0.6, max: 1 } }));
   charts.push(lineChart($('#c-an'), labels, [{ label: 'Anomaly', data: rs.map(r => r.anomaly), color: 'rgba(113,117,128,.9)' }], { type: 'bar', min: 0, max: 1 }));
 }
 
@@ -1088,15 +1273,36 @@ function onMessage(m) {
 function setStatus(s) {
   const el = $('#status');
   // Demo mode (?mock=1 and the artifact build) shows no header label; simulated sites are still labeled on the map.
-  el.className = `pill ${s === 'live' ? 'live' : s === 'offline' ? 'demo' : ''}`;
-  el.textContent = s === 'live' ? 'Live' : s === 'demo' ? '' : s === 'offline' ? 'Gateway offline' : s;
+  el.className = `pill ${s === 'live' ? 'live' : s === 'offline' || s === 'demo' ? 'demo' : ''}`;
+  el.textContent = s === 'live' ? 'Live' : s === 'demo' ? 'Demo data' : s === 'offline' ? 'Gateway offline' : s;   // made-up data always says so
   el.title = s === 'offline' ? 'Retrying the gateway. Add ?api=http://host:8000 if it runs on another machine.' : '';
 }
 
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
-  for (const k of ['ov', 'live', 'src', 'biz']) $(`#tab-${k}`).classList.toggle('hidden', t.dataset.tab !== k);
-}));
+const simulation = installSimulation({
+  apiBase: (params.get('api') || import.meta.env.VITE_API || '').replace(/\/$/, ''),
+  mock: mapDemoMode,
+  fallbackNetwork: simulationNetwork, fallbackPlacement: simulationPlacement,
+  chooseTab: key => selectTab(key),
+  onOpen: () => { stopMotion(); closeDrawer(); exitCutaway(); intro?.dismiss(); },
+  onChange: snapshot => {
+    const wasActive = simulationMapActive;
+    simulationMapActive = Boolean(snapshot.overlayActive && snapshot.view === 'map' && snapshot.network);
+    simulationOverlay.update(snapshot);
+    if (simulationMapActive && snapshot.open && !wasActive) {
+      // Before the map has first settled this is the opening view, so it is set, not flown to.
+      simUserMoved = false;
+      fitSimulation(mapSettled ? 1400 : 0);
+    }
+    scheduleRender();
+  },
+});
+function selectTab(key) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === key));
+  document.querySelectorAll('#panel > .tab-body').forEach(b => b.classList.toggle('hidden', b.id !== `tab-${key}`));
+  if (key === 'sim') simulation.open(); else simulation.close();
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => selectTab(t.dataset.tab)));
+if (params.has('simulation')) selectTab('sim');
 $('#drawer-close').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); exitCutaway(); } });
 $('#export').addEventListener('click', exportCSV);

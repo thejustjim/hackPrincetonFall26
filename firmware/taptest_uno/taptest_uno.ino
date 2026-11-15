@@ -17,6 +17,7 @@
 #include <Servo.h>
 #include <SoftwareSerial.h>
 #include <EEPROM.h>
+#include "ClarityProtocol.h"
 
 // must sit above every function so the IDE's auto-generated prototypes can see it
 enum Filter { F_NONE, F_ZERO, F_BRITA };
@@ -183,29 +184,34 @@ void sendReading(const char* phase, float ph, int tds, float clr, const char* ve
     out.print(F(",\"verdict\":\"")); out.print(verdict);
     out.print(F("\",\"filter\":\"")); out.print(filterName(f));
     out.print(F("\",\"ask\":")); out.print(ask ? 1 : 0);
+    out.print(F(",\"ph_est\":")); out.print(PH_FROM_TDS ? 1 : 0);
     out.println(F("}"));
   }
 }
 
-// waits for {"cmd":"filter","test":N,"filter":"..."} from the Pi; returns -1 if none
+// A command must address this node and this exact test. Untargeted or malformed
+// commands are ignored; the tank's existing local fallback still handles timeouts.
 int waitForAI() {
-  char buf[120]; uint8_t n = 0;
+  char buf[192]; uint8_t n = 0; bool overflow = false;
   unsigned long t0 = millis();
+  int answer = -1;
   radio.listen();
-  while (millis() - t0 < AI_WAIT_MS) {
+  // Keep the old 2.5 s hold + 8 s deadline, but drain SoftwareSerial during
+  // the hold: addressed commands exceed its 64-byte hardware receive buffer.
+  while (millis() - t0 < AI_WAIT_MS + 2500UL) {
     while (radio.available()) {
       char c = radio.read();
+      if (c == '\r') continue;
       if (c == '\n') {
-        buf[n] = 0; n = 0;
-        if (!strstr(buf, "\"cmd\"")) continue;
-        char want[16]; snprintf(want, sizeof want, "\"test\":%u", cal.testNo);
-        if (!strstr(buf, want)) continue;
-        if (strstr(buf, "ZEROWATER")) return F_ZERO;
-        if (strstr(buf, "BRITA")) return F_BRITA;
-        if (strstr(buf, "NONE")) return F_NONE;
-        if (strstr(buf, "RETEST")) return AI_RETEST;
-      } else if (n < sizeof(buf) - 1) buf[n++] = c;
+        buf[n] = 0;
+        int code;
+        bool accepted = !overflow && ClarityProtocol::commandFor(buf, NODE_ID, cal.testNo, code);
+        n = 0; overflow = false;
+        if (accepted && answer < 0) answer = code == 3 ? AI_RETEST : code;
+      } else if (c == 0 || n >= sizeof(buf) - 1) overflow = true;
+      else if (!overflow) buf[n++] = c;
     }
+    if (answer >= 0 && millis() - t0 >= 2500UL) return answer;
   }
   return -1;
 }
@@ -259,7 +265,7 @@ void runTest() {
   bool unsure     = bothBad || nearTds || nearClr || oddSensor;
 
   sendReading(phase, ph, tds, clr, verdict, f, unsure);
-  delay(2500);
+  if (!unsure) delay(2500);  // unsure pours hold inside waitForAI while draining serial
 
   if (unsure) {
     // ask the Pi's AI; fall back to our own rule if it does not answer in time
