@@ -1,11 +1,11 @@
 /* The pitch. It runs on top of the live /demo page, which is already loaded underneath.
 
    Arriving at /pitch lands here (see pitch/index.html and the script in demo/index.html's head):
-     1. The page opens on black, on a glass of clear water. One dirty drop gathers; a filter swings
-        in and catches it; a clear drop falls from the filter and lands.
-     2. On impact the page colour comes up and the title rises beside the glass.
-        In a wide window the glass then stays on stage for the whole deck, doing the same thing over
-        and over, and the "One cup, one loop" slide walks one drop through it a step at a time.
+     1. The page opens on black, on a glass of clear water. One dirty drop gathers and falls in.
+     2. On impact the page colour comes up, the title rises beside the glass, and the water turns
+        brown. In a wide window the glass then stays on stage for the whole deck. With no filter it
+        stays nasty. On the "One cup, one loop" slide the filter snaps into place and the water
+        clears, a step per press, and it stays clear from there on.
      3. Scroll, swipe or use the arrow keys to move through the slides (pitch/slides.html).
      4. Going on past the last slide fades the pitch away, and what is left is /demo. The pitch
         is removed from the page at that point, so there is no way back up to it.
@@ -30,15 +30,19 @@
   let holdUntil = 0, armed = true, lastWheel = 0, pile = 0, restTimer = 0;
 
   // ---------------------------------------------------------------- handing over to the demo
-  /* The glass stays on stage through the whole deck (in a wide window). It always holds clear water:
-     the dirt is in the drop. A dirty drop comes down, meets the filter, and a clear drop falls into the
-     clear water. Each slide names its scene in data-scene. "run" lets that happen by itself, over and
-     over. A slide that names several scenes has that many steps, and walks one drop through by hand:
-     hang (the dirty drop gathers at the tip and waits), filter (the funnel swings in under it), catch
-     (it falls in, and a clear drop forms beneath and waits), release (the clear drop falls). */
+  /* The glass stays on stage through the whole deck (in a wide window), and it follows one rule, the
+     same as the demo's: with no filter the water is what was poured, and what was poured is nasty;
+     with the filter in place the water is clear. Each slide names its scene in data-scene:
+       raw      no filter. Dirty drops fall straight in, and the glass is brown.
+       filter   the filter snaps into place under the dropper, and the water clears.
+       catch    the dirty drop goes into the filter, and a clear one forms beneath and waits.
+       release  the clear drop falls into the clear water.
+       run      the filter stays, and dirty-in, clear-out happens by itself, over and over.
+     A slide that names several scenes has that many steps: each press moves on one. */
   const DIRTY = { ph: 6.9, tds: 640, clarity: 0.42, verdict: "CLOUDY" };     // what the dropper holds
+  const raw = (g) => { g.setSource(DIRTY, false); g.setWater(DIRTY, false, true); g.step?.(null); };
   const scene = (phase) => (g) => { g.setSource(DIRTY, true); g.setWater(null); g.step?.(phase); };
-  const SCENES = { run: scene(null), hang: scene("hang"), filter: scene("filter"), catch: scene("catch"), release: scene("release") };
+  const SCENES = { raw, run: scene(null), filter: scene("filter"), catch: scene("catch"), release: scene("release") };
   let sub = 0;                                                  // which step of the current slide
   const stepsOf = (s) => (s.dataset.scene || "").split(" ").filter(Boolean);
   function stage() {
@@ -171,7 +175,7 @@
     const start = () => {
       document.body.classList.add("ready");          // the glass fades up out of the dark
       TapHero.setWater(null, true);                  // clear water, whatever the latest reading is
-      TapHero.setSource?.(DIRTY, true);              // and a first dirty drop, which the filter will catch
+      TapHero.setSource?.(DIRTY, false);             // and a first dirty drop, with nothing to catch it
       if (reduced) { reveal(); return; }
       addEventListener("hero3d:impact", reveal, { once: true });
       setTimeout(() => TapHero.drip(0.5), 1300);    // the first drop, at half speed

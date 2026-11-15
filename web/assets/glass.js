@@ -436,7 +436,11 @@ function mount(host) {
      Going back a step starts the drop again from the tip. null hands the drops back to their own timing. */
   function step(phase) {
     walk = phase || null;
-    if (!walk) { nextDrip = performance.now() + 900; return; }
+    if (!walk) {                                       // back to its own timing; with no filter in use, nothing is left waiting for one
+      nextDrip = performance.now() + 900;
+      if (!src.filter) { fun.want = false; fun.leaveAt = 0; drop.caught = false; }
+      return;
+    }
     if (still) return;
     const atTip = drop.state === "gather" || drop.state === "neck";
     const again = () => {
@@ -563,7 +567,7 @@ function mount(host) {
 
     // ---- the funnel: in along its arc, held under the tip, back out along the same arc
     if (fun.leaveAt && now >= fun.leaveAt) { fun.want = false; fun.leaveAt = 0; }
-    fun.p = clamp(fun.p + (fun.want ? dt / F_IN : -dt / F_OUT), 0, 1);
+    fun.p = clamp(fun.p + (fun.want ? dt / (walk ? 0.7 : F_IN) : -dt / F_OUT), 0, 1);   // it snaps in when the pitch calls for it
     fun.held = fun.p >= 1 ? fun.held + dt : 0;
     funnel.visible = fun.p > 0;
     if (funnel.visible) {

@@ -1,14 +1,14 @@
 <!-- The pitch. Loaded by assets/pitch.js and laid over the /demo page when you arrive at /pitch.
      In a wide window the 3D glass stays on stage beside every slide, and `data-scene` says what it
-     is doing there: `run` lets a dirty drop meet the filter and a clear one fall, over and over;
-     `hang filter catch release` walks one drop through by hand, a step per name, and `data-step`
-     marks the item each step lights. Scrolling past the last slide hands over to
+     is doing there: `raw` is no filter and nasty water; `filter catch release` snap the filter in,
+     put a dirty drop through it and let a clear one fall, a step per name (`data-step` marks the
+     item each step lights); `run` keeps the filter and lets that happen by itself. Scrolling past the last slide hands over to
      /demo. `data-rise` marks what floats in, in order.
      The judged presentation is two minutes, demo included, so the deck is five slides. The ones
      marked `data-extra` (hardware, AI, filter life, sources, open questions) are left out unless
      the address has ?full, for questions afterwards: /pitch/?full -->
 
-<section class="slide s-title" aria-label="Clarity" data-clear data-scene="run">
+<section class="slide s-title" aria-label="Clarity" data-clear data-scene="raw">
   <div class="p-title">
     <h1>Clarity</h1>
     <p class="tagline" data-rise>What you deserve.</p>
@@ -17,7 +17,7 @@
   <p class="p-hint" data-rise>Scroll<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></p>
 </section>
 
-<section class="slide s-problem" aria-label="The problem" data-scene="run">
+<section class="slide s-problem" aria-label="The problem" data-scene="raw">
   <div class="frame">
     <h2>Stony Brook's flow is measured every fifteen minutes. Its dissolved solids were last sampled in 2023.</h2>
     <div class="split">
@@ -34,7 +34,7 @@
   </div>
 </section>
 
-<section class="slide s-loop" aria-label="How Clarity works" data-scene="hang filter catch release">
+<section class="slide s-loop" aria-label="How Clarity works" data-scene="raw filter catch release">
   <div class="frame">
     <h2>One cup, one loop</h2>
     <ol class="loop">

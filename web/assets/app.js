@@ -96,12 +96,20 @@
      or amber if that is how it read. A filter in use: what came through it, drawn clear until the
      retest arrives, and from then on as the retest actually read (clear again if it worked). The
      dirty water stays up in the dropper, above the filter. */
+  const HOLD_MS = 2600;        // the tank decides clear-cut pours at once; the page still shows the cup as poured for this long
+  let heldPour = null, heldAt = 0;
+  const justPoured = (store) => {
+    const b = store.pour?.before;
+    if (!b) return false;
+    if (b.id !== heldPour) { heldPour = b.id; heldAt = performance.now(); }
+    return performance.now() - heldAt < HOLD_MS;
+  };
+  const filtering = (store) => { const f = usedFilter(store); return !!f && f !== "NONE" && !justPoured(store); };
   const inGlass = (store) => {
     const p = store.pour;
     if (!p?.before) return null;
     if (p.after) return p.after;
-    const f = usedFilter(store);
-    return f && f !== "NONE" ? null : p.before;
+    return filtering(store) ? null : p.before;
   };
 
   /* The hero's words: a short verdict, and under it what is being done about it.
@@ -241,10 +249,11 @@
     // the pipette over the glass holds the pour as it read before any filter, and knows whether a filter was used
     // and once a pour has been retested, the glass can show it as it was beside how it is now
     const pipette = () => {
-      const f = usedFilter(store), p = store.pour;
-      window.TapHero?.setSource?.(p?.before || null, !!f && f !== "NONE");
+      const p = store.pour;
+      window.TapHero?.setSource?.(p?.before || null, p?.after ? !!usedFilter(store) && usedFilter(store) !== "NONE" : filtering(store));
       window.TapHero?.setCompare?.(p?.after ? p.before : null);
     };
+    let holdTimer = 0;
     function renderNotes() {
       const all = items(store);
       orbit.set(M.context ? all.filter((i) => i.group === "cup") : all, M.tag);
@@ -258,7 +267,9 @@
       swapText($("#when"), v.when);
       $("#verdict").classList.toggle("good", v.tone === "good");
       const r = current(store);
-      if (window.TapHero) { if (!pitching()) { const w = inGlass(store); TapHero.setWater(w, false, !!w && w === store.pour?.before); pipette(); } }   // a cup as poured shows at once
+      if (window.TapHero) { if (!pitching()) { const w = inGlass(store); TapHero.setWater(w, false, !!w && w === store.pour?.before); pipette(); } }
+      clearTimeout(holdTimer);                                 // when the hold ends, the filter comes in and the water clears
+      if (justPoured(store) && !store.pour?.after) holdTimer = setTimeout(renderHero, HOLD_MS - (performance.now() - heldAt) + 40);   // a cup as poured shows at once
       else $("#cup-fallback").innerHTML = TapCup.svg(r);
       renderNotes();                                           // after the glass is told, so the notes are measured with the Retest note's hint in place
       M.hero?.(store, v);

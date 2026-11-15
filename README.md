@@ -29,6 +29,8 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     drawn over flat ones that remain as the fallback.
     The glass holds what has reached the cup: the water as it was poured while no filter is used (brown
     or amber if that is how it read), clear once a filter is in use, and then as the retest read.
+    A cup just poured is shown as poured for about two and a half seconds even when the filter is
+    chosen at once, so the dirty cup is seen before the filter comes in.
     The dropper over the glass holds the latest pour as it read before filtering. If that pour was
     sent through a filter, a funnel swings in, catches the drop and lets a clear one through; water
     that read in range falls straight in.
@@ -37,10 +39,12 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
     The judged presentation is two minutes including the demo, so the deck is five slides (title, the
     problem, the loop, what measuring first saves, close); `/pitch/?full` adds five more for questions
     (hardware, AI, filter life, sources, open questions).
-    In a wide window the 3D glass stays on stage beside every slide, always holding clear water: a
-    dirty drop comes down, meets the filter, and a clear drop falls in. The "One cup, one loop" slide
-    has four steps, and each press walks one drop a step further (it hangs, the filter swings in,
-    it goes through, the clear drop falls). When the pitch ends the glass glides to its place in the demo.
+    In a wide window the 3D glass stays on stage beside every slide and follows the demo's rule: with
+    no filter the water is what was poured, and it is nasty; with the filter in place it is clear. The
+    title and the problem show brown water with dirty drops falling straight in. The "One cup, one loop"
+    slide has four steps, a press each: the dirty cup, the filter snapping into place (the water
+    clears), the dirty drop going through it, the clear drop falling. It stays clear from there on.
+    When the pitch ends the glass glides to its place in the demo.
     There is no way back up from the demo; reload `/pitch/` to start again.
   - `/network/` - a simulation, labelled as one: a pipe network with a dozen sensor nodes, four made-up
     events, the trace back to the pipe each most likely entered from, and an incident report that can
