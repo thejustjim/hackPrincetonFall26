@@ -35,7 +35,7 @@ const BASE = (params.get('base') || '40.3504,-74.652').split(',').map(Number); /
 // Optional: ?style=<MapLibre style URL> replaces the bundled Princeton basemap.
 const BASE_STYLE = params.get('style');
 // Palette: #5A9BBD steel, #F7F0F0 paper, #0B2027 ink, #717580 slate (+ warm warning tones that sit with it).
-const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [209, 73, 91], CLOUDY: [224, 164, 88], PH_WARN: [159, 134, 192] };
+const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [217, 102, 126], CLOUDY: [226, 190, 94], PH_WARN: [168, 146, 200] };   // the site's colours
 const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };   // SAFE only means the three readings are in range
 const FILTER_LABEL = { ZEROWATER: 'ZeroWater', BRITA: 'Brita Elite', NONE: 'No filter' };
 const BRITA_RATED_L = 450;
@@ -995,10 +995,10 @@ function lineChart(canvas, labels, series, opts) {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { display: false }, band: opts.band || {}, tooltip: { backgroundColor: '#13313C' } },
+      plugins: { legend: { display: false }, band: opts.band || {}, tooltip: { backgroundColor: '#0F1B27', borderColor: 'rgba(247,240,240,.28)', borderWidth: 1 } },
       scales: {
-        x: { ticks: { color: '#6b7a84', maxTicksLimit: 5, font: { size: 10 } }, grid: { display: false } },
-        y: { min: opts.min, max: opts.max, ticks: { color: '#6b7a84', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: 'rgba(19,49,60,.08)' } },
+        x: { ticks: { color: 'rgba(247,240,240,.55)', maxTicksLimit: 5, font: { size: 10 } }, grid: { display: false } },
+        y: { min: opts.min, max: opts.max, ticks: { color: 'rgba(247,240,240,.55)', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: 'rgba(247,240,240,.08)' } },
       },
     },
     plugins: [bandPlugin],
@@ -1060,11 +1060,11 @@ function renderDrawer() {
   const labels = rs.map(r => fmtTime(r.ts));
   const pick = (phase, key) => rs.map(r => (r.phase === phase ? r[key] : null));
   charts.push(lineChart($('#c-tds'), labels, [
-    { label: 'First pour', data: pick('before', 'tds'), color: '#D1495B' },
+    { label: 'First pour', data: pick('before', 'tds'), color: '#D9667E' },
     { label: 'After filter', data: pick('after', 'tds'), color: '#5A9BBD' },
   ], { min: 0, band: { min: 0, max: 300, line: 500 } }));
-  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH', data: rs.map(r => r.ph), color: '#9F86C0' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
-  charts.push(lineChart($('#c-cl'), labels, [{ label: 'Clarity', data: rs.map(r => r.clarity), color: '#13313C' }], { min: 0, max: 1, band: { min: 0.6, max: 1 } }));
+  charts.push(lineChart($('#c-ph'), labels, [{ label: 'pH', data: rs.map(r => r.ph), color: '#A892C8' }], { min: 5, max: 10, band: { min: 6.5, max: 8.5 } }));
+  charts.push(lineChart($('#c-cl'), labels, [{ label: 'Clarity', data: rs.map(r => r.clarity), color: '#F7F0F0' }], { min: 0, max: 1, band: { min: 0.6, max: 1 } }));
   charts.push(lineChart($('#c-an'), labels, [{ label: 'Anomaly', data: rs.map(r => r.anomaly), color: 'rgba(113,117,128,.9)' }], { type: 'bar', min: 0, max: 1 }));
 }
 

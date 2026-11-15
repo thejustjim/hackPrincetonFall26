@@ -4,13 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Clarity Water Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 </head>
 <body>
   <header class="appbar">
     <div class="brand">
-      <img src="brand/clarity-logo.png" alt="Clarity" class="brand-logo" />
+      <a class="brand-word" href="../demo/" title="The live cup">
+        <svg viewBox="0 0 160 200" aria-hidden="true"><path d="M17 60 L25 190 L135 190 L143 60Z" fill="#5A9BBD" fill-opacity=".5"/><path d="M10 10 L25 190 L135 190 L150 10" fill="none" stroke="#F7F0F0" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        Clarity
+      </a>
+      <span class="brand-tag">What you deserve.</span>
       <span id="status" class="pill">connecting…</span>
-      <a class="pill" href="../demo/" title="The live cup, the full account and the pitch" style="text-decoration:none;color:inherit">The live cup</a>
+      <a class="brand-link" href="../demo/" title="The live cup, the full account and the pitch">The live cup</a>
     </div>
     <div class="mapbar">
     <input id="search" list="search-list" placeholder="Search any US city, address or Princeton site" autocomplete="off" />

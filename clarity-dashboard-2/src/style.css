@@ -405,3 +405,101 @@ body { display: flex; flex-direction: column; height: 100vh; }
   /* Site details open on top of the side panel, same size. */
   .drawer { top: 0; right: 0; bottom: 0; width: var(--pw); border-radius: 0; border-width: 0 0 0 1px; box-shadow: -4px 0 14px rgba(19, 49, 60, .08); }
 }
+
+/* ==========================================================================================
+   The site's look. Everything above is the original light dashboard; this block re-colours and
+   re-sets it to match the other pages (web/assets/base.css): ink black with a blue tint, the
+   same four colours, Newsreader for what you read, hairlines where there were boxes.
+   ========================================================================================== */
+:root {
+  color-scheme: dark;
+  --ink: #050A11;          /* surfaces are the page itself */
+  --ink-2: #0A131C;        /* one step up: floating panels, inputs */
+  --ink-3: rgba(247, 240, 240, 0.14);
+  --paper: #F7F0F0;
+  --steel: #5A9BBD;
+  --sky: #8DBDD8;
+  --mist: #F7F0F0;
+  --bg: #050A11;
+  --slate: #717580;
+  --line: rgba(247, 240, 240, 0.11);
+  --line-strong: rgba(247, 240, 240, 0.28);
+  --text: #F7F0F0;
+  --muted: rgba(247, 240, 240, 0.62);
+  --accent: #5A9BBD;
+  --safe: #5A9BBD;
+  --high: #D9667E;
+  --cloudy: #E2BE5E;
+  --phwarn: #A892C8;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: "Newsreader", "New York", ui-serif, Georgia, serif;
+}
+html, body { background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+body { font-optical-sizing: auto; }
+
+/* panels that float over the map: solid, square, a hairline and a soft dark fall behind */
+.glass { background: var(--ink-2); border: 1px solid var(--line); border-radius: 2px; box-shadow: 0 24px 50px -28px rgba(0, 0, 0, 0.9); }
+
+/* the bar: the wordmark and tagline as on the other pages */
+.appbar { background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: none; gap: 16px; padding: 10px 18px; }
+.brand { gap: 14px; color: var(--text); }
+.brand-word { display: inline-flex; align-items: center; gap: 9px; font-family: var(--serif); font-size: 22px; line-height: 1; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
+.brand-word svg { width: 15px; height: 19px; }
+.brand-tag { font: italic 16px var(--serif); color: var(--muted); white-space: nowrap; }
+.brand-link { font-size: 13px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.brand-link:hover { color: var(--text); }
+.pill { font-size: 13px; }
+.pill.live { color: var(--muted); }
+
+/* controls: quiet outlines; what is on is named by the accent, not filled */
+#search { background: var(--ink-2); border-color: var(--line); border-radius: 2px; color: var(--text); }
+.tool { border-radius: 2px; color: var(--muted); border-color: var(--line); }
+.tool:hover { color: var(--text); background: none; border-color: var(--line-strong); }
+.tool.on { background: none; border-color: var(--accent); color: var(--accent); }
+.seg { border-radius: 2px; border-color: var(--line); }
+.seg button.on { background: rgba(90, 155, 189, 0.2); color: var(--text); }
+.btn { background: none; color: var(--accent); border: 1px solid var(--line-strong); border-radius: 2px; font-weight: 400; }
+.btn:hover { border-color: var(--accent); }
+.close { border-radius: 2px; }
+.mapjump { box-shadow: none; }
+
+/* the side panel: the page, ruled off from the map */
+.panel { background: var(--bg); border-left: 1px solid var(--line); }
+.tabs { gap: 22px; padding: 0 18px; }
+.tab { font: italic 17px var(--serif); padding: 14px 0 11px; color: var(--muted); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.badge { font: 600 12px var(--sans); }
+h3 { font: italic 400 18px var(--serif); color: var(--muted); margin: 28px 0 10px; letter-spacing: 0; }
+.h3note { font: 12px var(--sans); font-style: normal; }
+.lede { font-family: var(--serif); font-size: 17px; line-height: 1.5; }
+
+/* figures: a rule above and a large numeral, not a box */
+.ov-tiles { gap: 0 22px; }
+.tile { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 12px 0 14px; min-height: 96px; }
+.tile .tk { font: italic 15px var(--serif); color: var(--muted); }
+.tile .tv { font-weight: 400; font-size: 42px; letter-spacing: -0.02em; }
+.tile .ts { font-size: 12px; color: var(--muted); }
+.tile.warn { border-color: var(--line); }
+.kpi .v, .hero-big .num, .drawer h2, .anomaly .score { font-weight: 400; letter-spacing: -0.015em; }
+.kpi .v { font-size: 30px; }
+.gauge { border-radius: 2px; }
+.gauge .name, .nodename { font-family: var(--serif); font-weight: 400; font-size: 16px; }
+.nn { font-family: var(--serif); font-size: 16px; }
+.item .body, .report-card ul { color: var(--muted); }
+.item.v-ai { border-left: 1px solid var(--accent); background: linear-gradient(90deg, rgba(90, 155, 189, 0.12), transparent 70%); }
+.explain .who { font: italic 15px var(--serif); color: var(--accent); }
+.explain .who.rule { color: var(--muted); }
+.sim-banner { border-radius: 2px; }
+.tbar b { background: rgba(247, 240, 240, 0.6); }
+.vbar, .usbar { border-radius: 2px; }
+.tbar, .tbar i, .hb .tbar, .hb .tbar i { border-radius: 1px; }
+.topstats span { background: none; border-radius: 2px; }
+.legend .us-scale { border-left-color: var(--line); }
+
+/* what the map library draws over the map */
+.map-tip, .deck-tooltip { background: var(--ink-2) !important; color: var(--text) !important; border-color: var(--line-strong); border-radius: 2px !important; }
+.maplibregl-ctrl-group { background: var(--ink-2) !important; border-radius: 2px !important; }
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1) brightness(0.9); }
+.maplibregl-ctrl-attrib { background: rgba(5, 10, 17, 0.8) !important; }
+.maplibregl-ctrl-attrib a { color: var(--muted) !important; }
+.maplibregl-ctrl-scale { background: none !important; color: var(--muted) !important; border-color: var(--line-strong) !important; }
