@@ -23,21 +23,15 @@
     return a.verdict === "SAFE" ? `${did}, and the retest came back in range.` : `${did}, but the retest is still out of range.`;
   }
 
-  /* Use the reading the chosen filter addresses. Until the retest, this is explicitly the
-     before-reading; only a measured after-reading earns a before/after comparison. */
+  /* One line under the headline once there is a result: the reading the chosen filter was for, before
+     and after. Until the retest there is nothing to add to the headline and the sentence under it. */
   function proof(store) {
     const { FILTER_NAME, fmt } = TapUI;
     const p = store.pour, b = p?.before, a = p?.after, f = p?.decision?.ai_filter;
-    if (!b) return { text: "", state: "waiting" };
+    if (!b || !a) return { text: "", state: "waiting" };
     const clarity = f === "BRITA" || (!f && b.verdict === "CLOUDY");
-    const ph = b.verdict === "PH_WARN" && (!f || f === "NONE");
-    const value = (r) => clarity ? fmt(r.clarity, 2) : ph ? fmt(r.ph, 1) : fmt(r.tds, 0);
-    const pair = a ? `${value(b)} → ${value(a)}` : value(b);
-    const reading = clarity ? `Transparency ${pair}` : ph ? `pH ${pair}` : `${pair} ppm`;
-    if (a) return { text: `${reading} · ${FILTER_NAME[f] || "filtered"} · retested`, state: a.verdict === "SAFE" ? "retested" : "out-of-range" };
-    if (f === "NONE") return { text: `${reading} · no filter used`, state: b.verdict === "SAFE" ? "bypass" : "out-of-range" };
-    if (f) return { text: `${reading} before · ${FILTER_NAME[f] || f} · retest awaited`, state: "awaiting" };
-    return { text: `${reading} · first reading`, state: "before" };
+    const pair = clarity ? `Transparency ${fmt(b.clarity, 2)} → ${fmt(a.clarity, 2)}` : `${fmt(b.tds, 0)} → ${fmt(a.tds, 0)} ppm`;
+    return { text: `${pair}, retested after ${FILTER_NAME[f] || "filtering"}`, state: a.verdict === "SAFE" ? "retested" : "out-of-range" };
   }
 
   /* What the pours in the history chart add up to: how many were left alone because they read in
@@ -132,7 +126,7 @@
     const c = rep.check;
     const checked = c ? `Checked ${c.figures} figure${c.figures === 1 ? "" : "s"} against what the tools returned: ${c.traced === c.figures ? "all traced" : `${c.traced} traced`}${
       c.dropped ? `, and ${c.dropped} statement${c.dropped === 1 ? " was" : "s were"} dropped for giving a figure no tool returned` : ""}.${rep.seconds ? ` The agents took ${Math.round(rep.seconds)} seconds.` : ""}` : "";
-    const by = rep.source === "deepagents" ? `Written by the investigator: a lead agent and the specialists the checks called for${health.agent_name ? `, on ${health.agent_name}` : ""}.`
+    const by = rep.source === "deepagents" ? `Written by LangChain deep agents: a lead and the specialists the checks called for${health.agent_name ? `, on ${health.agent_name}` : ""}.`
       : rep.source === "rules" ? `Written from the base station's own checks, by fixed rules. ${health.investigator ? "The investigator's agents are adding to it." : "With a model key, the investigator's agents add to it."}`
       : rep.source === "sample" ? "Sample report written for the demo data, not by the investigator." : "";
     return {
@@ -256,6 +250,8 @@
       const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
 
       if (what === "all" || what === "conn") {
+        const phFine = $("#ph-fine");
+        if (phFine && store.health?.ph_estimated === false) phFine.textContent = " and pH";
         const line = cloudLine(store), el = $("#cloud-line");
         if (el) { el.hidden = !line; el.textContent = line ? `Readings are stored on the base station first. ${line}` : ""; }
       }

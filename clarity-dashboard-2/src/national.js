@@ -43,15 +43,19 @@ export async function loadUS() {
   try {
     const j = await (await fetch('./data/us_tds.json')).json();
     us.meta = j.source;
-    us.sites = j.rows.map(([lon, lat, tds, date, name, type, org]) => ({ pos: [lon, lat], tds, date, name, type, org }));
+    // Fresh water as it is found: rivers, lakes, reservoirs, wells, springs, canals. The portal's rows also hold
+    // estuaries, the ocean, sewage and industrial outfalls, mines and stormwater, which say nothing about the
+    // water a town draws on, so they are left out.
+    const NOT_SOURCE = /estuar|ocean|facility|sewer|mine|leachate|wetland|runoff|stormwater|effluen|beach|cercla|pipe/i;
+    us.sites = j.rows.filter(r => !NOT_SOURCE.test(r[5] || '')).map(([lon, lat, tds, date, name, type, org]) => ({ pos: [lon, lat], tds, date, name, type, org }));
   } catch { us.sites = []; }
   return us;
 }
 
 export function usTooltip(object) {
   const v = object.tds;
-  const note = v < 500 ? 'Within the EPA 500 mg/L guideline' : v < 1000 ? 'Above the EPA 500 mg/L guideline' : 'Well above the EPA guideline';
-  return { html: `<b>${object.name}</b><br/>TDS ${v.toLocaleString()} ppm · ${note}<br/><span style="opacity:.7">${object.type} · ${object.date}<br/>${object.org} · Water Quality Portal</span>` };
+  const note = v < 500 ? 'under 500, the EPA guideline for drinking water' : v < 1000 ? 'over 500, the EPA guideline for drinking water' : 'far over the EPA guideline for drinking water';
+  return { html: `<b>${object.name}</b><br/>TDS ${v.toLocaleString()} ppm, ${note}. Untreated water, not tap water.<br/><span style="opacity:.7">${object.type} · ${object.date}<br/>${object.org} · Water Quality Portal</span>` };
 }
 
 // Called from main.js renderMap. Place names are light on the dark map and dark on the light one, like every other label.

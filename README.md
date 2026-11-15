@@ -90,12 +90,14 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   the country" gives way to the US view. Any key takes the demo. The rest of the page still works while it
   waits (a search or the USA button takes over), and `?nointro` leaves it out. The home view is `HOME` in
   `src/main.js`. `node test_intro.mjs` checks the slow-down and the land it draws.
+  While the start screen waits it covers the panel too and the toolbar steps back, all but the search.
   Away from Princeton there is no Clarity site, so the card at the bottom left says what is publicly known
   about the water there instead: how many Water Quality Portal sites in view (or within 25 km, when zoomed
   in) were sampled for dissolved solids since 2024, their median, the share over the EPA's 500 ppm
   guideline, and how long half of them have gone without a new sample. It is worked out in the page from
   data the map already ships, with no model. Those samples are rivers, lakes and wells, not tap water,
-  and the card says so.
+  and the card says so; the portal's estuary, ocean, sewage, mine and stormwater rows are left out, and the
+  EPA's 500 ppm drinking-water guideline is described as shown for scale.
 - **The Photon agent** (`photon-alerts/`, its own README) watches the gateway's `/ws` and texts
   subscribers. It needs Photon keys and a Google key; `DRY_RUN=1 npm run dev` prints the texts
   instead of sending them. It is not needed for the pages.
@@ -146,6 +148,9 @@ The Uno sketch also accepts `RETEST` ("check the probes and test again"); the ga
 dissolved solids (7.0 at 150 ppm rising to 8.3 at 800 ppm), because the probe drifts without buffer
 solutions to calibrate it. Set it to `0` once the probe is calibrated. Until then the pH on the pages
 is an estimate and carries no information that dissolved solids do not.
+The pages say so: the cup's note reads "Acidity, estimated", the map's card "pH, estimated", and the pitch's first step
+"pH, estimated for now". They stop saying it when the gateway is run with `PH_ESTIMATED=0`, which is only
+true once the probe is calibrated and the sketch is flashed with `PH_FROM_TDS 0`.
 
 ## Gateway API (port 8000)
 - `WS /ws` - live messages:

@@ -24,6 +24,9 @@
 #pitch .slide.in .w { opacity: 1; transform: none; transition: opacity 1.3s ease, transform 1.7s var(--lux); transition-delay: calc(200ms + var(--w, 0) * 60ms); }
 #pitch [data-rise] { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
 #pitch .slide.in [data-rise] { opacity: 1; transform: none; transition: opacity 1.5s ease, transform 1.9s var(--lux); transition-delay: calc(var(--after, 700ms) + var(--i, 0) * 170ms); }
+/* Only the title rises. Every other slide just appears, and sooner: two minutes is short, and one entrance is enough. */
+#pitch .slide:not(.s-title) [data-rise] { transform: none; }
+#pitch .slide.in:not(.s-title) [data-rise] { transition: opacity 0.7s ease; transition-delay: calc(300ms + var(--i, 0) * 90ms); }
 
 /* ---- furniture: the wordmark where the demo's bar will put it, and a quiet page count */
 #pitch .p-mark { position: absolute; left: var(--page-x); top: 12px; z-index: 2; opacity: 0; transition: opacity 1.2s ease; }
@@ -133,7 +136,8 @@
 #pitch .s-close .frame { align-items: center; justify-content: center; text-align: center; }
 #pitch .s-close h2 { font-size: 236px; line-height: 0.92; letter-spacing: -0.04em; margin-bottom: 0; }
 #pitch .s-close .tagline { margin-top: 30px; font-size: 60px; line-height: 1.1; }
-#pitch .s-close .team { margin: 54px 0 0; font-size: 29px; color: var(--label2); }
+#pitch .s-close .built { margin: 46px 0 0; max-width: 30em; font-size: 22px; line-height: 1.45; color: var(--text); text-wrap: balance; }
+#pitch .s-close .team { margin: 26px 0 0; font-size: 22px; color: var(--label2); }
 #pitch .s-close .p-hint { position: absolute; left: 50%; bottom: 84px; translate: -50% 0; font-size: 16px; white-space: nowrap; }
 
 /* ---- narrow screens: one scrolling column. Reaching the end hands over to the demo. */
@@ -185,7 +189,8 @@
 #pitch.stacked .s-close { text-align: center; padding-bottom: 40px; }
 #pitch.stacked .s-close h2 { font-size: clamp(72px, 22vw, 150px); }
 #pitch.stacked .s-close .tagline { margin-top: 12px; font-size: clamp(24px, 6vw, 38px); }
-#pitch.stacked .s-close .team { margin-top: 28px; font-size: 19px; }
+#pitch.stacked .s-close .built { margin-top: 26px; font-size: 17px; }
+#pitch.stacked .s-close .team { margin-top: 18px; font-size: 17px; }
 #pitch.stacked .s-close .p-hint { position: static; translate: none; margin-top: 44px; font-size: 14px; }
 #pitch.stacked .p-end { display: block; height: 46vh; background: var(--deep); }
 
@@ -270,6 +275,7 @@
   #pitch .s-close .frame { align-items: flex-start; justify-content: center; text-align: left; }
   #pitch .s-close h2 { font-size: 170px; }
   #pitch .s-close .tagline { margin-top: 22px; font-size: 46px; }
-  #pitch .s-close .team { margin-top: 40px; font-size: 25px; }
+  #pitch .s-close .built { margin-top: 34px; font-size: 20px; }
+  #pitch .s-close .team { margin-top: 22px; font-size: 20px; }
   #pitch .s-close .p-hint { left: calc(var(--page-x) / var(--s, 1)); translate: 0 0; }
 }

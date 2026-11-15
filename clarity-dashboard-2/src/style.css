@@ -23,7 +23,7 @@
   --sim: var(--slate);
   --sans: "Inter", "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   --serif: "Iowan Old Style", "Charter", "Georgia", "Times New Roman", serif;
-  --mono: "SF Mono", ui-monospace, "Menlo", "Consolas", monospace;
+  --mono: var(--sans);        /* figures are set in the sans with fixed-width digits, not in a typewriter face */
   font-family: var(--sans);
   color: var(--text);
 }
@@ -92,7 +92,7 @@ summary.tool::-webkit-details-marker { display: none; }
 .trio > div:first-child { padding-left: 0; }
 .trio > div + div { border-left: 1px solid var(--line); }
 .trio .k { font-size: 12px; color: var(--muted); }
-.trio .v { font-size: 15px; font-family: var(--mono); margin-top: 3px; }
+.trio .v { font-size: 15px; font-family: var(--mono); font-variant-numeric: tabular-nums; margin-top: 3px; }
 .trio .v .to { color: var(--slate); margin: 0 6px; font-family: var(--sans); }
 .explain { font-size: 13.5px; line-height: 1.55; color: var(--text); }
 .explain .who { font-size: 12px; color: var(--steel); font-weight: 600; margin-bottom: 2px; }
@@ -176,7 +176,7 @@ summary.tool::-webkit-details-marker { display: none; }
 /* ---------- time replay ---------- */
 .timebar { position: absolute; display: flex; gap: 10px; align-items: center; padding: 6px 8px; z-index: 2; }
 .timebar input[type=range] { flex: 1; accent-color: var(--paper); min-width: 80px; }
-.time-label { font-size: 12px; color: var(--muted); min-width: 90px; text-align: center; font-family: var(--mono); }
+.time-label { font-size: 12px; color: var(--muted); min-width: 90px; text-align: center; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* ---------- map overlays ---------- */
 .map-tip, .deck-tooltip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink) !important; border: 1px solid var(--line-strong); border-radius: 3px !important; padding: 7px 10px !important; font-family: var(--sans) !important; font-size: 12.5px !important; color: var(--paper) !important; line-height: 1.45; }
@@ -511,6 +511,9 @@ h3 { font: italic 400 18px var(--serif); color: var(--muted); margin: 28px 0 10p
 .intro.gone { opacity: 0 !important; pointer-events: none; transition: opacity 0.45s ease; }
 .intro-note { position: absolute; left: 0; right: 0; bottom: 9%; margin: 0; text-align: center; font: italic 19px var(--serif); color: var(--muted); transition: opacity 0.5s ease; }
 .intro.diving .intro-note { opacity: 0; }
+/* while the start screen waits, the toolbar steps back, all but the search */
+.mapbar > *, #topstats { transition: opacity 0.6s ease; }
+body.starting .mapbar > :not(#search):not(datalist), body.starting #topstats { opacity: 0; pointer-events: none; }
 /* the start screen: one line and the choices, under the globe */
 .intro.ask { cursor: default; }
 .intro-start { position: absolute; left: 0; right: 0; bottom: 6%; display: grid; justify-items: center; gap: 20px; padding: 0 24px; opacity: 0; pointer-events: none; transition: opacity 0.8s ease; }

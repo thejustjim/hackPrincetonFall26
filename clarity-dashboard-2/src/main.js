@@ -296,13 +296,13 @@ function renderMap(fromAnim = false) {
   const place = makePlacer(map);
   const pitchK = Math.sin((map.getPitch() * Math.PI) / 180);
   const tankTopPx = (elev() / metersPerPixel(zoom, 40.35)) * pitchK;
-  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${n.sim ? ' · simulated' : ''}`;
+  const nodeText = n => `${n.name}\n${shown(n)?.tds ?? '–'} ppm${n.sim ? ', simulated' : ''}`;
   const nodeLabels = show.columns ? place(nodes, { pos: n => [n.lon, n.lat], text: nodeText, size: n => (n.sim ? 11 : 13),
     priority: n => (n.sim ? 90 : 100), anchor: 'bottom', dy: -tankTopPx }) : [];
   const miscLabels = [
     ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'BASE STATION' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
     ...(show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }).map(d => ({ ...d, plant: true })) : []),
-    ...place(show.usgs && zoom >= REF_ZOOM ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site} · USGS ${r.tds_est} ppm`, ref: true })) : [],
+    ...place(show.usgs && zoom >= REF_ZOOM ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site}, USGS ${r.tds_est} ppm`, ref: true })) : [],
       { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
   ];
   const layers = [
@@ -846,12 +846,12 @@ function renderArea(el) {
     el.innerHTML = `${head}
       <div class="hero-big">
         <div><span class="num" style="color:rgb(${tdsColor(median).join(',')})">${median.toLocaleString()}</span><span class="unit">${seen.length === 1 ? 'ppm at the one site' : 'ppm, the median'}</span></div>
-        <div class="pct">${ring(share, { size: 62, label: `${Math.round(share * 100)}%` })}<span>over EPA 500</span></div>
+        <div class="pct">${ring(share, { size: 62, label: `${Math.round(share * 100)}%` })}<span>over 500 ppm</span></div>
       </div>
       <div class="usbar">${bands.map(x => `<i style="flex:${x.n};background:rgb(${x.rgb.join(',')})" title="${x.label} ppm: ${x.n.toLocaleString()}"></i>`).join('')}</div>
       <p class="area-line">${seen.length.toLocaleString()} ${seen.length === 1 ? 'site' : 'sites'} sampled since 2024, the latest on ${latest}.
         ${seen.length > 2 ? `Half have gone ${months} months or more without a new sample.` : ''}</p>
-      <p class="muted small">Rivers, lakes and wells, from the Water Quality Portal (USGS, EPA and state agencies). Source water, not tap water.</p>
+      <p class="muted small">Rivers, lakes and wells, from the Water Quality Portal (USGS, EPA and state agencies). Untreated water, not tap water: 500 ppm is the EPA's drinking-water guideline, shown for scale.</p>
       ${home}`;
   }
   el.querySelector('.area-home')?.addEventListener('click', () => document.getElementById('btn-reset')?.click());
@@ -876,8 +876,8 @@ function renderHero() {
   const expl = [before?.explanation, after?.explanation].filter(Boolean);
   el.innerHTML = `
     <div class="hero-head">
-      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Before / after · test #${h.test}</div>
-      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${n?.sim ? '<span class="chip sim">simulated</span>' : ''} ›</div>
+      <div class="hero-title"><button class="hero-min" title="Minimize / expand"></button>Before and after, test ${h.test}</div>
+      <div class="hero-node" data-node="${esc(h.node)}">${esc(n?.name || h.node)} ${n?.sim ? '<span class="chip sim">simulated</span>' : ''}</div>
     </div>
     <div class="hero-big">
       <div><span class="num" style="color:${color(before)}">${before ? before.tds : '–'}</span><span class="unit">ppm</span></div>
@@ -893,7 +893,7 @@ function renderHero() {
       <div class="hb-scale"><span>0</span><span>EPA guideline 500</span><span>1,000 ppm</span></div>
     </div>` : ''}
     ${filter ? `<div class="filter-tag">Filter used: ${FILTER_LABEL[filter] || filter}</div>` : ''}
-    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric('pH', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
+    <div class="trio">${metric('TDS (ppm)', 'tds')}${metric(n?.sim ? 'pH' : 'pH, estimated', 'ph', 2)}${metric('Clarity', 'clarity', 2)}</div>
     ${expl.length ? `<div class="explain">
         <div class="who ${src === 'local_rule' ? 'rule' : ''}">${sourceLabel(src)}</div>
         ${expl.map(t => `<p>${esc(t)}</p>`).join('')}
@@ -1133,9 +1133,9 @@ function renderDrawer() {
       <div style="flex:1"><div class="bar"><i style="left:${anomaly * 100}%"></i></div>
         <div class="small muted" style="margin-top:8px">${anomaly > 0.66 ? 'Very unusual for this site' : anomaly > 0.33 ? 'Somewhat unusual for this site' : 'Normal for this site'}</div></div>
     </div>
-    <h3>TDS (ppm) · first pour vs. after filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
-    <h3>pH · usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
-    <h3>Clarity · 1 = clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
+    <h3>Dissolved solids in ppm, first pour and after the filter</h3><div class="chart"><canvas id="c-tds"></canvas></div>
+    <h3>${n.sim ? 'pH' : 'pH, estimated'}, usual range 6.5 to 8.5</h3><div class="chart"><canvas id="c-ph"></canvas></div>
+    <h3>Clarity, where 1 is clear</h3><div class="chart"><canvas id="c-cl"></canvas></div>
     <h3>Anomaly score over time</h3><div class="chart" style="height:90px"><canvas id="c-an"></canvas></div>
     ${reps.length ? `<h3>Investigator</h3>${reps.map(r => `<div class="report-card" style="margin-bottom:8px">${reportHTML(r)}</div>`).join('')}` : ''}
     ${latest?.explanation ? `<h3>Latest AI note</h3><div class="explain"><p>${esc(latest.explanation)}</p></div>` : ''}

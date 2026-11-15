@@ -137,15 +137,17 @@
   function items(store) {
     const p = store.pour, b = p?.before, a = p?.after, r = a || b, d = p?.decision, f = d?.ai_filter;
     const out = [];
-    const phase = !a && d && f && f !== "NONE" ? " · before" : "";
+    const phase = !a && d && f && f !== "NONE" ? ", before" : "";
     if (r) {
       // "back in range" marks a reading the filter fixed; "warn" one that is out of range now
       const state = (bad, wasBad, why) => bad ? { flag: why, tone: "warn" } : a && wasBad ? { flag: "back in range", tone: "good" } : { flag: null, tone: null };
       const phBad = (x) => x.ph < 6.5 || x.ph > 8.5;
-      out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
-        detail: `Usual range 6.5 to 8.5. Neither filter corrects pH.` });
+      // The current tank sketch works pH out from dissolved solids (its probe is not calibrated), so the note says so.
+      const est = store.health?.ph_estimated !== false;
+      out.push({ id: "ph", group: "cup", icon: "gauge", label: `Acidity${est ? ", estimated" : ""}${phase}`, value: `pH ${fmt(r.ph, 1)}`, ...state(phBad(r), phBad(b), "outside 6.5 to 8.5"),
+        detail: est ? `Estimated from dissolved solids: the pH probe is not calibrated yet. Usual range 6.5 to 8.5.` : `Usual range 6.5 to 8.5. Neither filter corrects pH.` });
       out.push({ id: "clarity", group: "cup", icon: "eye", label: `Transparency${phase}`, value: fmt(r.clarity, 2), ...state(r.clarity < 0.7, b.clarity < 0.7, "cloudy: below 0.70"),
-        detail: `0 is opaque, 1 is clear. Below 0.70 counts as cloudy and goes to Brita.` });
+        detail: `0 is opaque, 1 is clear. Below 0.70 counts as cloudy and goes to Brita. A pitcher filter does not disinfect.` });
       out.push({ id: "tds", group: "cup", icon: "drop", label: `Dissolved solids${phase}`, value: `${r.tds} ppm`, ...state(r.tds > 300, b.tds > 300, r.tds > 500 ? "over the EPA guideline of 500" : "high: above 300"),
         detail: `Minerals and salts. Above 300 is high; the EPA guideline is 500.` });
     }
@@ -176,7 +178,7 @@
       const near = [...store.reference].sort((x, y) => km(tank, x) - km(tank, y))[0];
       const typical = near.typical_tds_est ?? near.tds_est;
       out.push({ id: "nearby", group: "context", icon: "pin", label: "Nearby water", value: `${near.site}: ${typical} ppm`,
-        detail: `Typical of samples published by ${near.source}, estimated from conductance. Last sampled ${String(near.date).slice(0, 4)}, about ${km(tank, near).toFixed(1)} km away.` });
+        detail: `Typical of samples published by ${near.source}, estimated as 0.65 × conductance. The tank converts at 0.5, so the same water reads about a quarter lower on it. Last sampled ${String(near.date).slice(0, 4)}, about ${km(tank, near).toFixed(1)} km away.` });
     }
     const all = [...store.nodes.values()];
     if (all.length) {

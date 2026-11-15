@@ -961,6 +961,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "P
                    allow_headers=["X-Clarity-Token", "Content-Type"])
 
 CONTROL_TOKEN = os.getenv("CONTROL_TOKEN", "").strip()
+# The Uno sketch ships with PH_FROM_TDS 1: its pH is worked out from dissolved solids, not read from the probe.
+# The pages label it as an estimate unless this is set to 0 (do that once the probe is calibrated and the
+# sketch is flashed with PH_FROM_TDS 0).
+PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
 
 
 def require_control(request: Request):
@@ -1152,6 +1156,7 @@ def health():
     return {"ok": True, "mock": MOCK, "ai": ai_name() is not None, "ai_name": ai_name(), "ai_model": AI_MODEL,
             "agent_name": ai_name(AGENT_MODEL) if investigator_agent is not None else None, "agent_model": AGENT_MODEL, "control": "token" if CONTROL_TOKEN else "local",
             "investigator": investigator_agent is not None,
+            "ph_estimated": PH_ESTIMATED,
             "agents": [a["name"] for a in investigator.SPECIALISTS] if investigator_agent is not None else [],
             "guidance": {k: guidance.status()[k] for k in ("documents", "passages", "notes")},
             "clients": len(clients),

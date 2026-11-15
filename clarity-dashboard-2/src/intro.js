@@ -255,7 +255,11 @@ export function runIntro(map, home, dataUrl, paint, start) {
     start.choices.map((c, i) => `<button type="button" class="intro-go${i ? "" : " first"}" data-i="${i}">${c.label}</button>`).join("")}</div></div>` : "");
   const canvas = el.querySelector("canvas"), note = el.querySelector(".intro-note"), ctx = canvas.getContext("2d");
   if (!ctx) return;
-  wrapEl.appendChild(el);
+  // It covers the map and the panel beside it, so the globe has the screen to itself; with a start screen
+  // the toolbar steps back too (all but the search), until a choice is made.
+  const host = wrapEl.closest(".layout") || wrapEl;
+  host.appendChild(el);
+  if (start) document.body.classList.add("starting");
   const MAP = { ocean: rgb(paint.ocean), other: rgb(paint.other), us: rgb(paint.usLand), line: rgb(paint.border) };
   let goal = home, [goalLon, goalLat] = home.center, chosen = !start, offered = false, geoRaw = null;
   const lonStart = goalLon - 120 - SPIN * MIN_SPIN;        // if the map is ready at once, home is a third of a turn away
@@ -273,6 +277,7 @@ export function runIntro(map, home, dataUrl, paint, start) {
     cancelAnimationFrame(raf);
     el.classList.add("gone");
     setTimeout(() => el.remove(), 500);
+    document.body.classList.remove("starting");
     removeEventListener("keydown", onKey, true);
     removeEventListener("pointerdown", onPointer, true);
     removeEventListener("wheel", onPointer, true);
@@ -286,6 +291,7 @@ export function runIntro(map, home, dataUrl, paint, start) {
     if ((goalLon !== home.center[0] || goalLat !== home.center[1]) && geoRaw) land = prepare(geoRaw, goal.center);
     chosen = true;
     el.classList.remove("ask");
+    document.body.classList.remove("starting");
     start.chose?.(c);
   }
   el.querySelectorAll(".intro-go").forEach((b) => b.addEventListener("click", () => choose(start.choices[+b.dataset.i])));
@@ -311,7 +317,7 @@ export function runIntro(map, home, dataUrl, paint, start) {
   addEventListener("wheel", onPointer, { capture: true, passive: true });
 
   function size() {
-    const dpr = Math.min(2, devicePixelRatio || 1), w = wrapEl.clientWidth, h = wrapEl.clientHeight;
+    const dpr = Math.min(2, devicePixelRatio || 1), w = host.clientWidth, h = host.clientHeight;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return [w, h];
@@ -489,7 +495,10 @@ export function runIntro(map, home, dataUrl, paint, start) {
     el.dataset.phase = phase;
     if (fade <= 0) { el.style.display = "none"; return; }  // the map carries on alone
     el.style.opacity = fade < 1 ? fade.toFixed(3) : "";
-    const [cx, cy] = centre();
+    // The globe waits in the middle of the screen, and moves over the map's own centre as it slows, since
+    // that is where the dive has to end.
+    const [mx, my] = centre(), k = phase === "spin" ? 0 : phase === "settle" ? smooth(since / plan.t) : 1;
+    const cx = w / 2 + (mx - w / 2) * k, cy = h * 0.45 + (my - h * 0.45) * k;
     paintGlobe(w, h, cx, cy, R, view(lon, lat), c, m, zoom, detail, goal.pin === false ? 0 : pin, now);
   }
   raf = requestAnimationFrame(frame);

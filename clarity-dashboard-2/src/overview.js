@@ -62,7 +62,7 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
   el.innerHTML = `
     <div class="ov-tiles">
       <div class="tile"><div class="tk">Sites reporting</div><div class="tv">${nodes.length}</div>
-        <div class="ts">${nodes.filter(n => !n.sim).length} real · ${nodes.filter(n => n.sim).length} simulated</div></div>
+        <div class="ts">${nodes.filter(n => !n.sim).length} real, ${nodes.filter(n => n.sim).length} simulated</div></div>
       <div class="tile"><div class="tk">Median source TDS</div><div class="tv">${median(latestTds)}<small> ppm</small></div>
         ${sparkline(tdsTrend, { w: 120, h: 22, color: 'var(--steel)' })}</div>
       <div class="tile ring-tile">${ring(avgDrop, { size: 58, label: `${Math.round(avgDrop * 100)}%` })}
@@ -92,7 +92,7 @@ export function renderOverview(el, { state, nodeView, testPair, openDrawer }) {
     ${us.sites.length ? `
       <div class="usbar">${bands.map(b => `<i style="flex:${b.n};background:rgb(${b.rgb.join(',')})" title="${b.label} ppm: ${b.n.toLocaleString()}"></i>`).join('')}</div>
       <div class="vlegend">${bands.map(b => `<span><i style="background:rgb(${b.rgb.join(',')})"></i>${b.label} <b>${Math.round((b.n / usTotal) * 100)}%</b></span>`).join('')}</div>
-      <p class="muted small">${Math.round((over / usTotal) * 100)}% of sampled rivers, lakes and wells read above the EPA's 500 ppm guideline for drinking water.
+      <p class="muted small">${Math.round((over / usTotal) * 100)}% of these rivers, lakes and wells read above 500 ppm. That is the EPA's guideline for drinking water, shown for scale: this is untreated water, not tap water.
         Source: Water Quality Portal (USGS, EPA, state agencies).</p>` : '<p class="muted small">Loading…</p>'}
   `;
   const top = document.getElementById('topstats');

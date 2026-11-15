@@ -241,7 +241,7 @@
       const q = url.searchParams, p = url.pathname;
       const limit = Number(q.get("limit") || 200);
       let m;
-      if (p === "/health") return Promise.resolve({ ok: true, mock: true, ai: true, investigator: true, demo: true });
+      if (p === "/health") return Promise.resolve({ ok: true, mock: true, ai: true, investigator: true, demo: true, ph_estimated: true });
       if (p === "/api/nodes") return Promise.resolve(SITES.map(({ base, ...s }) => ({ ...s, latest: latest(s.node) })));
       if (p === "/api/readings") {
         const node = q.get("node");
