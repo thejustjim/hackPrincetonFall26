@@ -230,13 +230,23 @@ by plain code before any model is asked:
    unfiltered water, or trending slowly one way. A sensor fault is not a water event.
 2. **The node's own baseline.** Robust z-scores (median and MAD) against the node's own earlier
    pours; EWMA and CUSUM control charts for small shifts that persist; one multivariate
-   (Mahalanobis) distance across pH, dissolved solids and transparency.
+   (Mahalanobis) distance across the readings.
 3. **Peer comparison.** Did the neighbours move the same way? Regional if at least two nearby
    nodes, and at least half of them, did. Otherwise local.
 
 Then one verdict (`normal`, `sensor_fault`, `local_event`, `regional_shift`, `persistent_shift`)
 with a severity (0 no action, 1 worth a second look, 2 act on it) and the evidence as sentences
 that carry their numbers. `GET /api/analysis` returns all of it.
+
+While the tank only estimates pH (see above), pH is left out of all three layers: it is not checked as a
+sensor (the estimate is exactly 7.0 for any water under 150 ppm, which would read as a stuck sensor), it
+cannot be the reading a verdict rests on, and it adds nothing to the combined distance, where it would
+count dissolved solids twice. `PH_ESTIMATED=0` puts it back.
+
+The layering follows the plan the project started from, which points to EPA's CANARY event detection
+software as the reference for this kind of approach. Against that plan, what is not here: baselines
+adjusted for time of day or temperature, a spike filter as such (a one-off reading is reported as "the
+only unusual pour in a row"), and the machine-learning stretch (an isolation forest or an autoencoder).
 
 What it does not do: there is no pipe network or hydraulic model behind this, so nothing is traced
 to a pipe segment; the neighbours are simulated nodes, and say so; there is no temperature sensor,
@@ -364,9 +374,19 @@ radio -> gateway -> SQLite on the Pi (source of truth) -> outbox -> Tiger Cloud
 - SQLite triggers note each new or changed row in an outbox. A background thread sends them in batches
   and clears the outbox only after the cloud has committed them. With no internet the outbox grows and
   drains when the link is back; nothing is lost and nothing is sent twice (the inserts are upserts).
-- In the cloud: `readings` is a TimescaleDB hypertable, `readings_5min` is a continuous aggregate
-  (per node, per 5 minutes), old chunks are compressed after 7 days, and `nodes` and `reports` are
-  ordinary tables you can join to. Every row says whether it is measured, simulated or from the mock.
+- In the cloud: `readings` is a TimescaleDB hypertable; `readings_5min`, `readings_hourly` and
+  `readings_daily` are continuous aggregates (per node, per 5 minutes, hour and day); old chunks are
+  compressed after 7 days; and `nodes` and `reports` are ordinary tables you can join to. Every row says
+  whether it is measured, simulated or from the mock. `anomaly_scores` is a view over the reports: one row
+  per pour, reading and method (robust z, EWMA, CUSUM, Mahalanobis), so the detection's scores can be
+  queried in SQL.
+- When the cloud copy is on and connected, the cup page has a section "In the cloud database": the last
+  day by the hour, read back from the hourly aggregate (`GET /api/cloud/rollup?bucket=hour`; `bucket` can
+  also be `5min` or `day`).
+- Not built, against the plan's database design: a retention policy (nothing is ever dropped), the pipe
+  network as PostGIS tables (the simulated network is a file, `gateway/network.json`), an incidents table,
+  and a separate schema for premises and contacts (the gateway stores no personal data at all; the Photon
+  agent keeps its own list of who has joined).
 - On plain Postgres the same code works with ordinary tables.
 
 Set it up on your own AWS account (one command):
@@ -386,7 +406,8 @@ Or use a managed service:
 2. Put it in `.env` as `TIGER_DATABASE_URL=postgres://...` (it contains a password: never commit it).
 3. `python cloud.py check` creates the tables and says what it found. Then start the gateway as usual;
    the first run also sends the history already on the Pi.
-4. `python cloud.py rollup` prints the last hours from the continuous aggregate. `GET /api/cloud` shows
+4. `python cloud.py rollup` prints the last hours from the continuous aggregate (`python cloud.py rollup
+   tank-01 72 hour` for three days by the hour). `GET /api/cloud` shows
    rows sent and waiting, and the demo page says the same under Network.
 
 ## Run the gateway

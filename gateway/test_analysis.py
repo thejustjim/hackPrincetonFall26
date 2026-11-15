@@ -1,6 +1,9 @@
 """Checks for analysis.py. Run: python test_analysis.py"""
+import importlib
+import os
 import random
 
+os.environ["PH_ESTIMATED"] = "0"      # first the whole of it, with pH as a reading; the estimated case is at the end
 import analysis as A
 
 random.seed(7)
@@ -101,6 +104,23 @@ check("a figure rounded from a tool's value still counts as traced", kept["secti
 check("the record says how many figures there were, how many traced and what was dropped",
       record["figures"] == 7 and record["traced"] == 4 and record["dropped"] == 2 and record["summary_ok"], record)
 check("the limits the agents are told about are allowed", A.ground({"summary": "", "findings": ["It is above the 500 ppm guideline and outside 6.5 to 8.5."]}, "")[1]["dropped"] == 0)
+
+# ---------------------------------------------------------------- pH as an estimate (the tank's current sketch)
+os.environ["PH_ESTIMATED"] = "1"
+A = importlib.reload(A)
+flat = [pour(i, ph=7.0, tds=int(random.gauss(200, 10)), clarity=round(min(1, random.gauss(0.95, 0.02)), 2)) for i in range(30)]
+r = A.analyse(pour(31, ph=7.0, tds=203), flat, [])
+check("an estimated pH that is 7.0 every time is not a stuck sensor", r["kind"] == "normal" and all(s["status"] == "ok" for s in r["sensor"]), (r["kind"], r["sensor"]))
+r = A.analyse(pour(32, ph=9.4, tds=203), quiet(30), [])
+check("an estimated pH cannot be what a verdict rests on", r["kind"] == "normal" and r["lead"]["metric"] != "ph", (r["kind"], r["lead"]))
+r = A.analyse(pour(33, tds=520, verdict="HIGH_TDS"), quiet(30), [])
+check("dissolved solids still lead when they are what moved", r["kind"] == "local_event" and r["lead"]["metric"] == "tds", (r["kind"], r["lead"]))
+case = {"before": pour(34, tds=520, verdict="HIGH_TDS"), "after": pour(34, tds=4, phase="after"), "filter": "ZEROWATER"}
+n = A.notice_for(case, r, "the tank")
+check("a notice does not say pH was read", "pH" not in n and A.notice_ok(n) and "dissolved solids and transparency both read in range" in n, n)
+cloudy = {"before": pour(35, clarity=0.4, verdict="CLOUDY"), "after": pour(35, clarity=0.93, phase="after"), "filter": "BRITA"}
+n = A.notice_for(cloudy, A.analyse(cloudy["before"], quiet(30), []), "the tank")
+check("a cloudy cup's notice says a pitcher filter does not disinfect", "A pitcher filter does not disinfect." in n and A.notice_ok(n), n)
 
 print("\nall passed" if ok else "\nFAILURES")
 raise SystemExit(0 if ok else 1)

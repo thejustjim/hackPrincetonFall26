@@ -17,8 +17,10 @@ Turn it on by putting a connection string in .env:
 In the cloud it keeps:
     readings        every reading and Claude's decision for it. A TimescaleDB hypertable on ts.
     readings_5min   a continuous aggregate: per node, per 5 minutes (count, avg/max solids, pH, clarity)
+    readings_hourly, readings_daily   the same rollup by the hour and by the day (continuous aggregates too)
     nodes           where each node is, and whether it is real or simulated
     reports         the investigator's reports (findings and actions as JSON)
+    anomaly_scores  a view over the reports: one row per pour, reading and method (robust z, EWMA, CUSUM, Mahalanobis)
 On plain Postgres (no TimescaleDB extension) the same tables work as ordinary ones.
 
     python cloud.py check       # test the connection string, create the tables, show what is there
@@ -98,6 +100,25 @@ TIMESCALE_STEPS = [
         """SELECT add_continuous_aggregate_policy('readings_5min', start_offset => INTERVAL '1 day',
                end_offset => INTERVAL '5 minutes', schedule_interval => INTERVAL '5 minutes', if_not_exists => TRUE)""",
     ]),
+    # The same rollup by the hour and by the day, for looking back over weeks without touching the raw rows.
+    ("hourly_daily", [
+        """CREATE MATERIALIZED VIEW IF NOT EXISTS readings_hourly WITH (timescaledb.continuous) AS
+           SELECT time_bucket(INTERVAL '1 hour', ts) AS bucket, station, node,
+                  count(*) AS readings, avg(tds) AS tds_avg, max(tds) AS tds_max,
+                  avg(ph) AS ph_avg, avg(clarity) AS clarity_avg
+           FROM readings GROUP BY 1, 2, 3 WITH NO DATA""",
+        "ALTER MATERIALIZED VIEW readings_hourly SET (timescaledb.materialized_only = false)",
+        """SELECT add_continuous_aggregate_policy('readings_hourly', start_offset => INTERVAL '7 days',
+               end_offset => INTERVAL '1 hour', schedule_interval => INTERVAL '1 hour', if_not_exists => TRUE)""",
+        """CREATE MATERIALIZED VIEW IF NOT EXISTS readings_daily WITH (timescaledb.continuous) AS
+           SELECT time_bucket(INTERVAL '1 day', ts) AS bucket, station, node,
+                  count(*) AS readings, avg(tds) AS tds_avg, max(tds) AS tds_max,
+                  avg(ph) AS ph_avg, avg(clarity) AS clarity_avg
+           FROM readings GROUP BY 1, 2, 3 WITH NO DATA""",
+        "ALTER MATERIALIZED VIEW readings_daily SET (timescaledb.materialized_only = false)",
+        """SELECT add_continuous_aggregate_policy('readings_daily', start_offset => INTERVAL '30 days',
+               end_offset => INTERVAL '1 day', schedule_interval => INTERVAL '1 day', if_not_exists => TRUE)""",
+    ]),
     ("compression", [
         "ALTER TABLE readings SET (timescaledb.compress, timescaledb.compress_segmentby = 'station, node', timescaledb.compress_orderby = 'ts DESC')",
         "SELECT add_compression_policy('readings', INTERVAL '7 days', if_not_exists => TRUE)",
@@ -116,11 +137,35 @@ UPSERT_REPORT = """INSERT INTO reports (station, id, ts, node, test, reading_id,
 UPSERT_NODE = """INSERT INTO nodes (station, node, name, lat, lon, sim) VALUES (%s,%s,%s,%s,%s,%s)
     ON CONFLICT (station, node) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lon = EXCLUDED.lon, sim = EXCLUDED.sim"""
 
-ROLLUP_FAST = """SELECT bucket, node, readings, tds_avg, tds_max, ph_avg, clarity_avg FROM readings_5min
+# A rollup is read from the continuous aggregate for its bucket size, or worked out from the raw rows where
+# that aggregate is not there. (bucket: the aggregate, the feature that provides it, the interval.)
+BUCKETS = {"5min": ("readings_5min", "continuous_aggregate", "5 minutes"),
+           "hour": ("readings_hourly", "hourly_daily", "1 hour"),
+           "day": ("readings_daily", "hourly_daily", "1 day")}
+ROLLUP_FAST = """SELECT bucket, node, readings, tds_avg, tds_max, ph_avg, clarity_avg FROM {view}
     WHERE station = %s AND node = %s AND bucket > now() - make_interval(hours => %s) ORDER BY bucket"""
-ROLLUP_PLAIN = """SELECT date_bin(INTERVAL '5 minutes', ts, TIMESTAMPTZ '2000-01-01') AS bucket, node, count(*) AS readings,
+ROLLUP_PLAIN = """SELECT date_bin(INTERVAL '{every}', ts, TIMESTAMPTZ '2000-01-01') AS bucket, node, count(*) AS readings,
         avg(tds) AS tds_avg, max(tds) AS tds_max, avg(ph) AS ph_avg, avg(clarity) AS clarity_avg FROM readings
     WHERE station = %s AND node = %s AND ts > now() - make_interval(hours => %s) GROUP BY 1, 2 ORDER BY 1"""
+
+# The layered detection's scores, one row per pour, reading and method, so they can be queried in SQL. It is a
+# view over what each report already stores (reports.extra), not a second copy. Tried on its own: if it cannot
+# be made, nothing else stops.
+ANOMALY_VIEW = """CREATE OR REPLACE VIEW anomaly_scores AS
+    WITH per AS (
+        SELECT r.ts, r.station, r.node, r.test, b
+        FROM reports r, jsonb_array_elements(CASE WHEN jsonb_typeof(r.extra->'checks'->'baseline') = 'array'
+                                                  THEN r.extra->'checks'->'baseline' ELSE '[]'::jsonb END) AS b)
+    SELECT ts, station, node, test, b->>'metric' AS metric, 'robust_z' AS method,
+           (b->>'z')::double precision AS score, abs((b->>'z')::double precision) >= 3 AS flag FROM per
+    UNION ALL
+    SELECT ts, station, node, test, b->>'metric', 'ewma', (b->>'ewma')::double precision, (b->>'ewma_signal')::boolean FROM per
+    UNION ALL
+    SELECT ts, station, node, test, b->>'metric', 'cusum', (b->>'cusum')::double precision, (b->>'cusum_signal')::boolean FROM per
+    UNION ALL
+    SELECT r.ts, r.station, r.node, r.test, 'all', 'mahalanobis',
+           (r.extra->'checks'->'multivariate'->>'distance')::double precision, (r.extra->'checks'->'multivariate'->>'flag')::boolean
+    FROM reports r WHERE jsonb_typeof(r.extra->'checks'->'multivariate') = 'object'"""
 
 
 def database_url():
@@ -218,6 +263,12 @@ class CloudSync:
                 cur.execute(sql)
         pg.commit()
         pg.autocommit = True                             # a continuous aggregate cannot be created inside a transaction
+        try:
+            pg.execute(ANOMALY_VIEW)
+            features["anomaly_view"] = True
+        except Exception as e:
+            features["anomaly_view"] = False
+            log.warning("the anomaly_scores view was not made: %s", _first_line(e))
         try:
             timescale = True
             try:
@@ -338,21 +389,23 @@ class CloudSync:
             self._stop.wait(wait)
 
     # ------------------------------------------------------------ reading it back
-    def rollup(self, node, hours=24):
-        """5-minute buckets for one node, read back from the cloud (the continuous aggregate if there is one)."""
+    def rollup(self, node, hours=24, bucket="5min"):
+        """Buckets for one node (5 minutes, an hour or a day), read back from the cloud: from the continuous
+        aggregate for that size if there is one, else worked out from the raw rows."""
         if not self.enabled:
             return {"enabled": False, "buckets": []}
+        view, feature, every = BUCKETS[bucket if bucket in BUCKETS else "5min"]
         with self._lock:
-            fast = bool(self._state["features"].get("continuous_aggregate"))
+            fast = bool(self._state["features"].get(feature))
         from psycopg.rows import dict_row
         with self._connect() as pg, pg.cursor(row_factory=dict_row) as cur:
-            cur.execute(ROLLUP_FAST if fast else ROLLUP_PLAIN, (self.station, node, int(hours)))
+            cur.execute(ROLLUP_FAST.format(view=view) if fast else ROLLUP_PLAIN.format(every=every), (self.station, node, int(hours)))
             rows = cur.fetchall()
         for r in rows:
             r["bucket"] = r["bucket"].astimezone(timezone.utc).isoformat()
             for k in ("tds_avg", "ph_avg", "clarity_avg"):
                 r[k] = None if r[k] is None else round(float(r[k]), 2)
-        return {"enabled": True, "station": self.station, "node": node, "hours": int(hours),
+        return {"enabled": True, "station": self.station, "node": node, "hours": int(hours), "bucket": bucket if bucket in BUCKETS else "5min",
                 "source": "continuous_aggregate" if fast else "plain_query", "buckets": rows}
 
 
@@ -386,7 +439,7 @@ def _main(argv):
         pg = sync._connect()
         sync._ensure_schema(pg)
         pg.close()
-        out = sync.rollup(node, hours=int(argv[3]) if len(argv) > 3 else 6)
+        out = sync.rollup(node, hours=int(argv[3]) if len(argv) > 3 else 6, bucket=argv[4] if len(argv) > 4 else "5min")
         print(f"{node}, last {out['hours']} h, from {out['source']}:")
         for b in out["buckets"]:
             print(f"  {b['bucket'][:16]}  n={b['readings']:<3} solids avg {b['tds_avg']} max {b['tds_max']}  pH {b['ph_avg']}  clarity {b['clarity_avg']}")

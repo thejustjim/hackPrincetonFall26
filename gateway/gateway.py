@@ -1170,12 +1170,14 @@ def cloud_status():
 
 
 @app.get("/api/cloud/rollup")
-def cloud_rollup(node: str = "tank-01", hours: int = 24):
-    """5-minute buckets for one node, read back from the cloud database (a TimescaleDB continuous aggregate)."""
+def cloud_rollup(node: str = "tank-01", hours: int = 24, bucket: str = "5min"):
+    """Buckets for one node (bucket: 5min, hour or day), read back from the cloud database (TimescaleDB continuous aggregates)."""
+    if bucket not in cloud.BUCKETS:
+        raise HTTPException(422, "bucket must be 5min, hour or day")
     if not cloud_sync.enabled:
         raise HTTPException(404, "the cloud copy is off: set TIGER_DATABASE_URL in .env")
     try:
-        return cloud_sync.rollup(node, max(1, min(hours, 24 * 14)))
+        return cloud_sync.rollup(node, max(1, min(hours, 24 * 60)), bucket)
     except Exception as e:
         raise HTTPException(503, f"the cloud database did not answer ({type(e).__name__})")
 

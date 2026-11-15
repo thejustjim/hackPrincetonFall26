@@ -6,7 +6,8 @@ There is almost no labelled data for a new sensor, so this is statistics, in thr
                         zero, or trending slowly one way. A sensor fault is not a water event.
   2. This node's own    Robust z-scores (median and MAD) against the node's own history, EWMA
      baseline           and CUSUM control charts for small shifts that persist, and one
-                        multivariate distance (Mahalanobis) across all three readings.
+                        multivariate distance (Mahalanobis) across the readings (pH is left
+                        out of all of this while the tank only estimates it).
   3. Peer comparison    Did the neighbours move the same way? Then it is regional (a change of
                         source, the weather). Only this node? Then it is local.
 
@@ -22,6 +23,13 @@ import os
 import statistics
 
 METRICS = ("ph", "tds", "clarity")
+# The tank's current sketch works pH out from dissolved solids (PH_FROM_TDS 1): it is an estimate, not a
+# reading, and for clean water it is exactly 7.0 every time. So by default pH is carried along and shown, but
+# it is not checked as a sensor, cannot be the reading a verdict rests on, and adds nothing to the combined
+# distance (it would count dissolved solids twice). PH_ESTIMATED=0 in the environment treats it as a reading
+# again; set it only once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0.
+PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
+MEASURED = tuple(m for m in METRICS if not (PH_ESTIMATED and m == "ph"))
 LABEL = {"ph": "pH", "tds": "dissolved solids", "clarity": "transparency"}
 PHYSICAL = {"ph": (0, 14), "tds": (0, 5000), "clarity": (0, 1)}       # what each sensor can read
 # Used until a node has enough history of its own: (typical value, spread) for water around Princeton
@@ -126,6 +134,9 @@ def sensor_checks(readings, bases, quiet):
     quiet: per metric, its earlier raw-water values that were not themselves unusual."""
     latest, out = readings[-1], []
     for m in METRICS:
+        if m not in MEASURED:                              # an estimate is not a sensor: nothing to check
+            out.append({"metric": m, "status": "ok", "note": ""})
+            continue
         v, (lo, hi) = latest[m], PHYSICAL[m]
         run = 0
         for r in reversed(readings):
@@ -186,9 +197,10 @@ def analyse(reading, earlier, peers=()):
         reference = baseline([r[m] for r in older], m)
         charts = control_charts([r[m] for r in raw[-RECENT:]] + [reading[m]], reference)
         rows.append({"metric": m, "value": reading[m], **bases[m], "z": round(z[m], 1), **charts})
-    distance = mahalanobis([z[m] for m in METRICS], [zrow(r) for r in raw])
+    only = lambda row: [v if m in MEASURED else 0.0 for m, v in zip(METRICS, row)]     # an estimate adds nothing
+    distance = mahalanobis(only([z[m] for m in METRICS]), [only(zrow(r)) for r in raw])
 
-    lead = max(METRICS, key=lambda m: abs(z[m]))
+    lead = max(MEASURED, key=lambda m: abs(z[m]))
     direction = 1 if z[lead] >= 0 else -1
     repeat = 1                                         # how many raw-water readings in a row were unusual the same way
     for r in reversed(raw):
@@ -196,7 +208,7 @@ def analyse(reading, earlier, peers=()):
             break
         repeat += 1
     unusual = abs(z[lead]) >= Z_OUT or distance >= D_OUT
-    persisting = [r for r in rows if r["ewma_signal"] or r["cusum_signal"]]
+    persisting = [r for r in rows if (r["ewma_signal"] or r["cusum_signal"]) and r["metric"] in MEASURED]
     near = peer_comparison(lead, direction, peers)
     faults = [s for s in sensor if s["status"] == "fault"]
     out_of_range = reading.get("verdict") not in (None, "SAFE")
@@ -223,7 +235,7 @@ def analyse(reading, earlier, peers=()):
         evidence.append("Measured: it is the only unusual pour in a row, so a second pour would confirm it." if repeat < 2
                         else f"Measured: {repeat} pours in a row have been unusual the same way.")
     else:
-        evidence.append(f"Measured: all three readings are within {Z_OUT:.0f} spreads of normal for this site "
+        evidence.append(f"Measured: {'all three' if len(MEASURED) == 3 else 'both'} readings are within {Z_OUT:.0f} spreads of normal for this site "
                         f"({LABEL[lead]} is the furthest, at {abs(z[lead]):.1f}).")
     for r in persisting:
         if abs(r["z"]) < Z_OUT:
@@ -285,10 +297,7 @@ def rule_report(case, result, filters):
 # ---------------------------------------------------------------- a notice, from fixed templates
 # A draft for the people who use this water. Nothing sends it. The required sentence is in every one.
 #
-# The tank's current sketch works pH out from dissolved solids (PH_FROM_TDS 1): it is an estimate, not a
-# reading. So by default no notice speaks of pH as something Clarity read. PH_ESTIMATED=0 in the environment
-# puts it back; set it only once the probe is calibrated and the sketch is flashed with PH_FROM_TDS 0.
-PH_ESTIMATED = os.getenv("PH_ESTIMATED", "1").strip() != "0"
+# While pH is an estimate (PH_ESTIMATED, at the top of this file), no notice speaks of it as something Clarity read.
 READS = "dissolved solids and transparency" if PH_ESTIMATED else "pH, dissolved solids and transparency"
 IN_RANGE = f"{READS} {'both' if PH_ESTIMATED else 'all'} read in range"
 NOTICE_REQUIRED = f"Clarity reads only {READS}. It cannot detect lead, bacteria or any specific contaminant."

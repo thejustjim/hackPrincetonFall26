@@ -72,13 +72,17 @@
      of the investigator's agents found, and the draft notice. All three are optional. */
   const NAMES = { ph: "pH", tds: "Dissolved solids", clarity: "Transparency" };
   const shown = (m, v) => (m === "tds" ? `${Math.round(v)} ppm` : Number(v).toFixed(m === "clarity" ? 2 : 1));
-  function checkRows(c) {
-    const faults = c.sensor.filter((x) => x.status !== "ok");
+  function checkRows(c, estimated) {
+    // while the tank only estimates pH, it is not one of the sensors that get checked
+    const real = (x) => !(estimated && x.metric === "ph");
+    const faults = c.sensor.filter((x) => x.status !== "ok" && real(x));
     const lead = c.baseline.find((x) => x.metric === c.lead.metric);
-    const drift = c.baseline.filter((x) => x.ewma_signal || x.cusum_signal);
+    const drift = c.baseline.filter((x) => (x.ewma_signal || x.cusum_signal) && real(x));
     const far = Math.abs(lead.z) >= 3, p = c.peers;
     return [
-      ["Sensors", faults.length ? faults.map((x) => x.note).join(" ") : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
+      ["Sensors", faults.length ? faults.map((x) => x.note).join(" ")
+        : estimated ? "Dissolved solids and transparency read plausibly: neither is stuck, out of range or trending. pH is an estimate, so it is not checked."
+        : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
       ["This site", `${NAMES[lead.metric]} read ${shown(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} ${
         lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
         far ? (c.repeat > 1 ? `${c.repeat} pours in a row have been unusual the same way.` : "Three or more is unusual; this is the only one in a row.") : "Three or more would be unusual."}`, far],
@@ -132,7 +136,7 @@
     return {
       by: by ? `<p class="${rep.source === "sample" ? "sample-note" : "by"}">${esc(by)}</p>` : "",
       verdict: rep.kind_words ? `<p class="rep-verdict sev-${rep.severity || 0}"><b>${t(rep.kind_words)}.</b> ${t(rep.severity_words || "")}.</p>` : "",
-      checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks).map(([k, v, warn]) =>
+      checks: rep.checks ? `<h3>The checks behind it</h3><table class="checks"><tbody>${checkRows(rep.checks, health.ph_estimated !== false).map(([k, v, warn]) =>
         `<tr${warn ? ' class="warn"' : ""}><th scope="row">${k}</th><td>${t(v)}</td></tr>`).join("")}</tbody></table>` : "",
       agents: rep.sections?.length ? `<h3>What each agent found</h3>${checked ? `<p class="by checked">${esc(checked)}</p>` : ""}<dl class="agents">${rep.sections.filter((x) => x.agent !== "comms").map((x) =>
         `<div><dt>${t(x.title)}${why.get(x.agent) ? `<small>asked because ${t(why.get(x.agent))}</small>` : ""}</dt><dd>${t(x.text)}${x.traced === false ? ' <em class="untraced">This gives a figure no tool returned.</em>' : ""}</dd>${
@@ -245,7 +249,32 @@
       if (moved && about) dip(about, put); else put();
     },
 
+    /* The cloud copy, read back: the last day by the hour, from the database's own rollup (a TimescaleDB
+       continuous aggregate over the readings hypertable). Shown only when the gateway has a cloud database
+       and is connected to it; asked for at most every twenty seconds. */
+    cloudAt: 0,
+    cloud(store) {
+      const box = document.getElementById("cloud"), c = store.health?.cloud;
+      if (!box) return;
+      if (store.kind !== "live" || !c?.enabled || !c.connected || !store.get) { box.hidden = true; return; }
+      if (performance.now() - this.cloudAt < 20000 && this.cloudAt) return;
+      this.cloudAt = performance.now();
+      const { esc, fmt } = TapUI, n = (v) => Number(v || 0).toLocaleString();
+      store.get(`/api/cloud/rollup?node=${encodeURIComponent(store.tank)}&hours=24&bucket=hour`).then((r) => {
+        const rows = (r.buckets || []).slice(-8).reverse();
+        box.hidden = !rows.length;
+        if (!rows.length) return;
+        document.getElementById("cloud-about").textContent = `${n(c.cloud_rows)} readings are kept in ${c.timescale ? "Tiger Cloud (TimescaleDB)" : "a cloud database"}${
+          c.pending ? `, with ${n(c.pending)} waiting to go` : ""}. This is the last day by the hour, read back from ${
+          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.`;
+        document.getElementById("cloud-table").innerHTML = `<table class="ledger"><thead><tr><th>Hour</th><th class="n">Readings</th><th class="n">Solids, average</th><th class="n">Solids, highest</th><th class="n">Transparency</th></tr></thead><tbody>${
+          rows.map((b) => `<tr><td>${esc(new Date(b.bucket).toLocaleString(undefined, { weekday: "short", hour: "numeric" }))}</td><td class="n">${n(b.readings)}</td><td class="n">${
+            b.tds_avg == null ? "" : `${Math.round(b.tds_avg)} ppm`}</td><td class="n">${b.tds_max == null ? "" : `${Math.round(b.tds_max)} ppm`}</td><td class="n">${
+            b.clarity_avg == null ? "" : fmt(b.clarity_avg, 2)}</td></tr>`).join("")}</tbody></table>`;
+      }).catch(() => { box.hidden = true; });
+    },
     render(store, what) {
+      window.TapView.cloud(store);
       const { $, esc, t, fmt, ago, clock, filterLife, cloudLine, FILTER_NAME, VERDICT, STATUS } = TapUI;
       const p = store.pour, b = p?.before, a = p?.after, d = p?.decision;
 

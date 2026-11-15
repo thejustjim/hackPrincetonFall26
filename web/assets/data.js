@@ -93,6 +93,7 @@
       if (Array.isArray(list)) { s.filters = mergeFilters(list); emit("filters"); }
     };
     s.isSim = (r) => r.sim ?? s.nodes.get(r.node)?.sim ?? false;
+    s.get = (path) => source.get(path);                       // anything else the gateway can be asked (the cloud rollup)
     s.refreshHealth = () => source.get("/health").then((h) => { s.health = h; aiName = h.ai_name || null; }).catch(() => {});   // e.g. the cloud copy's counts
     s.nodeName = (id) => s.nodes.get(id)?.name || id;
 
