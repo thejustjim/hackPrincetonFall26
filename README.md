@@ -244,9 +244,15 @@ cannot be the reading a verdict rests on, and it adds nothing to the combined di
 count dissolved solids twice. `PH_ESTIMATED=0` puts it back.
 
 The layering follows the plan the project started from, which points to EPA's CANARY event detection
-software as the reference for this kind of approach. Against that plan, what is not here: baselines
-adjusted for time of day or temperature, a spike filter as such (a one-off reading is reported as "the
-only unusual pour in a row"), and the machine-learning stretch (an isolation forest or an autoencoder).
+software as the reference for this kind of approach. From that plan's list, beyond the three layers:
+- **A baseline by time of day.** Once a node has twelve earlier pours within three hours of the same time
+  of day, a pour is judged against those and not against all of them, and the evidence says so. Water can
+  differ by the hour.
+- **A one-off, seen in hindsight.** A lone unusual pour followed by a normal one is called a one-off. That
+  is as close as a tank that reads one cup at a time gets to a spike filter.
+- **The stretch: an isolation forest**, in miniature and in plain Python. It is reported beside the other
+  scores (about 0.5 is ordinary, toward 1 is isolated) and is never what a verdict rests on.
+What is still not here is a baseline adjusted for temperature: there is no temperature sensor.
 
 What it does not do: there is no pipe network or hydraulic model behind this, so nothing is traced
 to a pipe segment; the neighbours are simulated nodes, and say so; there is no temperature sensor,
@@ -356,6 +362,14 @@ change entering at every pipe in turn and prints how often the true pipe is foun
 What it is not: there is no real pipe network, no real event and no trained model. Flow is frozen
 at one hour; the pipe attributes and the risk score are made up; "downstream" counts junctions and
 simulated demand, not customers.
+
+The plan also calls for a risk model learned from failures in place of a hand-set score. One is there as an
+alternative (`localize(..., prior="fitted")`): breaks per pipe-year for each material, fitted to the pipes'
+break history, each pipe's rate then pulled toward its own record, and the risk taken as the chance of at
+least one break in ten years. Its catch is the data. This network's break history is synthetic, so the
+model can only learn back the rule the history was drawn from, and the page says how the trace does with
+each (first for 32 of 71 with the hand-set score, 31 with the fitted one). The hand-set score stays the
+default; with a utility's real break records the fitted one would be the one to use.
 
 ## Published reference data
 `python fetch_reference.py` pulls specific conductance for Stony Brook, Millstone River and Lake

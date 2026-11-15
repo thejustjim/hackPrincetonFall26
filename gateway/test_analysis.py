@@ -105,6 +105,50 @@ check("the record says how many figures there were, how many traced and what was
       record["figures"] == 7 and record["traced"] == 4 and record["dropped"] == 2 and record["summary_ok"], record)
 check("the limits the agents are told about are allowed", A.ground({"summary": "", "findings": ["It is above the 500 ppm guideline and outside 6.5 to 8.5."]}, "")[1]["dropped"] == 0)
 
+# ---------------------------------------------------------------- the same time of day
+def at(i, hour, tds, day=1):
+    return {**pour(i, ph=round(random.gauss(7.5, 0.1), 2), tds=tds, clarity=round(min(1, random.gauss(0.95, 0.02)), 2)), "ts": f"2026-11-{day:02d}T{hour:02d}:10:00"}
+
+
+random.seed(11)
+mornings = [at(i, 8, int(random.gauss(420, 12)), day=1 + i) for i in range(14)]
+evenings = [at(100 + i, 20, int(random.gauss(180, 10)), day=1 + i) for i in range(14)]
+both = sorted(mornings + evenings, key=lambda r: r["ts"])
+r = A.analyse(at(300, 8, 428, day=20), both, [])
+check("a morning pour is judged against other mornings once there are enough of them",
+      r["scope"] == {"kind": "time_of_day", "hours": A.SAME_HOURS, "n": 14} and r["kind"] == "normal" and abs(r["lead"]["z"]) < 2, (r["scope"], r["kind"], r["lead"]))
+r = A.analyse(at(301, 20, 428, day=20), both, [])
+check("the same reading in the evening is unusual, and says which pours it was set against",
+      r["kind"] == "local_event" and "at this time of day" in " ".join(r["evidence"]), (r["kind"], r["evidence"][:1]))
+r = A.analyse(at(302, 13, 300, day=20), both, [])
+check("with too few pours at that time of day it falls back to all of them", r["scope"]["kind"] == "all" and r["scope"]["n"] == 28, r["scope"])
+check("a reading with no usable time is judged against all of them", A.analyse(pour(303, tds=205), hist, [])["scope"]["kind"] == "all")
+check("hour_of reads an ISO time, with or without a zone, and gives nothing for anything else",
+      A.hour_of("2026-11-15T07:30:00") == 7.5 and A.hour_of("2026-11-15T07:30:00+00:00") == 7.5 and A.hour_of("2026-11-15T07:30:00Z") == 7.5
+      and A.hour_of("t12") is None and A.hour_of(None) is None)
+
+# ---------------------------------------------------------------- a one-off, seen in hindsight
+spiked = quiet(30) + [pour(40, tds=640)]
+r = A.analyse(pour(41, tds=204), spiked, [])
+check("a lone unusual pour followed by a normal one is called a one-off",
+      r["kind"] == "normal" and r["one_off_before"] and r["one_off_before"]["metric"] == "tds" and "one-off" in " ".join(r["evidence"]), (r["kind"], r["one_off_before"]))
+twice = quiet(30) + [pour(40, tds=640), pour(41, tds=655)]
+check("two unusual pours in a row are not a one-off", A.analyse(pour(42, tds=204), twice, [])["one_off_before"] is None)
+check("an ordinary run has no one-off", A.analyse(pour(43, tds=204), quiet(30), [])["one_off_before"] is None)
+
+# ---------------------------------------------------------------- the isolation forest (the stretch)
+random.seed(5)
+h = quiet(40)
+ordinary = A.analyse(pour(50, tds=203), h, [])["multivariate"]["isolation"]
+far_out = A.analyse(pour(51, tds=640, clarity=0.4, verdict="CLOUDY"), h, [])["multivariate"]["isolation"]
+check("an isolated reading scores higher than an ordinary one", ordinary is not None and far_out is not None and far_out > ordinary + 0.1 and far_out > 0.6, (ordinary, far_out))
+check("the same inputs give the same score", far_out == A.analyse(pour(51, tds=640, clarity=0.4, verdict="CLOUDY"), h, [])["multivariate"]["isolation"])
+check("with little history there is no score", A.analyse(pour(52, tds=640), quiet(3), [])["multivariate"]["isolation"] is None)
+flagged = [A.analyse(pour(60 + i, tds=int(random.gauss(200, 10))), h, []) for i in range(60)]
+check("it never decides: ordinary pours stay ordinary whatever it says", all(x["kind"] == "normal" for x in flagged if not x["multivariate"]["flag"] and abs(x["lead"]["z"]) < A.Z_OUT))
+scores = [x["multivariate"]["isolation"] for x in flagged]
+check("ordinary pours score around a half", 0.35 < sum(scores) / len(scores) < 0.6 and max(scores) < 0.75, (round(sum(scores) / len(scores), 2), max(scores)))
+
 # ---------------------------------------------------------------- pH as an estimate (the tank's current sketch)
 os.environ["PH_ESTIMATED"] = "1"
 A = importlib.reload(A)

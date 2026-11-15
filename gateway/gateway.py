@@ -990,6 +990,13 @@ async def startup():
     loop = asyncio.get_running_loop()
     threading.Thread(target=reader_thread, args=(loop,), daemon=True).start()
     asyncio.create_task(simulate_nodes())
+    if cloud_sync.enabled:                               # the simulated network and its incidents go to the cloud too, marked as simulated
+        try:
+            import incident
+            import localize
+            cloud_sync.simulated = {"network": localize.NET, "incidents": [incident.report(s["id"]) for s in localize.scenarios()]}
+        except Exception as e:
+            print(f"[cloud] the simulated network was not loaded ({type(e).__name__})")
     cloud_sync.start()
 
 

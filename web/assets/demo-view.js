@@ -84,10 +84,11 @@
         : estimated ? "Dissolved solids and transparency read plausibly: neither is stuck, out of range or trending. pH is an estimate, so it is not checked."
         : "All three read plausibly: none is stuck, out of range or trending.", faults.some((x) => x.status === "fault")],
       ["This site", `${NAMES[lead.metric]} read ${shown(lead.metric, lead.value)}, ${Math.abs(lead.z).toFixed(1)} spreads ${lead.z >= 0 ? "above" : "below"} ${
-        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
+        lead.source === "history" ? `its own median of ${shown(lead.metric, lead.median)} over ${lead.n} pours${c.scope?.kind === "time_of_day" ? " at this time of day" : ""}` : `a typical ${shown(lead.metric, lead.median)} for local water (too few pours here yet)`}. ${
         far ? (c.repeat > 1 ? `${c.repeat} pours in a row have been unusual the same way.` : "Three or more is unusual; this is the only one in a row.") : "Three or more would be unusual."}`, far],
       ["Trend", drift.length ? `${drift.map((x) => NAMES[x.metric]).join(" and ")} ${drift.length > 1 ? "have" : "has"} run ${drift[0].direction === "up" ? "high" : "low"} for several pours: a small shift that persists.`
         : "No small shift has persisted across recent pours.", drift.length > 0],
+      ...(c.multivariate?.isolation != null ? [["Isolation forest", `An experiment that decides nothing: ${Number(c.multivariate.isolation).toFixed(2)}, where about 0.5 is ordinary and toward 1 is isolated.`, false]] : []),
       ["Neighbours", !p.n ? "No nodes nearby to compare with." : !far ? "Not needed: this pour was ordinary for the site."
         : `${p.moved || "None"} of the ${p.n} ${p.simulated === p.n ? "simulated " : ""}nodes nearby ${p.moved === 1 ? "is" : "are"} unusual the same way, so this looks ${p.scope === "regional" ? "regional, not local" : "local to this site"}.`, false],
     ];
@@ -266,7 +267,8 @@
         if (!rows.length) return;
         document.getElementById("cloud-about").textContent = `${n(c.cloud_rows)} readings are kept in ${c.timescale ? "Tiger Cloud (TimescaleDB)" : "a cloud database"}${
           c.pending ? `, with ${n(c.pending)} waiting to go` : ""}. This is the last day by the hour, read back from ${
-          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.`;
+          r.source === "continuous_aggregate" ? "a continuous aggregate over the readings hypertable" : "the readings table"}.${
+          r.mock ? " The base station is running on the mock tank, so these are the mock's readings, not measurements; the database keeps the two apart." : ""}`;
         document.getElementById("cloud-table").innerHTML = `<table class="ledger"><thead><tr><th>Hour</th><th class="n">Readings</th><th class="n">Solids, average</th><th class="n">Solids, highest</th><th class="n">Transparency</th></tr></thead><tbody>${
           rows.map((b) => `<tr><td>${esc(new Date(b.bucket).toLocaleString(undefined, { weekday: "short", hour: "numeric" }))}</td><td class="n">${n(b.readings)}</td><td class="n">${
             b.tds_avg == null ? "" : `${Math.round(b.tds_avg)} ppm`}</td><td class="n">${b.tds_max == null ? "" : `${Math.round(b.tds_max)} ppm`}</td><td class="n">${

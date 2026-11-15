@@ -62,6 +62,12 @@ def whole_network():
                 f"{pipes} pipes reach no sensor within six hours, so a change there goes unseen. Of the rest, when two or more sensors "
                 f"alert ({len(many)} pipes) the true pipe is ranked first for {sum(r[2] == 1 for r in many)} and in the top three for "
                 f"{sum(r[2] is not None and r[2] <= 3 for r in many)}; when only one alerts ({len(one)} pipes), first for {sum(r[2] == 1 for r in one)}.")
+            # the same run with the fitted break-rate model as the prior in place of the hand-set score
+            fitted = build_network.check_every_pipe(localize.NET, lambda a, q, top=None: localize.localize(a, q, top=top, prior="fitted"))
+            f_many = [r for r in fitted if r[1] >= 2]
+            _whole["line"] += (f" With a break-rate model fitted to the same synthetic break history as the prior, in place of the hand-set score, "
+                               f"it is first for {sum(r[2] == 1 for r in f_many)} and in the top three for {sum(r[2] is not None and r[2] <= 3 for r in f_many)}. "
+                               "Fitted to synthetic history, that model learns only the rule the history was drawn from, so the hand-set score stays the default.")
         except Exception:
             _whole["line"] = "The four events here were chosen by hand, so they say little about how often the trace is right in general."
     return _whole["line"]

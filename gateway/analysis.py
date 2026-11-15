@@ -20,7 +20,9 @@ database, no network), so it can be tested alone: python test_analysis.py
 """
 import math
 import os
+import random
 import statistics
+from datetime import datetime
 
 METRICS = ("ph", "tds", "clarity")
 # The tank's current sketch works pH out from dissolved solids (PH_FROM_TDS 1): it is an estimate, not a
@@ -39,6 +41,8 @@ MIN_HISTORY = 8                                   # readings before a node's own
 CLIP = 2.0                                        # the control charts count no single pour as more than this many spreads
 RECENT = 10                                       # pours the control charts look across
 STUCK_RUN = {"ph": 8, "tds": 5, "clarity": 8}     # identical readings in a row that mean "stuck"
+SAME_HOURS = 3                                    # "the same time of day": within this many hours of it, either side
+MIN_SAME = 12                                     # compare with the same time of day only once there are this many such pours
 Z_OUT = 3.0                                       # a reading this many spreads from the median is unusual
 D_OUT = 3.4                                       # Mahalanobis distance: about the 99th percentile for three readings
 KIND_WORDS = {"normal": "Nothing unusual", "sensor_fault": "The sensor needs checking",
@@ -114,6 +118,55 @@ def mahalanobis(z, past_z):
     return round(math.sqrt(max(0.0, d2)), 2)
 
 
+def hour_of(ts):
+    """The hour of the day a reading was taken, from its ISO time, or None if it has no usable time."""
+    try:
+        d = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d.hour + d.minute / 60
+
+
+def same_time_of_day(reading, raw):
+    """The earlier pours taken at about the same time of day as this one, when there are enough of them to be
+    a baseline by themselves; otherwise None. Water can differ by the hour (what the taps upstream are doing,
+    which source is feeding the main), so a morning pour is best judged against other mornings."""
+    h = hour_of(reading.get("ts"))
+    if h is None:
+        return None
+    near = [r for r in raw if (g := hour_of(r.get("ts"))) is not None and min(abs(g - h), 24 - abs(g - h)) <= SAME_HOURS]
+    return near if len(near) >= MIN_SAME else None
+
+
+def isolation_score(point, history, trees=60, sample=32):
+    """An isolation forest, in miniature: how few random cuts it takes to separate `point` from the node's
+    earlier pours (each a row of spreads from normal). About 0.5 is ordinary; toward 1 is isolated. It is the
+    stretch in the plan, and it is treated as one: reported beside the other scores, and never what a verdict
+    rests on. The same inputs always give the same score (the random cuts are seeded from the inputs)."""
+    rows = [list(r) for r in history]
+    n = len(rows)
+    if n < MIN_HISTORY or not point:
+        return None
+    harmonic = lambda k: math.log(k) + 0.5772156649 if k > 1 else 0.0
+    usual = lambda k: 2 * harmonic(k - 1) - 2 * (k - 1) / k if k > 1 else 0.0      # the average path length among k points
+    size = min(sample, n)
+    rng = random.Random(round(sum(point) * 1000) + n)
+    limit = math.ceil(math.log2(size)) + 1
+
+    def depth(at, pts, d):
+        if len(pts) <= 1 or d >= limit:
+            return d + usual(len(pts))
+        dims = [k for k in range(len(at)) if max(q[k] for q in pts) > min(q[k] for q in pts)]
+        if not dims:
+            return d + usual(len(pts))
+        k = rng.choice(dims)
+        cut = rng.uniform(min(q[k] for q in pts), max(q[k] for q in pts))
+        return depth(at, [q for q in pts if (q[k] < cut) == (at[k] < cut)], d + 1)
+
+    mean = statistics.fmean(depth(point, rng.sample(rows, size), 0) for _ in range(trees))
+    return round(2 ** (-mean / usual(size)), 2)
+
+
 # ---------------------------------------------------------------- layer 1: is the sensor believable?
 def trend(values, sigma):
     """A slow one-way trend: the median of all pairwise slopes (Theil-Sen) over the last readings.
@@ -183,7 +236,8 @@ def analyse(reading, earlier, peers=()):
     """reading: the raw-water reading under review. earlier: the same node's readings before it,
     oldest first, every phase. peers: see peer_comparison. Returns every layer and a verdict."""
     raw = [r for r in earlier if r.get("phase") == "before"]
-    bases = {m: baseline([r[m] for r in raw], m) for m in METRICS}
+    same = same_time_of_day(reading, raw)                # judged against the same time of day, once there is enough of it
+    bases = {m: baseline([r[m] for r in (same or raw)], m) for m in METRICS}
     zrow = lambda r: [(r[m] - bases[m]["median"]) / bases[m]["sigma"] for m in METRICS]
     z = dict(zip(METRICS, zrow(reading)))
     quiet = {m: [r[m] for r in raw if abs((r[m] - bases[m]["median"]) / bases[m]["sigma"]) < Z_OUT] for m in METRICS}
@@ -199,6 +253,8 @@ def analyse(reading, earlier, peers=()):
         rows.append({"metric": m, "value": reading[m], **bases[m], "z": round(z[m], 1), **charts})
     only = lambda row: [v if m in MEASURED else 0.0 for m, v in zip(METRICS, row)]     # an estimate adds nothing
     distance = mahalanobis(only([z[m] for m in METRICS]), [only(zrow(r)) for r in raw])
+    clip = lambda row: [max(-12.0, min(12.0, v)) for m, v in zip(METRICS, row) if m in MEASURED]
+    isolation = isolation_score(clip([z[m] for m in METRICS]), [clip(zrow(r)) for r in raw])
 
     lead = max(MEASURED, key=lambda m: abs(z[m]))
     direction = 1 if z[lead] >= 0 else -1
@@ -226,7 +282,7 @@ def analyse(reading, earlier, peers=()):
 
     # the evidence, as sentences that carry their numbers and say where each came from
     b = bases[lead]
-    where = (f"this site's own median of {fmt(lead, b['median'])} over {b['n']} earlier pours" if b["source"] == "history"
+    where = (f"this site's own median of {fmt(lead, b['median'])} over {b['n']} earlier pours{' at this time of day' if same else ''}" if b["source"] == "history"
              else f"a typical {fmt(lead, b['median'])} for water around Princeton (this site has only {b['n']} earlier pour{'' if b['n'] == 1 else 's'})")
     evidence = [s["note"] for s in sensor if s["status"] != "ok"]
     if unusual:
@@ -237,6 +293,16 @@ def analyse(reading, earlier, peers=()):
     else:
         evidence.append(f"Measured: {'all three' if len(MEASURED) == 3 else 'both'} readings are within {Z_OUT:.0f} spreads of normal for this site "
                         f"({LABEL[lead]} is the furthest, at {abs(z[lead]):.1f}).")
+    # A spike, seen in hindsight: the pour before this one stood alone, and this one is back to normal.
+    one_off = None
+    if not unusual and raw:
+        last, zl = raw[-1], dict(zip(METRICS, zrow(raw[-1])))
+        far = max(MEASURED, key=lambda m: abs(zl[m]))
+        alone = len(raw) < 2 or all(abs(v) < Z_OUT for m, v in zip(METRICS, zrow(raw[-2])) if m in MEASURED)
+        if abs(zl[far]) >= Z_OUT and alone:
+            one_off = {"metric": far, "value": last[far], "z": round(zl[far], 1), "test": last.get("test")}
+            evidence.append(f"Measured: the pour before this one read {LABEL[far]} of {fmt(far, last[far])}, {abs(zl[far]):.1f} spreads from normal, "
+                            "and this one is back to normal, so that reading was a one-off.")
     for r in persisting:
         if abs(r["z"]) < Z_OUT:
             evidence.append(f"Measured: {LABEL[r['metric']]} has run {'high' if r['direction'] == 'up' else 'low'} for several "
@@ -249,7 +315,10 @@ def analyse(reading, earlier, peers=()):
                         + ("so this looks regional, not local." if near["scope"] == "regional" else "so this looks local to this site."))
 
     return {"reading": {k: reading.get(k) for k in ("id", "ts", "node", "test", "phase", "ph", "tds", "clarity", "verdict")},
-            "sensor": sensor, "baseline": rows, "multivariate": {"distance": distance, "limit": D_OUT, "flag": distance >= D_OUT},
+            "sensor": sensor, "baseline": rows,
+            "multivariate": {"distance": distance, "limit": D_OUT, "flag": distance >= D_OUT, "isolation": isolation},
+            "scope": {"kind": "time_of_day", "hours": SAME_HOURS, "n": len(same)} if same else {"kind": "all", "n": len(raw)},
+            "one_off_before": one_off,
             "lead": {"metric": lead, "z": round(z[lead], 1), "direction": "up" if direction > 0 else "down"},
             "repeat": repeat, "peers": near, "kind": kind, "kind_words": KIND_WORDS[kind],
             "severity": severity, "severity_words": SEVERITY_WORDS[severity], "evidence": evidence}
