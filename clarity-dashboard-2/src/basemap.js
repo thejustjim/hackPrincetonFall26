@@ -27,6 +27,7 @@ export const THEMES = {
     ocean: '#cfe2ec', other: '#ebe6e2', border: '#b9b3b6',
   },
   // Storybook "game map" look: grass, warm brick and cream walls, tiled roofs, teal water, cobble roads.
+  // Kept, but no button opens it now: the Light button is the paper theme above, which is in the site's colours.
   game: {
     bg: '#9fbf7a', green: '#86b562', golf: '#93c46c', wood: '#6f9f52', farm: '#b9c98d', wet: '#8fb79a', sand: '#e6d7a3',
     water: '#4f9fc4', waterLine: '#4f9fc4', road: '#c9c2b6', roadMajor: '#b8afa1', path: '#d9cdb4', rail: '#7a6f66',

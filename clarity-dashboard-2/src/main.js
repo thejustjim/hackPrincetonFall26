@@ -37,6 +37,11 @@ const BASE = (params.get('base') || '40.3504,-74.652').split(',').map(Number); /
 const BASE_STYLE = params.get('style');
 // Palette: #5A9BBD steel, #F7F0F0 paper, #0B2027 ink, #717580 slate (+ warm warning tones that sit with it).
 const VERDICT_RGB = { SAFE: [90, 155, 189], HIGH_TDS: [217, 102, 126], CLOUDY: [226, 190, 94], PH_WARN: [168, 146, 200] };   // the site's colours
+// Labels on the map speak in three voices. Ours, a real reading: full white, a size up. Simulated: grey, and
+// says so. Context (the water system and other people's published readings): the site's light blue, the colour
+// of the route line and the stream rings. REF_ZOOM is where the stream readings start to show.
+const CONTEXT = light => (light ? [44, 96, 126, 235] : [141, 189, 216, 225]);
+const REF_ZOOM = 9.5;
 const VERDICT_LABEL = { SAFE: 'In range', HIGH_TDS: 'High TDS', CLOUDY: 'Cloudy', PH_WARN: 'pH warning' };   // SAFE only means the three readings are in range
 const FILTER_LABEL = { ZEROWATER: 'ZeroWater', BRITA: 'Brita Elite', NONE: 'No filter' };
 const BRITA_RATED_L = 450;
@@ -284,7 +289,7 @@ function renderMap(fromAnim = false) {
   const miscLabels = [
     ...place(show.links ? [{ pos: [BASE[1], BASE[0]], text: 'BASE STATION' }] : [], { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
     ...(show.infra ? place(PLANT_LABELS, { pos: d => d.pos, text: d => d.text, size: 13, anchor: 'center', dy: -22 }).map(d => ({ ...d, plant: true })) : []),
-    ...place(show.usgs ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site} · USGS ${r.tds_est} ppm` })) : [],
+    ...place(show.usgs && zoom >= REF_ZOOM ? state.reference.map(r => ({ pos: [r.lon, r.lat], text: `${r.site} · USGS ${r.tds_est} ppm`, ref: true })) : [],
       { pos: d => d.pos, text: d => d.text, size: 11, anchor: 'top', dy: 16 }),
   ];
   const layers = [
@@ -325,6 +330,13 @@ function renderMap(fromAnim = false) {
       getFillColor: [0, 0, 0, 1],
       pickable: true,
       updateTriggers: { getRadius: key },
+    }),
+    // A stream reading is a small open ring, in the colour of everything on the map that is context and not ours.
+    show.usgs && zoom >= REF_ZOOM && new ScatterplotLayer({
+      id: 'reference-ring', data: state.reference, getPosition: d => [d.lon, d.lat],
+      radiusUnits: 'pixels', getRadius: 4.5, lineWidthUnits: 'pixels', getLineWidth: 1.5, stroked: true, filled: true,
+      getFillColor: light ? [247, 240, 240, 200] : [9, 22, 34, 200], getLineColor: CONTEXT(light),
+      parameters: { depthTest: false }, updateTriggers: { getFillColor: light, getLineColor: light },
     }),
     // Water inside the tank: height = TDS (0-1000 ppm), color = verdict.
     show.columns && new ColumnLayer({
@@ -398,7 +410,7 @@ function renderMap(fromAnim = false) {
       getPosition: d => d.pos,
       getText: d => d.text,
       getSize: 11,
-      getColor: d => (d.text === 'BASE STATION' ? (light ? [11, 32, 39, 255] : [247, 240, 240, 255]) : (light ? [11, 32, 39, 220] : [247, 240, 240, 200])),
+      getColor: d => (d.ref ? CONTEXT(light) : (light ? [11, 32, 39, 255] : [247, 240, 240, 255])),
       getPixelOffset: [0, 16],
       fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600,
       outlineWidth: 3, outlineColor: light ? [255, 255, 255, 235] : [9, 22, 34, 230], fontSettings: { sdf: true }, characterSet: 'auto', parameters: { depthTest: false },
@@ -406,7 +418,7 @@ function renderMap(fromAnim = false) {
       updateTriggers: { getText: key, getColor: light },
     }),
     ...extraLayers({ zoom, light, now, place, plantLabels: miscLabels.filter(d => d.plant) }),
-    ...usLayers({ zoom, place, on: show.ustds, onClick: ({ object }) => object && flyTo(object.pos, 12.5, { pitch: 50 }) }),
+    ...usLayers({ zoom, place, light, on: show.ustds, onClick: ({ object }) => object && flyTo(object.pos, 12.5, { pitch: 50 }) }),
   ].filter(Boolean);
   // Text goes last so labels sit on top of tanks and route lines.
   layers.sort((a, b) => (a instanceof TextLayer) - (b instanceof TextLayer));
@@ -423,6 +435,7 @@ function cached(key, deps, fn) {
   const v = fn(); memo.set(key, { deps, v }); return v;
 }
 const PLANT_LABELS = [...PLANTS.map(p => ({ pos: p.pos, text: p.short })), { pos: RIDGE_TOWER, text: 'Water tower (Princeton Ridge)' }];
+const onRoute = pos => Math.abs(pos[0] - RIDGE_TOWER[0]) < 0.004 && Math.abs(pos[1] - RIDGE_TOWER[1]) < 0.004;
 const TREE_GREENS = [[86, 140, 64], [104, 156, 70], [73, 122, 58], [122, 168, 82], [95, 133, 60]];
 function extraLayers({ zoom, light, now, place, plantLabels }) {
   const t = performance.now() / 1000;
@@ -466,7 +479,8 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
       updateTriggers: { getRadius: !!cut },
     }),
     show.infra && new SimpleMeshLayer({
-      id: 'towers', data: cached('tw', [state.infra], () => state.infra.filter(d => d.k === 'water_tower')), mesh: towerMesh,
+      // The tower on the route is always there. The other mapped towers are scenery, so they wait until the map is close in.
+      id: 'towers', data: cached('tw', [state.infra, zoom >= 13], () => state.infra.filter(d => d.k === 'water_tower' && (zoom >= 13 || onRoute(d.pos)))), mesh: towerMesh,
       getPosition: d => [...d.pos, 0], getScale: [towerScale, towerScale, towerScale],
       getColor: light ? [214, 222, 228] : [180, 196, 204], material: { ambient: 0.5, diffuse: 0.65, shininess: 30 },
       pickable: true, updateTriggers: { getScale: towerScale },
@@ -484,7 +498,7 @@ function extraLayers({ zoom, light, now, place, plantLabels }) {
     show.infra && new TextLayer({
       id: 'plant-labels',
       data: plantLabels,
-      getPosition: d => d.pos, getText: d => d.text, getSize: 13, getColor: ink, getPixelOffset: [0, -22],
+      getPosition: d => d.pos, getText: d => d.text, getSize: 12, getColor: CONTEXT(light), getPixelOffset: [0, -22],
       ...textBase, updateTriggers: { getColor: light },
     }),
     show.labels && zoom >= 15.8 && new TextLayer({

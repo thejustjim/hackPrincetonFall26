@@ -76,6 +76,10 @@ tank -> radio -> gateway (gateway/gateway.py, port 8000)
   The map's 18 MB of data is fetched once: it goes out compressed (about 3 MB), the browser keeps it
   for a day and the built bundle for good, and on a wide screen the main page fetches it quietly
   in the background, so the map opens at once. The same rules are in `web/vercel.json` for the hosted copy.
+  What is on the map speaks in three voices, and the legend and the Layers menu use the same names for
+  them. White is ours, a real reading. Grey is simulated, and says so. Blue is context: the water system
+  (the illustrative route, the tower, the plants) and other people's published readings (USGS streams as
+  open rings). TDS is blue under the EPA line and rose over it everywhere, tanks and US samples alike.
   While it loads, the map shows a globe (`src/intro.js`) drawn from the same world outline the map uses
   zoomed out. It spins, slows to a stop with Princeton in front, and dives in; on the way down it takes
   on the map's colours and flattens into the map's projection at the map's scale, so the real map takes

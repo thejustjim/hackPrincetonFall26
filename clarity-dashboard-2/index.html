@@ -21,7 +21,7 @@
     <input id="search" list="search-list" placeholder="Search any US city, address or Princeton site" autocomplete="off" />
     <datalist id="search-list"></datalist>
     <div id="theme" class="seg" title="Basemap">
-      <button data-theme="dark" class="on">Dark</button><button data-theme="game">Light</button><button data-theme="satellite">Satellite</button>
+      <button data-theme="dark" class="on">Dark</button><button data-theme="light">Light</button><button data-theme="satellite">Satellite</button>
     </div>
     <button id="btn-3d" class="tool" title="Switch between 2D and 3D">2D</button>
     <button id="btn-rotate" class="tool" title="Slowly orbit the camera">Orbit</button>
@@ -29,17 +29,18 @@
     <details id="layers" class="layers">
       <summary class="tool">Layers</summary>
       <div class="layers-menu glass">
-        <div class="lm-title">Water network</div>
+        <div class="lm-title">Readings</div>
+        <label><input type="checkbox" data-layer="columns" checked /> Clarity sites (tanks)</label>
         <label><input type="checkbox" data-layer="ustds" checked /> US water samples (TDS)</label>
-        <label><input type="checkbox" data-layer="columns" checked /> TDS columns</label>
+        <div class="lm-title">The water system</div>
+        <label><input type="checkbox" data-layer="route" checked /> Water route (illustrative)</label>
+        <label><input type="checkbox" data-layer="usgs" checked /> Stream readings (USGS)</label>
+        <label><input type="checkbox" data-layer="infra" checked /> Plants, towers, hydrants</label>
+        <div class="lm-title">Extras</div>
         <label><input type="checkbox" data-layer="links" /> Radio links</label>
         <label><input type="checkbox" data-layer="range" /> Radio range rings</label>
-        <label><input type="checkbox" data-layer="usgs" checked /> USGS reference sites</label>
         <label><input type="checkbox" data-layer="businesses" /> Businesses (cafes, schools, clinics…)</label>
-        <div class="lm-title">Water supply</div>
-        <label><input type="checkbox" data-layer="route" checked /> Water route (illustrative)</label>
-        <label><input type="checkbox" data-layer="infra" checked /> Plants, towers, hydrants</label>
-        <div class="lm-title">Princeton</div>
+        <div class="lm-title">The map</div>
         <label><input type="checkbox" data-layer="trees" checked /> Trees</label>
         <label><input type="checkbox" data-layer="labels" checked /> Building and street names</label>
         <label><input type="checkbox" data-layer="buildings" checked /> 3D buildings</label>
@@ -73,26 +74,27 @@
     <div class="lg-title">Clarity sites <span>tank fill = source TDS</span></div>
     <div class="lg-row"><span><i style="--c:var(--safe)"></i>In range</span><span><i style="--c:var(--high)"></i>High TDS</span><span><i style="--c:var(--cloudy)"></i>Cloudy</span><span><i style="--c:var(--phwarn)"></i>pH warning</span></div>
     <div class="lg-title">US water samples <span>TDS, ppm</span></div>
-    <div class="lg-scale"><i style="--c:#5A9BBD"></i><i style="--c:#8FB0A0"></i><i style="--c:#E0A458"></i><i style="--c:#D1495B"></i></div>
+    <div class="lg-scale"><i style="--c:#5A9BBD"></i><i style="--c:#98AAB8"></i><i style="--c:#E8A0AE"></i><i style="--c:#D9667E"></i></div>
     <div class="lg-ticks"><span>0</span><span>300</span><span>500 EPA</span><span>1,000+</span></div>
-    <div class="lg-row"><span><i class="line"></i>Water route (illustrative)</span></div>
+    <div class="lg-title">The water system <span>context</span></div>
+    <div class="lg-row"><span><i class="line"></i>Water route (illustrative)</span><span><i class="ring" style="--c:#8DBDD8"></i>Stream reading (USGS)</span></div>
     <details class="lg-guide">
       <summary>What am I looking at?</summary>
       <dl>
         <dt>Glass tanks</dt>
         <dd>Each tank is one test site. The water level inside shows the TDS of the first pour: the higher the water, the more dissolved minerals and salts (full tank = 1,000 ppm). The water color is the verdict. Gray, faded tanks are simulated sites from the gateway, not real hardware. Hover a tank for its readings, click it for history.</dd>
-        <dt>Blue lines</dt>
-        <dd>How treated water gets to each site: from the two treatment plants, south to the water tower on Princeton Ridge, then out to the test sites. Real pipe locations aren't public, so the paths are approximate.</dd>
+        <dt>The blue line</dt>
+        <dd>How treated water gets to each site: from the two treatment plants, south to the water tower on Princeton Ridge, then on to the test sites along the faint lines. The line to the site you have open is picked out. Real pipe locations aren't public, so the paths are approximate.</dd>
         <dt>Treatment plants</dt>
         <dd>Raritan-Millstone and Canal Road, run by New Jersey American Water. They take river and canal water, filter it and disinfect it.</dd>
         <dt>Water towers</dt>
-        <dd>The light gray towers are real mapped water towers. They hold treated water up high so gravity keeps pressure steady in the pipes.</dd>
-        <dt>Base station and arcs</dt>
-        <dd>Each site radios its readings to the base station over LoRa. Arc color shows signal strength: blue is strong, gray is weak.</dd>
-        <dt>Stream labels</dt>
-        <dd>USGS readings from nearby streams, for comparison with the tap water.</dd>
+        <dd>The light gray tower on Princeton Ridge is the one on the route. Zoom in and the other mapped water towers appear. They hold treated water up high so gravity keeps pressure steady in the pipes.</dd>
+        <dt>Radio links (switch on in Layers)</dt>
+        <dd>Each site sends its readings to the base station by radio. Arc color shows signal strength: blue is strong, gray is weak.</dd>
+        <dt>Blue rings</dt>
+        <dd>USGS readings from nearby streams, for comparison with the tap water. Blue text on the map is always context like this: the water system and other people's published readings, not ours.</dd>
         <dt>Colored dots (zoomed out)</dt>
-        <dd>13,890 public water samples across the US since 2024, colored by TDS.</dd>
+        <dd>13,890 public water samples across the US since 2024, colored by TDS: blue under the EPA 500 ppm guideline, rose over it.</dd>
         <dt>Buildings</dt>
         <dd>Real Princeton buildings with mapped heights. Hover one for its name and height.</dd>
       </dl>
@@ -120,7 +122,7 @@
       <h3>Filter life</h3>
       <div id="filters" class="filters"></div>
       <h3>Water log</h3>
-      <p class="muted small">Every reading from every node, with Gemini's filter choice and explanation.</p>
+      <p class="muted small">Every reading from every node, with the model's filter choice and explanation.</p>
       <button id="export" class="btn">Download CSV</button>
       <h3>Investigator reports</h3>
       <div id="reports" class="reports"><p class="muted small">Reports appear here after each retest.</p></div>
