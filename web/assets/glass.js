@@ -12,6 +12,8 @@
        flat as surface tension rings down;
      - it opens a crater in the surface, which rebounds as a small jet that throws up one
        secondary droplet, while a train of fine rings spreads to the glass and comes back.
+   The glass holds what has reached the cup: the water as poured while no filter is used, and what
+   came through the filter once one is (app.js decides which and calls setWater).
    Nothing clears by itself. When the pour was sent through a filter, a funnel with a paper cone
    swings in under the tip on a returning arc, catches the drop, lets a clear one fall from its
    stem into the glass, and swings back out the way it came. Water that read in range gets no
@@ -306,6 +308,7 @@ function mount(host) {
   const src = { tint: C.murk.clone(), clear: 0, filter: true };
   const tintNow = C.murk.clone(), pipeColor = new THREE.Color();
   let clearNow = 0;
+  let easeOver = 1.3;                                 // seconds for the water to ease to a new look
   let hurry = false;                                  // a drop was asked for while one was in the air
   let walk = null;                                    // the pitch's step, while it is walking one drop through the filter
   let splashPace = PACE;                              // the pace of the drop that last landed: its splash keeps it
@@ -396,8 +399,9 @@ function mount(host) {
   const slosh = { x: 0, z: 0, vx: 0, vz: 0 };
   let active = true, last = performance.now(), lastEase = last;
 
-  function setWater(reading, immediate) {
+  function setWater(reading, immediate, swift) {
     target = lookFor(reading);
+    easeOver = swift ? 0.45 : 1.3;                     // a cup just poured arrives quickly; water clearing takes its time
     if (immediate || still) Object.assign(cur, { ...target, color: target.color.clone() });
   }
   /* The water as it was before the filter, to set beside the water as it is now (null: nothing to compare). */
@@ -533,7 +537,7 @@ function mount(host) {
 
     // ease the water toward the latest reading (a few seconds, never a snap). Uses real elapsed
     // time, so a slow machine still arrives on schedule.
-    const k = still ? 1 : 1 - Math.exp(-Math.min(1, (now - lastEase) / 1000) / 1.3);
+    const k = still ? 1 : 1 - Math.exp(-Math.min(1, (now - lastEase) / 1000) / easeOver);
     lastEase = now;
     cur.color.lerp(target.color, k);
     for (const key of ["body", "surf", "speck", "sink"]) cur[key] += (target[key] - cur[key]) * k;

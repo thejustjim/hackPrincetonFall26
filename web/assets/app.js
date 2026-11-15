@@ -92,6 +92,17 @@
   const SHORT = { ZEROWATER: "ZeroWater", BRITA: "Brita" };
   const current = (store) => store.pour?.after || store.pour?.before || null;
   const usedFilter = (store) => store.pour?.decision?.ai_filter || null;
+  /* What the glass holds is what has reached the cup. No filter: the water as it was poured, brown
+     or amber if that is how it read. A filter in use: what came through it, drawn clear until the
+     retest arrives, and from then on as the retest actually read (clear again if it worked). The
+     dirty water stays up in the dropper, above the filter. */
+  const inGlass = (store) => {
+    const p = store.pour;
+    if (!p?.before) return null;
+    if (p.after) return p.after;
+    const f = usedFilter(store);
+    return f && f !== "NONE" ? null : p.before;
+  };
 
   /* The hero's words: a short verdict, and under it what is being done about it.
      tone "good" marks the payoff: a cup that was out of range and came back in range. */
@@ -247,7 +258,7 @@
       swapText($("#when"), v.when);
       $("#verdict").classList.toggle("good", v.tone === "good");
       const r = current(store);
-      if (window.TapHero) { if (!pitching()) { TapHero.setWater(r); pipette(); } }
+      if (window.TapHero) { if (!pitching()) { const w = inGlass(store); TapHero.setWater(w, false, !!w && w === store.pour?.before); pipette(); } }   // a cup as poured shows at once
       else $("#cup-fallback").innerHTML = TapCup.svg(r);
       renderNotes();                                           // after the glass is told, so the notes are measured with the Retest note's hint in place
       M.hero?.(store, v);
@@ -255,8 +266,8 @@
     const shape = () => { if (window.TapHero?.shape) orbit.setShape(TapHero.shape); };
     window.addEventListener("hero3d:shape", shape);
     shape();
-    window.addEventListener("hero3d:ready", () => { if (!pitching()) { TapHero.setWater(current(store), true); pipette(); renderNotes(); } });
-    if (window.TapHero && !pitching()) { TapHero.setWater(current(store), true); pipette(); }
+    window.addEventListener("hero3d:ready", () => { if (!pitching()) { TapHero.setWater(inGlass(store), true); pipette(); renderNotes(); } });
+    if (window.TapHero && !pitching()) { TapHero.setWater(inGlass(store), true); pipette(); }
 
     renderHero();
     M.render(store, "all");

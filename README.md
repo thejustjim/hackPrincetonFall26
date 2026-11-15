@@ -27,6 +27,8 @@ Uno (sensors, LCD, servo) --serial--> Feather ESP32 --ESP-NOW radio--> ESP32 rec
   - `/demo/` - the live view: the latest cup, the notes around it, then the full account below.
     The full account's before and after glasses are the same 3D glass as the hero's (`plate3d.js`),
     drawn over flat ones that remain as the fallback.
+    The glass holds what has reached the cup: the water as it was poured while no filter is used (brown
+    or amber if that is how it read), clear once a filter is in use, and then as the retest read.
     The dropper over the glass holds the latest pour as it read before filtering. If that pour was
     sent through a filter, a funnel swings in, catches the drop and lets a clear one through; water
     that read in range falls straight in.

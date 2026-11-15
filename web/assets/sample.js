@@ -190,7 +190,7 @@
         };
         quiet ? retest() : setTimeout(retest, 11000);
       };
-      quiet ? decide() : setTimeout(decide, 2600);
+      quiet ? decide() : setTimeout(decide, 4000);      // long enough to see the cup as it was poured
     }
 
     // seed: some history for every sim node, and one finished tank pour
